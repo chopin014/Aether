@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { act, render, screen, waitFor, type RenderResult } from "@test-utils";
+import { act, cleanup, render, screen, waitFor, type RenderResult } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { page } from "vitest/browser";
@@ -1051,6 +1051,521 @@ describe("<TimelineView />", () => {
             await userEvent.click(await screen.findByRole("button", { name: "Scroll to most recent messages" }));
             await settle();
             expect(scroller.scrollTop).toBe(0);
+        });
+    });
+
+    describe("when its host suspends it", () => {
+        /** A host lending the view, which can stop allowing it at once and tell it so, and lend it again later. */
+        const lender = (): {
+            open: boolean;
+            suspended: boolean;
+            revision: number;
+            next: () => TimelineViewExecution;
+            invalidate: () => void;
+            listeners: Set<() => void>;
+        } => {
+            const listeners = new Set<() => void>();
+            const state = {
+                open: true,
+                suspended: false,
+                revision: 1,
+                listeners,
+                next: (): TimelineViewExecution => ({
+                    revision: state.revision,
+                    isCurrent: () => state.open,
+                    onPlaced: () => state.open,
+                    suspended: state.suspended,
+                    subscribeToInvalidation: (listener) => {
+                        listeners.add(listener);
+                        return () => listeners.delete(listener);
+                    },
+                }),
+                invalidate: (): void => {
+                    state.open = false;
+                    act(() => {
+                        for (const listener of listeners) listener();
+                    });
+                },
+            };
+            return state;
+        };
+        const settle = (ms = 150): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+        /** Render a lent view in a viewport whose height the test can change, and wait until it has been placed. */
+        const renderPlaced = async (
+            fake: FakeVm,
+            host: ReturnType<typeof lender>,
+            options: { painted?: (items: TimelineItem[]) => void; draw?: (item: TimelineItem) => React.ReactNode } = {},
+        ): Promise<{ rerender: (next: TimelineViewExecution | undefined) => void; viewport: HTMLElement }> => {
+            const tree = (current: TimelineViewExecution | undefined): React.ReactElement => (
+                <div data-testid="viewport" style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={fake.vm}
+                        renderItem={options.draw ?? renderItem}
+                        execution={current}
+                        onItemsPainted={options.painted}
+                    />
+                </div>
+            );
+            const { rerender } = render(tree(host.next()));
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            // As the view model does once its anchor is reached.
+            fake.update({ pendingAnchor: null });
+            await waitFor(() => expect(fake.actions.onVisibleRangeChanged).toHaveBeenCalled());
+            await settle();
+            return { rerender: (next) => rerender(tree(next)), viewport: screen.getByTestId("viewport") };
+        };
+        const rowsShown = (): HTMLElement[] => [...screen.getByTestId("timeline-scroller").querySelectorAll("li")];
+        const clearActions = (fake: FakeVm): void => {
+            for (const action of Object.values(fake.actions)) action.mockClear();
+        };
+
+        it("draws the rows it last committed, as they were, whatever its view model publishes meanwhile", async () => {
+            const fake = makeFakeVm({ items: eventItems(30), isAtBottom: false });
+            const host = lender();
+            const draw = vi.fn(renderItem);
+            await renderPlaced(fake, host, { draw });
+            const rows = rowsShown();
+            const contents = rows.map((row) => row.firstElementChild);
+            const positions = rows.map((row) => row.style.transform);
+            expect(screen.getByRole("button", { name: "Scroll to most recent messages" })).toBeInTheDocument();
+
+            host.invalidate();
+            draw.mockClear();
+            fake.update({ items: eventItems(40, 100), alignToBottom: true });
+            await settle();
+
+            expect(rowsShown()).toEqual(rows);
+            expect(rowsShown().map((row) => row.firstElementChild)).toEqual(contents);
+            expect(rowsShown().map((row) => row.style.transform)).toEqual(positions);
+            expect(draw).not.toHaveBeenCalled();
+            expect(screen.queryByRole("button", { name: "Scroll to most recent messages" })).toBeNull();
+        });
+
+        it("measures, scrolls, reports and paints nothing while suspended", async () => {
+            const fake = makeFakeVm({ items: eventItems(60) });
+            const host = lender();
+            const painted = vi.fn();
+            await renderPlaced(fake, host, { painted });
+            const scroller = screen.getByTestId("timeline-scroller");
+            const placedAt = scroller.scrollTop;
+            const positions = rowsShown().map((row) => row.style.transform);
+            expect(placedAt).toBeGreaterThan(0);
+
+            host.invalidate();
+            clearActions(fake);
+            painted.mockClear();
+            const frames = vi.spyOn(window, "requestAnimationFrame");
+            // A row above the screen grows, which an acting view keeps the reader's place past.
+            (rowsShown()[0].firstElementChild as HTMLElement).style.height = "200px";
+            await settle(300);
+            expect(scroller.scrollTop).toBe(placedAt);
+            expect(rowsShown().map((row) => row.style.transform)).toEqual(positions);
+            // The reader scrolls, and the view model asks to be taken somewhere.
+            act(() => {
+                scroller.scrollTop = 0;
+            });
+            fake.update({ pendingAnchor: { targetKey: "evt-3", align: "start" }, numUnreadMessages: 2 });
+            await settle(300);
+
+            for (const action of Object.values(fake.actions)) expect(action).not.toHaveBeenCalled();
+            expect(painted).not.toHaveBeenCalled();
+            expect(frames).not.toHaveBeenCalled();
+            expect(scroller.scrollTop).toBe(0);
+            vi.restoreAllMocks();
+        });
+
+        it("is suspended by an execution that says so, without being told", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender } = await renderPlaced(fake, host);
+            const rows = rowsShown();
+            const scroller = screen.getByTestId("timeline-scroller");
+            const placedAt = scroller.scrollTop;
+            const positions = rows.map((row) => row.style.transform);
+            clearActions(fake);
+            // Suspended in the same render as the view model publishes rows added at the start, among which an acting
+            // view keeps the reader's place.
+            act(() => {
+                host.suspended = true;
+                fake.update({ items: [...eventItems(5, 100), ...eventItems(30)] });
+                rerender(host.next());
+            });
+            // Then rows of another placement, which an acting view reports on whatever the scroll.
+            fake.update({
+                items: eventItems(30, 200),
+                visit: { generation: 1, rowsReady: true, placementRevision: 5 },
+            });
+            await settle();
+            expect(scroller.scrollTop).toBe(placedAt);
+            act(() => {
+                scroller.scrollTop = 0;
+            });
+            await settle();
+
+            expect(rowsShown()).toEqual(rows);
+            expect(rows.map((row) => row.style.transform)).toEqual(positions);
+            expect(fake.actions.onVisibleRangeChanged).not.toHaveBeenCalled();
+            expect(fake.actions.onAtBottomStateChange).not.toHaveBeenCalled();
+        });
+
+        it("places itself afresh as it resumes, and reports an unchanged range once more", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender } = await renderPlaced(fake, host);
+            const [start, end] = fake.actions.onVisibleRangeChanged.mock.calls.at(-1)!;
+            const rows = rowsShown();
+            host.invalidate();
+            clearActions(fake);
+
+            // Lent again under the same revision: resuming is what has it place and report afresh.
+            host.open = true;
+            rerender(host.next());
+
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalledWith(null), { timeout: 5000 });
+            await waitFor(() => expect(fake.actions.onVisibleRangeChanged).toHaveBeenCalledWith(start, end));
+            await settle();
+            expect(fake.actions.onVisibleRangeChanged).toHaveBeenCalledOnce();
+            expect(fake.actions.onAtBottomStateChange).toHaveBeenCalledWith(true);
+            expect(fake.actions.onEndReached).toHaveBeenCalled();
+            expect(screen.getByTestId("timeline-scroller")).toHaveStyle({ visibility: "visible" });
+            // The same rows, not drawn again.
+            expect(rowsShown().filter((row) => rows.includes(row)).length).toBeGreaterThan(0);
+        });
+
+        it("keeps its cover up as it resumes until its view model has the visit's rows ready", async () => {
+            const fake = makeFakeVm({
+                items: eventItems(30),
+                visit: { generation: 1, rowsReady: true, placementRevision: 1 },
+            });
+            const host = lender();
+            const { rerender } = await renderPlaced(fake, host);
+            host.invalidate();
+            fake.update({ visit: { generation: 2, rowsReady: false, placementRevision: 1 } });
+            clearActions(fake);
+
+            host.open = true;
+            rerender(host.next());
+            await settle();
+            const scroller = screen.getByTestId("timeline-scroller");
+            expect(scroller).toHaveStyle({ visibility: "hidden" });
+            expect(fake.actions.onAnchorReached).not.toHaveBeenCalled();
+
+            fake.update({ visit: { generation: 2, rowsReady: true, placementRevision: 2 } });
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalledWith(null), { timeout: 5000 });
+            expect(scroller).toHaveStyle({ visibility: "visible" });
+        });
+
+        it("waits for its viewport to have a size before resuming, however long that takes", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender, viewport } = await renderPlaced(fake, host);
+            const scroller = screen.getByTestId("timeline-scroller");
+            const placedAt = scroller.scrollTop;
+            host.invalidate();
+            clearActions(fake);
+            viewport.style.height = "0px";
+
+            host.open = true;
+            host.revision = 2;
+            rerender(host.next());
+            // Longer than a placement waits before showing the timeline anyway.
+            await settle(1300);
+            expect(fake.actions.onAnchorReached).not.toHaveBeenCalled();
+            expect(fake.actions.onVisibleRangeChanged).not.toHaveBeenCalled();
+
+            viewport.style.height = `${VIEWPORT_HEIGHT}px`;
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalledWith(null), { timeout: 5000 });
+            expect(scroller).toHaveStyle({ visibility: "visible" });
+            // Placed with the sizes it knew, not ones read from a viewport with none.
+            expect(Math.abs(scroller.scrollTop - placedAt)).toBeLessThanOrEqual(1);
+        });
+
+        it("places the row its view model asks for by key as it resumes, though rows were added before it", async () => {
+            const fake = makeFakeVm({ items: eventItems(60), pendingAnchor: { targetKey: "evt-10", align: "start" } });
+            const host = lender();
+            // The rows added are taller than the others, so placing among them by an old position goes wrong.
+            const draw = (item: TimelineItem): React.ReactNode => (
+                <div style={{ height: item.key.startsWith("evt-2") && item.key.length === 7 ? 100 : ROW_HEIGHT }} />
+            );
+            const { rerender } = await renderPlaced(fake, host, { draw });
+            host.invalidate();
+            clearActions(fake);
+            // Five rows added at the start, and another place to go, while suspended.
+            fake.update({
+                items: [...eventItems(5, 200), ...eventItems(60)],
+                pendingAnchor: { targetKey: "evt-20", align: "start" },
+            });
+
+            host.open = true;
+            host.revision = 2;
+            rerender(host.next());
+
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalledWith("evt-20"), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            const target = scroller.querySelector("li[data-key='evt-20']")!.getBoundingClientRect();
+            expect(Math.abs(target.top - scroller.getBoundingClientRect().top)).toBeLessThanOrEqual(1);
+        });
+
+        it("suspends itself when lent under an execution its host has already stopped allowing", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender } = await renderPlaced(fake, host);
+            const rows = rowsShown();
+
+            host.open = false;
+            rerender(host.next());
+            fake.update({ items: eventItems(30, 100) });
+
+            expect(rowsShown()).toEqual(rows);
+        });
+
+        it("acts again once no longer lent", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender } = await renderPlaced(fake, host);
+            host.invalidate();
+            clearActions(fake);
+
+            rerender(undefined);
+
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(fake.actions.onVisibleRangeChanged).toHaveBeenCalled());
+        });
+
+        it("runs no frames once suspended, even part-way through a placement", async () => {
+            // Without ResizeObserver rows are measured as they mount, and placement settles over frames.
+            vi.stubGlobal("ResizeObserver", undefined);
+            try {
+                const fake = makeFakeVm({ items: eventItems(30) });
+                const host = lender();
+                let ran = 0;
+                const request = window.requestAnimationFrame.bind(window);
+                vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+                    request((now) => {
+                        ran++;
+                        callback(now);
+                    }),
+                );
+                render(
+                    <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                        <TimelineView vm={fake.vm} renderItem={renderItem} execution={host.next()} />
+                    </div>,
+                );
+                expect(fake.actions.onAnchorReached).not.toHaveBeenCalled();
+
+                host.invalidate();
+                ran = 0;
+                await settle(300);
+
+                expect(ran).toBe(0);
+                expect(fake.actions.onAnchorReached).not.toHaveBeenCalled();
+            } finally {
+                vi.unstubAllGlobals();
+                vi.restoreAllMocks();
+            }
+        });
+
+        it("measures its rows afresh for a viewport that changed width while suspended, before showing them", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            // Text that wraps onto more lines in a narrower viewport, so the rows grow.
+            const draw = (item: TimelineItem): React.ReactNode => (
+                <div
+                    style={{ lineHeight: "20px", fontSize: "14px" }}
+                >{`${item.key} ${"words to wrap ".repeat(6)}`}</div>
+            );
+            const { rerender, viewport } = await renderPlaced(fake, host, { draw });
+            const scroller = screen.getByTestId("timeline-scroller");
+            const rowHeight = (): number => rowsShown().at(-1)!.getBoundingClientRect().height;
+            const wide = rowHeight();
+            host.invalidate();
+            viewport.style.width = "160px";
+            expect(rowHeight()).toBeGreaterThan(wide);
+            clearActions(fake);
+
+            host.open = true;
+            host.revision = 2;
+            rerender(host.next());
+
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalledWith(null), { timeout: 5000 });
+            // At the newest message, with nothing left below it.
+            const last = rowsShown().at(-1)!.getBoundingClientRect();
+            const bottom = scroller.getBoundingClientRect().bottom;
+            expect(last.bottom).toBeLessThanOrEqual(bottom + 1);
+            expect(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop).toBeLessThanOrEqual(1);
+        });
+
+        it("keeps no more observers or listeners than it started with across repeated suspensions", async () => {
+            // Every element each ResizeObserver observes, as long as it does.
+            const observed = new Set<string>();
+            let nextObserver = 0;
+            const Native = window.ResizeObserver;
+            class Counting extends Native {
+                private readonly id = nextObserver++;
+                private readonly targets = new Set<Element>();
+                public override observe(target: Element, options?: ResizeObserverOptions): void {
+                    this.targets.add(target);
+                    observed.add(`${this.id}`);
+                    super.observe(target, options);
+                }
+                public override unobserve(target: Element): void {
+                    this.targets.delete(target);
+                    if (this.targets.size === 0) observed.delete(`${this.id}`);
+                    super.unobserve(target);
+                }
+                public override disconnect(): void {
+                    this.targets.clear();
+                    observed.delete(`${this.id}`);
+                    super.disconnect();
+                }
+            }
+            vi.stubGlobal("ResizeObserver", Counting);
+            try {
+                const fake = makeFakeVm({ items: eventItems(30) });
+                const host = lender();
+                const { rerender } = await renderPlaced(fake, host);
+                const scroller = screen.getByTestId("timeline-scroller");
+                const observing = observed.size;
+                let listening = 0;
+                const add = scroller.addEventListener.bind(scroller);
+                const remove = scroller.removeEventListener.bind(scroller);
+                vi.spyOn(scroller, "addEventListener").mockImplementation((...args) => {
+                    listening++;
+                    add(...args);
+                });
+                vi.spyOn(scroller, "removeEventListener").mockImplementation((...args) => {
+                    listening--;
+                    remove(...args);
+                });
+
+                for (let revision = 2; revision <= 4; revision++) {
+                    host.invalidate();
+                    // Suspended, it observes nothing at all.
+                    expect(observed.size).toBe(0);
+                    expect(listening).toBeLessThan(0);
+                    clearActions(fake);
+                    host.open = true;
+                    host.revision = revision;
+                    rerender(host.next());
+                    await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+                    await settle();
+                    expect(observed.size).toBe(observing);
+                    expect(listening).toBe(0);
+                    expect(host.listeners.size).toBe(1);
+                }
+            } finally {
+                vi.unstubAllGlobals();
+                vi.restoreAllMocks();
+            }
+        });
+
+        it("suspends and resumes under StrictMode, which runs its effects twice", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const tree = (execution: TimelineViewExecution): React.ReactElement => (
+                <React.StrictMode>
+                    <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                        <TimelineView vm={fake.vm} renderItem={renderItem} execution={execution} />
+                    </div>
+                </React.StrictMode>
+            );
+            const { rerender } = render(tree(host.next()));
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            expect(host.listeners.size).toBe(1);
+            const rows = rowsShown();
+
+            host.invalidate();
+            fake.update({ items: eventItems(30, 100) });
+            expect(rowsShown()).toEqual(rows);
+            clearActions(fake);
+            host.open = true;
+            rerender(tree(host.next()));
+
+            await waitFor(() => expect(fake.actions.onAnchorReached).toHaveBeenCalledWith(null), { timeout: 5000 });
+            expect(rowsShown()[0]).toHaveAttribute("data-key", expect.stringMatching(/^evt-1\d\d$/));
+            expect(host.listeners.size).toBe(1);
+        });
+
+        it("keeps drawing the rows of the commit it was suspended in, such as by one of those rows", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            // A row that has its host give the view up as it mounts, before the view itself has seen that commit.
+            const GivesUp = (): React.ReactNode => {
+                React.useLayoutEffect(() => {
+                    host.open = false;
+                    for (const listener of host.listeners) listener();
+                }, []);
+                return <div style={{ height: ROW_HEIGHT }} />;
+            };
+            const draw = (item: TimelineItem): React.ReactNode =>
+                item.key === "gives-up" ? <GivesUp /> : renderItem(item);
+            await renderPlaced(fake, host, { draw });
+
+            const replacement = [...eventItems(4, 100), { ...eventItems(1)[0], key: "gives-up" }];
+            fake.update({ items: replacement });
+            await settle();
+
+            expect(rowsShown().map((row) => row.dataset.key)).toEqual(replacement.map((item) => item.key));
+        });
+
+        it("stops waiting for its viewport to have a size once its host stops allowing it", async () => {
+            const watched = new Set<object>();
+            const Native = window.ResizeObserver;
+            class Counting extends Native {
+                public override observe(target: Element, options?: ResizeObserverOptions): void {
+                    watched.add(this);
+                    super.observe(target, options);
+                }
+                public override disconnect(): void {
+                    watched.delete(this);
+                    super.disconnect();
+                }
+            }
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender, viewport } = await renderPlaced(fake, host);
+            vi.stubGlobal("ResizeObserver", Counting);
+            try {
+                for (const stop of ["told", "given a closed execution"]) {
+                    host.invalidate();
+                    viewport.style.height = "0px";
+                    host.open = true;
+                    rerender(host.next());
+                    await settle();
+                    expect(watched.size).toBe(1);
+                    // Lent again while it waits: it waits once, for the new lending.
+                    host.revision++;
+                    rerender(host.next());
+                    expect(watched.size).toBe(1);
+
+                    if (stop === "told") {
+                        host.invalidate();
+                    } else {
+                        host.open = false;
+                        rerender(host.next());
+                    }
+                    expect(watched.size).toBe(0);
+                    clearActions(fake);
+                    viewport.style.height = `${VIEWPORT_HEIGHT}px`;
+                    await settle(300);
+                    expect(fake.actions.onAnchorReached).not.toHaveBeenCalled();
+                    viewport.style.height = "0px";
+                }
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        it("stops listening to its host once given another execution or unmounted", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender } = await renderPlaced(fake, host);
+            expect(host.listeners.size).toBe(1);
+
+            rerender(host.next());
+            expect(host.listeners.size).toBe(1);
+            cleanup();
+            expect(host.listeners.size).toBe(0);
         });
     });
 

@@ -26,7 +26,7 @@ import {
     type Room,
     type RoomState,
 } from "matrix-js-sdk/src/matrix";
-import { BaseViewModel } from "@element-hq/web-shared-components";
+import { BaseViewModel, Disposables } from "@element-hq/web-shared-components";
 import { logger } from "matrix-js-sdk/src/logger";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
@@ -257,6 +257,16 @@ export class RoomTimelineViewModel
 
     /** Set by {@link start} so a double-start (e.g. via StrictMode) is a no-op. */
     private started = false;
+
+    /**
+     * The room's updates the rows follow, from {@link start} until {@link suspendPresentation}, and again from the next
+     * {@link activate}. Null while the rows are suspended, when nothing the room does rebuilds or publishes them.
+     */
+    private presentation: Disposables | null = null;
+    /** Counts the times the rows begin and stop following the room, so work queued in one period cannot act in another. */
+    private presentationGeneration = 0;
+    /** Ends each wait for messages to decrypt that is running; see {@link waitForDecryption}. */
+    private readonly decryptionWaits = new Set<() => void>();
 
     /**
      * Whether a reading visit is under way: from {@link activate} until {@link deactivate}. Only during one may
@@ -555,18 +565,31 @@ export class RoomTimelineViewModel
             loadTarget = savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" };
         }
 
-        // Begun first, so the load knows which visit it is for.
+        // The rows follow the room before the load begins, so nothing that happens while it runs is missed. The visit is
+        // begun next, so the load knows which visit it is for.
+        this.resumePresentation();
         this.beginVisit();
         void this.loadInitialTimeline(loadTarget);
+    }
+
+    /**
+     * Follow the room's updates again: its new messages, decryptions, receipts, removals and settings, as the rows are
+     * shown. {@link start} does so first, and {@link activate} after a suspension, each before loading its window.
+     */
+    private resumePresentation(): void {
+        if (this.presentation || this.isDisposed) return;
+        this.presentationGeneration++;
+        const presentation = new Disposables();
+        this.presentation = presentation;
 
         // Listen for new events so live messages appear.
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.room,
             RoomEvent.Timeline,
             this.onRoomTimeline as (...args: unknown[]) => void,
         );
         // Track changes to the room's fully-read marker.
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.room,
             RoomEvent.AccountData,
             this.onRoomAccountData as (...args: unknown[]) => void,
@@ -577,42 +600,42 @@ export class RoomTimelineViewModel
         // time and is not re-emitted on decryption (see js-sdk
         // event-timeline-set.js addEventToTimeline → emit Timeline), so this
         // listener is the only signal we have for that transition.
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.client,
             MatrixEventEvent.Decrypted,
             this.onEventDecrypted as (...args: unknown[]) => void,
         );
         // Messages of ours changing send state or getting their server id.
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.room,
             RoomEvent.LocalEchoUpdated,
             this.onLocalEchoUpdated as (...args: unknown[]) => void,
         );
         // Other users' read receipts moving.
-        this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        presentation.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
         this.serverReceiptEventId();
         // Messages removed, or their removal undone, which changes whether and how their rows are drawn. A removal
         // the server sends also arrives as a timeline event, but one applied here, such as by a retention policy, and
         // a cancelled one do not.
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.room,
             RoomEvent.Redaction,
             this.onRoomRedaction as (...args: unknown[]) => void,
         );
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.room,
             RoomEvent.RedactionCancelled,
             this.onRoomRedaction as (...args: unknown[]) => void,
         );
         // The SDK starting a new live timeline after a gap in sync. The room re-emits it from its timeline sets.
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.room,
             RoomEvent.TimelineReset,
             this.onTimelineReset as (...args: unknown[]) => void,
         );
         // Members loading or changing profile, whose receipts carry their avatar and name. Listened
         // for on the client, which re-emits it for whichever state object the room currently has.
-        this.disposables.trackListener(
+        presentation.trackListener(
             this.opts.client,
             RoomStateEvent.Update,
             this.onRoomStateUpdate as (...args: unknown[]) => void,
@@ -622,8 +645,8 @@ export class RoomTimelineViewModel
         const hiddenEventsWatcher = SettingsStore.watchSetting("showHiddenEventsInTimeline", null, () =>
             this.scheduleRebuild(),
         );
-        this.disposables.track(() => SettingsStore.unwatchSetting(hiddenEventsWatcher));
-        this.disposables.trackListener(
+        presentation.track(() => SettingsStore.unwatchSetting(hiddenEventsWatcher));
+        presentation.trackListener(
             this.opts.client,
             ClientEvent.AccountData,
             this.onClientAccountData as (...args: unknown[]) => void,
@@ -660,6 +683,8 @@ export class RoomTimelineViewModel
      */
     public activate(eventId?: string): void {
         if (!this.started || this.visitActive || this.isDisposed) return;
+        // Suspended rows follow the room again before the visit loads its own; see suspendPresentation.
+        this.resumePresentation();
         this.lastReceiptTargetId = null;
         this.seenWhileActiveEventId = null;
         this.lastBottomEventId = null;
@@ -755,6 +780,36 @@ export class RoomTimelineViewModel
             debug(`[TimelineVM] deactivate() — saving scroll position eventId=${this.lastBottomEventId}`);
             RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, this.lastBottomEventId);
         }
+    }
+
+    /**
+     * End the reading visit as {@link deactivate} does, then stop following the room, as when the timeline is taken off
+     * screen: nothing the room does rebuilds or publishes the rows any more, and a wait for messages to decrypt, or a
+     * rebuild already queued, ends without acting. The rows published last stay as they are, and the next
+     * {@link activate} follows the room again before loading that visit's rows afresh. {@link dispose} suspends too.
+     *
+     * Work already sent to the server or to the crypto layer is not stopped, and may still fill the SDK's caches; it
+     * changes nothing shown.
+     */
+    public suspendPresentation = (): void => {
+        this.deactivate();
+        const presentation = this.presentation;
+        if (!presentation) return;
+        this.presentation = null;
+        this.presentationGeneration++;
+        presentation.dispose();
+        if (this.decryptDebounceTimer !== null) {
+            clearTimeout(this.decryptDebounceTimer);
+            this.decryptDebounceTimer = null;
+        }
+        for (const settle of this.decryptionWaits) settle();
+        // A rebuild asked for until now is the next visit's load to do; see scheduleRebuild.
+        this.rebuildQueued = false;
+    };
+
+    /** Whether the rows follow the room, and have done since `generation` when one is given. */
+    private following(generation = this.presentationGeneration): boolean {
+        return this.presentation !== null && generation === this.presentationGeneration;
     }
 
     /**
@@ -960,7 +1015,7 @@ export class RoomTimelineViewModel
      * to the new timeline; one reading older messages keeps their place, with the jump-to-latest button offered.
      */
     private onTimelineReset = (_room: Room | undefined, timelineSet: EventTimelineSet): void => {
-        if (this.isDisposed || timelineSet !== this.opts.room.getUnfilteredTimelineSet()) return;
+        if (!this.following() || timelineSet !== this.opts.room.getUnfilteredTimelineSet()) return;
         const readingHistory = this.readingHistory;
         debug(`[TimelineVM] onTimelineReset — readingHistory=${readingHistory}`);
         if (!readingHistory) {
@@ -1041,7 +1096,7 @@ export class RoomTimelineViewModel
      * since the rows are about to change and that republish updates the receipts anyway.
      */
     private updateReadReceipts(reason: string): void {
-        if (this.isDisposed || !this.showReadReceipts || this.loading || this.rebuildQueued) return;
+        if (!this.following() || !this.showReadReceipts || this.loading || this.rebuildQueued) return;
         this.mergeSnapshot({ readReceiptsByEvent: this.computeReadReceipts() }, reason);
     }
 
@@ -1054,6 +1109,8 @@ export class RoomTimelineViewModel
     public setShowReadReceipts(show: boolean): void {
         if (show === this.showReadReceipts) return;
         this.showReadReceipts = show;
+        // Suspended rows are drawn with it once the next visit loads them.
+        if (!this.following()) return;
         this.mergeSnapshot({ readReceiptsByEvent: this.computeReadReceipts() }, "show-read-receipts");
     }
 
@@ -1078,7 +1135,8 @@ export class RoomTimelineViewModel
         // fetched ourselves come back through this same event, as do removals, and without this
         // check we would rebuild the whole list every time a reaction or redaction went past.
         if (toStartOfTimeline || removed || data.liveEvent !== true) return;
-        if (this.isDisposed) return;
+        if (!this.following()) return;
+        const generation = this.presentationGeneration;
 
         // The reader has written, here or on another device: what came before is read, as the old timeline moves the
         // marker on to a message they send. Any unread line goes for the rest of the visit, and the room's marker coming
@@ -1111,7 +1169,7 @@ export class RoomTimelineViewModel
         void this.timelineWindow
             .paginate(Direction.Forward, 1, false)
             .then(() => {
-                if (this.isDisposed) return;
+                if (!this.following(generation)) return;
                 const items = this.buildItems();
 
                 const atLiveEnd = this.windowReachesLive();
@@ -1145,7 +1203,7 @@ export class RoomTimelineViewModel
      * repeatedly and restarted any media they were downloading.
      */
     private onEventDecrypted = (event: MatrixEvent): void => {
-        if (this.isDisposed) return;
+        if (!this.following()) return;
         if (!this.timelineWindow.getEvents().includes(event)) return;
 
         if (this.decryptDebounceTimer !== null) clearTimeout(this.decryptDebounceTimer);
@@ -1217,42 +1275,35 @@ export class RoomTimelineViewModel
      * timeout fires, whichever comes first. Waiting here is only an optimisation: anything still
      * undecrypted when we give up is added by {@link onEventDecrypted} once it lands.
      */
-    private async waitForDecryption(events: MatrixEvent[], timeoutMs: number): Promise<void> {
+    private waitForDecryption(events: MatrixEvent[], timeoutMs: number): Promise<void> {
         const pending = events.filter(
             (e) => e.isEncrypted() && e.getClearContent() === null && !e.isDecryptionFailure(),
         );
-        if (pending.length === 0) return;
+        if (pending.length === 0) return Promise.resolve();
 
-        const detachers: Array<() => void> = [];
-        const allDecrypted = Promise.all(
-            pending.map(
-                (e) =>
-                    new Promise<void>((resolve) => {
-                        if (e.getClearContent() !== null || e.isDecryptionFailure()) {
-                            resolve();
-                            return;
-                        }
-                        const handler = (): void => {
-                            e.off(MatrixEventEvent.Decrypted, handler);
-                            resolve();
-                        };
-                        e.on(MatrixEventEvent.Decrypted, handler);
-                        detachers.push(() => e.off(MatrixEventEvent.Decrypted, handler));
-                    }),
-            ),
-        );
-
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const timeout = new Promise<void>((resolve) => {
-            timeoutId = setTimeout(resolve, timeoutMs);
+        return new Promise<void>((resolve) => {
+            let undecrypted = pending.length;
+            const detachers: Array<() => void> = [];
+            // Ends the wait once, whether the events decrypted, time ran out, or the rows were suspended, which leaves
+            // nothing listening and nothing timed. The waiting caller checks for itself whether it may still act.
+            const settle = (): void => {
+                if (!this.decryptionWaits.delete(settle)) return;
+                clearTimeout(timeoutId);
+                for (const detach of detachers) detach();
+                resolve();
+            };
+            this.decryptionWaits.add(settle);
+            for (const event of pending) {
+                const handler = (): void => {
+                    event.off(MatrixEventEvent.Decrypted, handler);
+                    if (--undecrypted === 0) settle();
+                };
+                event.on(MatrixEventEvent.Decrypted, handler);
+                detachers.push(() => event.off(MatrixEventEvent.Decrypted, handler));
+            }
+            // Declared last, as settle can run only once the wait is under way.
+            const timeoutId = setTimeout(settle, timeoutMs);
         });
-
-        try {
-            await Promise.race([allDecrypted, timeout]);
-        } finally {
-            if (timeoutId !== undefined) clearTimeout(timeoutId);
-            for (const detach of detachers) detach();
-        }
     }
 
     /**
@@ -1300,9 +1351,13 @@ export class RoomTimelineViewModel
         }
         if (this.rebuildQueued) return;
         this.rebuildQueued = true;
+        const generation = this.presentationGeneration;
         queueMicrotask(() => {
+            // Queued before the rows were suspended, or followed the room again: a rebuild queued now is a later one's.
+            if (generation !== this.presentationGeneration) return;
             this.rebuildQueued = false;
-            if (this.isDisposed) return;
+            // Suspended rows are rebuilt by the next visit's load.
+            if (!this.following()) return;
             if (this.loading) {
                 this.rebuildAfterLoad = true;
                 return;
@@ -1920,7 +1975,8 @@ export class RoomTimelineViewModel
 
         debug(`[TimelineVM] sendAutoReadReceipt — sending receipt for ${eventId} (${receiptType})`);
         this.opts.client.sendReadReceipt(event, receiptType).catch((err) => {
-            this.lastSentReceiptEventId = null; // allow retry
+            // Sent again later, unless another receipt has been sent since, such as in a later visit.
+            if (this.lastSentReceiptEventId === eventId) this.lastSentReceiptEventId = null;
             logger.warn(`[TimelineVM] sendAutoReadReceipt — sendReadReceipt failed`, err);
         });
     }
@@ -2317,11 +2373,7 @@ export class RoomTimelineViewModel
      * settings watcher.
      */
     public override dispose(): void {
-        this.deactivate();
-        if (this.decryptDebounceTimer !== null) {
-            clearTimeout(this.decryptDebounceTimer);
-            this.decryptDebounceTimer = null;
-        }
+        this.suspendPresentation();
         super.dispose();
     }
 
@@ -3226,6 +3278,8 @@ export class RoomTimelineViewModel
      * field changes line up with the symptom.
      */
     private mergeSnapshot(partial: Partial<RoomTimelineViewSnapshot>, reason: string): void {
+        // Suspended rows stay as they were published last, whatever the view model is asked meanwhile.
+        if (this.started && !this.following()) return;
         const before = this.snapshot.current;
         // A new place to take the reader is a placement of its own, unless the caller counted it already, as a load
         // does: the view reports what it shows once it is placed there.

@@ -108,6 +108,48 @@ test.describe("Room timeline host", () => {
         await expect(app.getComposerField()).toHaveText("h");
     });
 
+    test("shows only the room opened when the room left was still loading", async ({ page, app, user, bot }) => {
+        // Written before the reader joins, so that the linked message has to be fetched to open the room at it.
+        const left = await bot.createRoom({ name: "Left", invite: [user.userId] });
+        const linked = await bot.evaluate(async (client, roomId) => {
+            const { event_id } = await client.sendTextMessage(roomId, "Linked in the room left");
+            for (let i = 1; i <= 40; i++) await client.sendTextMessage(roomId, `Later message ${i}`);
+            return event_id;
+        }, left);
+        await app.client.joinRoom(left);
+        const opened = await app.client.createRoom({ name: "Opened" });
+        const inOpened = await app.client.sendMessage(opened, "In the room opened");
+        await app.viewRoomById(opened);
+        await expect(timelineRow(page, inOpened.event_id)).toBeVisible();
+
+        // The room left is opened at the linked message, whose fetch is held back until the next room is shown.
+        let fetches = 0;
+        const held = Promise.withResolvers<void>();
+        await page.route(`**/rooms/${encodeURIComponent(left)}/context/**`, async (route) => {
+            fetches++;
+            await held.promise;
+            await route.continue();
+        });
+        await page.evaluate(
+            ([roomId, eventId]) => (window.location.hash = `#/room/${roomId}/${eventId}`),
+            [left, linked],
+        );
+        await expect(page.locator(`main[data-room-id="${left}"]`)).toBeVisible();
+        await expect.poll(() => fetches).toBe(1);
+        await app.viewRoomById(opened);
+        await expect(timelineRow(page, inOpened.event_id)).toBeVisible();
+
+        const fetched = page.waitForResponse((response) => response.url().includes("/context/"));
+        held.resolve();
+        await fetched;
+
+        await expect(timelineRow(page, inOpened.event_id)).toBeVisible();
+        await expect(timelineRow(page, linked)).toHaveCount(0);
+        await expect(page.locator(`main[data-room-id="${opened}"] .mx_NewTimelinePanel`)).toHaveCount(1);
+        await expect(page.locator(".mx_NewTimelinePanel")).toHaveCount(1);
+        await expect.poll(() => distanceFromLiveEnd(page)).toBeLessThanOrEqual(4);
+    });
+
     test("sends a message from the composer into the hosted timeline", async ({ page, app, user }) => {
         const roomId = await app.client.createRoom({ name: "Send" });
         await app.viewRoomById(roomId);

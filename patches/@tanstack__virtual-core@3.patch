@@ -1,5 +1,5 @@
 diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
-index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207f0bfa09f 100644
+index c9065e73a2565430fc05ec61783490abc0a6d3c0..d69e6b8c42478eb057c422201736759d0e67c304 100644
 --- a/dist/esm/index.d.ts
 +++ b/dist/esm/index.d.ts
 @@ -83,6 +83,12 @@ export interface VirtualizerOptions<TScrollElement extends Element | Window, TIt
@@ -15,7 +15,7 @@ index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207
      followOnAppend?: FollowOnAppend;
      scrollEndThreshold?: number;
      isScrollingResetDelay?: number;
-@@ -168,6 +174,15 @@ export declare class Virtualizer<TScrollElement extends Element | Window, TItemE
+@@ -168,6 +174,22 @@ export declare class Virtualizer<TScrollElement extends Element | Window, TItemE
      private shouldMeasureDuringScroll;
      measureElement: (node: TItemElement | null) => void;
      resizeItem: (index: number, size: number) => void;
@@ -28,14 +28,44 @@ index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207
 +     * Element-web patch, pending upstream.
 +     */
 +    scrollToOffsetNow: (offset: number) => void;
++    /**
++     * Pause or resume the virtualizer. Paused, it observes neither the scroll element nor the items, scrolls nowhere
++     * and tells its owner nothing, while keeping the items' sizes and elements, the range and the offset. Resume only
++     * with the scroll element in the page and with a size: the items are measured again, together, and the offset is
++     * written back. Element-web patch, pending upstream.
++     */
++    setPaused: (paused: boolean) => void;
      getVirtualItems: {
          (): VirtualItem[];
          updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7c3eb600c 100644
+index dcba044582148f2b8923163b1a431571230bdfef..85c3aa9c9c2911f24ec5f123f70964bb6b30ceff 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
-@@ -317,6 +317,8 @@ class Virtualizer {
+@@ -213,6 +213,10 @@ class Virtualizer {
+     this._clampedAdjustment = null;
+     this.elementsCache = /* @__PURE__ */ new Map();
+     this._resizeBatch = null;
++    // See setPaused. Each pause and resumption counts as a new attachment, whose observers alone may act: a callback
++    // an earlier one queued does nothing, even once the virtualizer has resumed. Element-web patch, pending upstream.
++    this._paused = false;
++    this._observerEpoch = 0;
+     this.now = () => {
+       var _a, _b, _c;
+       return ((_c = (_b = (_a = this.targetWindow) == null ? void 0 : _a.performance) == null ? void 0 : _b.now) == null ? void 0 : _c.call(_b)) ?? Date.now();
+@@ -226,8 +230,11 @@ class Virtualizer {
+         if (!this.targetWindow || !this.targetWindow.ResizeObserver) {
+           return null;
+         }
++        const epoch = this._observerEpoch;
+         return _ro = new this.targetWindow.ResizeObserver((entries) => {
+           const run = () => {
++            // Element-web patch, pending upstream: see setPaused.
++            if (this._paused || epoch !== this._observerEpoch) return;
+             const batch = { sync: false };
+             this._resizeBatch = batch;
+             try {
+@@ -317,9 +324,11 @@ class Virtualizer {
        }
        const prevOptions = this.options;
        let anchor = null;
@@ -43,8 +73,12 @@ index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7
 +      let pendingOffset = null;
        let followOnAppend = null;
        let edgeKeysChanged = false;
-       if (prevOptions !== void 0 && prevOptions.enabled && merged.enabled && merged.anchorTo === "end" && this.scrollElement !== null) {
-@@ -331,10 +333,39 @@ class Virtualizer {
+-      if (prevOptions !== void 0 && prevOptions.enabled && merged.enabled && merged.anchorTo === "end" && this.scrollElement !== null) {
++      if (!this._paused && prevOptions !== void 0 && prevOptions.enabled && merged.enabled && merged.anchorTo === "end" && this.scrollElement !== null) {
+         const prevCount = prevOptions.count;
+         const nextCount = merged.count;
+         const measurements = this.getMeasurements();
+@@ -331,10 +340,39 @@ class Virtualizer {
          const didEdgeKeysChange = didCountChange || prevCount > 0 && nextCount > 0 && (merged.getItemKey(0) !== prevFirstKey || merged.getItemKey(nextCount - 1) !== prevLastKey);
          if (didEdgeKeysChange) {
            edgeKeysChanged = true;
@@ -86,7 +120,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7
            const behavior = merged.followOnAppend === true ? "auto" : merged.followOnAppend || null;
            if (behavior && nextCount > 0 && this.isAtEnd(prevOptions.scrollEndThreshold) && (prevCount === 0 || merged.getItemKey(nextCount - 1) !== prevLastKey)) {
              if (nextCount > prevCount || isAppendWithTrim(
-@@ -363,15 +394,20 @@ class Virtualizer {
+@@ -363,15 +401,20 @@ class Virtualizer {
          while (idx < count && getItemKey(idx) !== anchorKey) {
            idx++;
          }
@@ -116,11 +150,26 @@ index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7
            }
          }
        }
-@@ -453,7 +489,23 @@ class Virtualizer {
+@@ -435,6 +478,8 @@ class Virtualizer {
+     };
+     this._willUpdate = () => {
+       var _a, _b;
++      // A paused virtualizer stays as it is however often its owner renders. Element-web patch, pending upstream.
++      if (this._paused) return;
+       const scrollElement = this.options.enabled ? this.options.getScrollElement() : null;
+       if (this.scrollElement !== scrollElement) {
+         this.cleanup();
+@@ -451,9 +496,29 @@ class Virtualizer {
+         this.elementsCache.forEach((cached) => {
+           this.observer.observe(cached);
          });
++        // A size the observer saw before a pause is not this attachment's. The scroll listeners, and their timers,
++        // go as the virtualizer pauses. Element-web patch, pending upstream: see setPaused.
++        const epoch = this._observerEpoch;
          this.unsubs.push(
            this.options.observeElementRect(this, (rect) => {
 +            var _a2;
++            if (this._paused || epoch !== this._observerEpoch) return;
 +            // With anchorTo: "end", keep an end-pinned viewport pinned when the
 +            // scroll element shrinks, as resizeItem does when an item grows. The
 +            // browser keeps scrollTop, so the end would otherwise drop below the
@@ -140,7 +189,32 @@ index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7
              this.maybeNotify();
            })
          );
-@@ -943,9 +995,19 @@ class Virtualizer {
+@@ -897,6 +962,14 @@ class Virtualizer {
+       return true;
+     };
+     this.measureElement = (node) => {
++      // While paused, a row's element is noted without being observed or measured, and one that goes keeps its
++      // place: resuming observes every element noted, and lets go of those no longer in the page.
++      // Element-web patch, pending upstream.
++      if (this._paused) {
++        const index = node ? this.indexFromElement(node) : -1;
++        if (node && this.isIndexInRange(index)) this.elementsCache.set(this.options.getItemKey(index), node);
++        return;
++      }
+       if (!node) {
+         this.elementsCache.forEach((cached, key2) => {
+           if (!cached.isConnected) {
+@@ -923,7 +996,8 @@ class Virtualizer {
+     };
+     this.resizeItem = (index, size) => {
+       var _a, _b, _c, _d, _e, _f;
+-      if (!this.isIndexInRange(index)) return;
++      // Element-web patch, pending upstream: see setPaused.
++      if (this._paused || !this.isIndexInRange(index)) return;
+       if ((_a = this._resizeBatch) == null ? void 0 : _a.sync) this.getMeasurements();
+       let cachedSize;
+       let itemStart;
+@@ -943,9 +1017,19 @@ class Virtualizer {
        const itemSize = this.itemSizeCache.get(key) ?? cachedSize;
        const delta = size - itemSize;
        if (delta !== 0) {
@@ -162,7 +236,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7
          const isFirstMeasure = !this.itemSizeCache.has(key);
          const defaultShouldAdjust = isFirstMeasure ? (
            // First measurement: compensate any item whose top sits above the
-@@ -958,9 +1020,12 @@ class Virtualizer {
+@@ -958,9 +1042,12 @@ class Virtualizer {
            // below — e.g. a streaming chat message growing at its bottom)
            // changes size *below* the anchor point, so shifting scrollTop by the
            // delta would drag the viewport downward on every growth (#1218).
@@ -178,7 +252,43 @@ index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7
          );
          const shouldAdjustScroll = ((_d = this.scrollState) == null ? void 0 : _d.behavior) !== "smooth" && (this.shouldAdjustScrollPositionOnItemSizeChange !== void 0 ? this.shouldAdjustScrollPositionOnItemSizeChange(
            // The callback expects a VirtualItem; build one lazily only
-@@ -1249,6 +1314,33 @@ class Virtualizer {
+@@ -1099,6 +1186,8 @@ class Virtualizer {
+       ];
+     };
+     this.scrollToOffset = (toOffset, { align = "start", behavior = "auto" } = {}) => {
++      // Element-web patch, pending upstream: see setPaused.
++      if (this._paused) return;
+       this._iosDeferredAdjustment = 0;
+       const offset = this.getOffsetForAlignment(toOffset, align);
+       const now = this.now();
+@@ -1119,6 +1208,8 @@ class Virtualizer {
+       align: initialAlign = "auto",
+       behavior = "auto"
+     } = {}) => {
++      // Element-web patch, pending upstream: see setPaused.
++      if (this._paused) return;
+       this._iosDeferredAdjustment = 0;
+       index = Math.max(0, Math.min(index, this.options.count - 1));
+       const offsetInfo = this.getOffsetForIndex(index, initialAlign);
+@@ -1141,6 +1232,8 @@ class Virtualizer {
+       this.scheduleScrollReconcile();
+     };
+     this.scrollBy = (delta, { behavior = "auto" } = {}) => {
++      // Element-web patch, pending upstream: see setPaused.
++      if (this._paused) return;
+       var _a;
+       const offset = this.getOffsetForAlignment(
+         (((_a = this.scrollState) == null ? void 0 : _a.writtenOffset) ?? this.getScrollOffset()) + delta,
+@@ -1161,6 +1254,8 @@ class Virtualizer {
+       this.scheduleScrollReconcile();
+     };
+     this.scrollToEnd = ({ behavior = "auto" } = {}) => {
++      // Element-web patch, pending upstream: see setPaused.
++      if (this._paused) return;
+       if (this.options.count > 0) {
+         this._iosDeferredAdjustment = 0;
+         const offset = Math.max(this.getMaxScrollOffset(), 0);
+@@ -1249,6 +1344,86 @@ class Virtualizer {
        }
        this.options.scrollToFn(offset, { behavior, adjustments }, this);
      };
@@ -204,15 +314,68 @@ index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7
 +    // scrollToOffset it would wait for the read-back, and the steering would hold the old pixel offset.
 +    // Element-web patch, pending upstream.
 +    this.scrollToOffsetNow = (offset) => {
++      // Element-web patch, pending upstream: see setPaused.
++      if (this._paused) return;
 +      // As scrollToOffset does: an iOS correction held for the end of a touch scroll is already in this offset.
 +      this._iosDeferredAdjustment = 0;
 +      this.scrollState = null;
 +      this._scrollToOffset(offset, { adjustments: void 0, behavior: "auto" });
 +    };
++    // Stop observing the scroll element and the rows, and scrolling, while keeping what is known of them: their
++    // sizes, their elements, the range shown and the offset, including one written but not yet read back. A scroll
++    // on its way is dropped rather than made later. Resuming attaches again as when the scroll element was first
++    // given, so it must be in the page and have a size: the rows are measured afresh, together, and the offset is
++    // written back, as an element taken out of the page and put back loses it. Repeated calls do nothing.
++    // Element-web patch, pending upstream.
++    this.setPaused = (paused) => {
++      var _a;
++      if (paused === this._paused) return;
++      this._paused = paused;
++      this._observerEpoch++;
++      if (!paused) {
++        this.scrollElement = null;
++        this._willUpdate();
++        return;
++      }
++      this.unsubs.filter(Boolean).forEach((d) => d());
++      this.unsubs = [];
++      this.observer.disconnect();
++      if (this.rafId != null && this.targetWindow) {
++        this.targetWindow.cancelAnimationFrame(this.rafId);
++        this.rafId = null;
++      }
++      // A smooth scroll the browser is still running stops where it is: its destination is not kept, and nothing
++      // shown moves while paused. An offset written at once, not yet read back, is the one kept.
++      const el = this.scrollElement;
++      if (((_a = this.scrollState) == null ? void 0 : _a.behavior) === "smooth" && el) {
++        const { horizontal, isRtl } = this.options;
++        // In the virtualizer's own terms, as its offset observers read it: an element's right-to-left offset counts
++        // positive from the start, while a window's is kept as the browser gives it.
++        const read = () => {
++          const raw = "scrollTop" in el ? horizontal ? el.scrollLeft : el.scrollTop : horizontal ? el.scrollX : el.scrollY;
++          return { raw, offset: "scrollTop" in el && horizontal && isRtl ? -raw : raw };
++        };
++        const stopped = read();
++        el.scrollTo({ [horizontal ? "left" : "top"]: stopped.raw, behavior: "instant" });
++        this.scrollOffset = stopped.offset;
++        this._intendedScrollOffset = null;
++        this.scrollState = null;
++        // The browser can move the scroll one more frame before it stops: take where it settles, once, while still
++        // paused in this same pause and with the element still in the page.
++        const epoch = this._observerEpoch;
++        const win = this.targetWindow;
++        win == null ? void 0 : win.requestAnimationFrame(() => win.requestAnimationFrame(() => {
++          if (!this._paused || epoch !== this._observerEpoch || "isConnected" in el && !el.isConnected) return;
++          this.scrollOffset = read().offset;
++        }));
++      } else if (this._intendedScrollOffset !== null) {
++        this.scrollOffset = this._intendedScrollOffset;
++      }
++    };
      this.measure = () => {
        this.pendingMin = null;
        this.itemSizeCache.clear();
-@@ -1274,16 +1366,19 @@ class Virtualizer {
+@@ -1274,16 +1449,19 @@ class Virtualizer {
        }
        return false;
      } else {

@@ -324,4 +324,16 @@ export interface TimelineViewExecution {
      * which starts again once the view is given a new execution.
      */
     readonly onPlaced: () => boolean;
+    /**
+     * Whether the view is suspended: it draws the rows it last committed, as they were, without observing, measuring,
+     * scrolling or reporting anything, and without its buttons. An execution that is not suspended resumes it: the
+     * view waits until its viewport is in the page with a size, then places the current target afresh behind its
+     * cover, keeping the rows and what it knows of their sizes. Omitted, the view is not suspended.
+     */
+    readonly suspended?: boolean;
+    /**
+     * Tells the view, synchronously, once it may no longer act, so that it suspends itself at once rather than at its
+     * next render. The owner stops `isCurrent` allowing it before telling. Returns what stops the telling.
+     */
+    readonly subscribeToInvalidation?: (listener: () => void) => () => void;
 }

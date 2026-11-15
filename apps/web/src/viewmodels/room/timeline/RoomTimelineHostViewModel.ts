@@ -48,9 +48,17 @@ interface Props {
  * Binding a room makes it a new view model, not yet started, and disposes of the one it had: a timeline lives as long
  * as the binding it was made for, so leaving a room and coming back makes another. Releasing a lease that is no longer
  * current does nothing, so a late release cannot remove a newer timeline.
+ *
+ * A timeline given up stops at once, in this order: its lease stops being current, whatever drew it under that lease
+ * is told so (see {@link subscribeToRevocation}), its view model stops following the room and is disposed of, and only
+ * then does the snapshot say it is gone, for React to take its rows away.
  */
 export class RoomTimelineHostViewModel extends BaseViewModel<RoomTimelineHostSnapshot, Props> {
     private nextEntryId = 1;
+    /** The lease the host draws its timeline under now, until it is given up; see {@link isCurrent}. */
+    private currentLease: RoomTimelineLease | null = null;
+    /** Those to tell as the current lease is given up. */
+    private revocationListeners = new Set<() => void>();
 
     public constructor(props: Props) {
         super(props, { entry: null });
@@ -72,13 +80,24 @@ export class RoomTimelineHostViewModel extends BaseViewModel<RoomTimelineHostSna
             sendReadReceiptOnLoad: request.sendReadReceiptOnLoad,
             enableReadReceiptsAndMarkersOnActivity: request.enableReadReceiptsAndMarkersOnActivity,
         });
+        this.currentLease = lease;
         this.snapshot.set({ entry: { lease, vm } });
         return lease;
     };
 
     /** Whether `lease` is the one the host draws its timeline under now. */
-    public isCurrent = (lease: RoomTimelineLease): boolean =>
-        !this.isDisposed && this.snapshot.current.entry?.lease === lease;
+    public isCurrent = (lease: RoomTimelineLease): boolean => !this.isDisposed && this.currentLease === lease;
+
+    /**
+     * Call `listener` as the timeline drawn under `lease` is given up, once its lease has stopped being current and
+     * before its view model is disposed of, so that what draws it can stop at once. Returns what stops the telling.
+     * A lease that is not current is given up already: nothing is told.
+     */
+    public subscribeToRevocation = (lease: RoomTimelineLease, listener: () => void): (() => void) => {
+        if (!this.isCurrent(lease)) return () => {};
+        this.revocationListeners.add(listener);
+        return () => this.revocationListeners.delete(listener);
+    };
 
     /** Dispose of the timeline drawn under `lease`, if it is still the current one. */
     public release = (lease: RoomTimelineLease): void => {
@@ -90,11 +109,16 @@ export class RoomTimelineHostViewModel extends BaseViewModel<RoomTimelineHostSna
         super.dispose();
     }
 
-    // The lease stops being current before its view model is disposed, so nothing that checks it acts on a disposed one.
     private evict(): void {
         const entry = this.snapshot.current.entry;
         if (!entry) return;
-        this.snapshot.set({ entry: null });
+        this.currentLease = null;
+        const listeners = this.revocationListeners;
+        this.revocationListeners = new Set();
+        for (const listener of listeners) listener();
+        entry.vm.suspendPresentation();
         entry.vm.dispose();
+        // Unless a listener has bound another timeline meanwhile.
+        if (this.snapshot.current.entry === entry) this.snapshot.set({ entry: null });
     }
 }

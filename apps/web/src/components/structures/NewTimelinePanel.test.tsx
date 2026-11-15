@@ -49,10 +49,11 @@ const USER_ID = "@alice:example.org";
 // The virtualised TimelineView needs real layout, which this environment has none
 // of, and it has its own tests in shared-components. Stand in a stub that simply
 // draws every row, so these tests cover how this panel renders each kind of row.
-const { rowsRendered, paintedItems, viewExecution } = vi.hoisted(() => ({
+const { rowsRendered, paintedItems, viewExecution, viewVm } = vi.hoisted(() => ({
     rowsRendered: { current: [] as unknown[] },
     paintedItems: { current: undefined as ((items: TimelineItem[]) => void) | undefined },
     viewExecution: { current: undefined as unknown },
+    viewVm: { current: undefined as unknown },
 }));
 
 vi.mock("@element-hq/web-shared-components", async () => {
@@ -76,6 +77,7 @@ vi.mock("@element-hq/web-shared-components", async () => {
             rowsRendered.current = items;
             paintedItems.current = onItemsPainted;
             viewExecution.current = execution;
+            viewVm.current = vm;
             return (
                 <div data-testid="timeline-scroller">
                     <div data-testid="timeline-stub">{items.map((item) => renderItem(item))}</div>
@@ -265,7 +267,9 @@ describe("<NewTimelinePanel />", () => {
 
     it("hands the timeline view the execution it is lent with, and none when it owns its view model", () => {
         const vm = new RoomTimelineViewModel({ client, room });
-        const execution = { revision: 1, isCurrent: () => true, onPlaced: () => true };
+        const subscribeToInvalidation = vi.fn();
+        const onPlaced = vi.fn(() => true);
+        const execution = { revision: 3, isCurrent: () => true, onPlaced, suspended: false, subscribeToInvalidation };
         withItems([eventRow(event)]);
         const { unmount } = render(
             <MatrixClientContext.Provider value={client}>
@@ -274,11 +278,163 @@ describe("<NewTimelinePanel />", () => {
                 </SDKContext.Provider>
             </MatrixClientContext.Provider>,
         );
-        expect(viewExecution.current).toBe(execution);
+        // As lent, with each placement it completes noted on the way; see "when lent by a host".
+        const given = viewExecution.current as typeof execution;
+        expect(given).toMatchObject({ revision: 3, isCurrent: execution.isCurrent, suspended: false });
+        expect(given.subscribeToInvalidation).toBe(subscribeToInvalidation);
+        expect(given.onPlaced()).toBe(true);
+        expect(onPlaced).toHaveBeenCalledOnce();
         unmount();
 
         renderPanel();
         expect(viewExecution.current).toBeUndefined();
+        expect(viewVm.current).toBeInstanceOf(RoomTimelineViewModel);
+    });
+
+    describe("when lent by a host", () => {
+        let open: boolean;
+        let placed: boolean;
+        let execution: { revision: number; isCurrent: () => boolean; onPlaced: () => boolean };
+        const visit = (generation: number, rowsReady = true): Record<string, unknown> => ({
+            visit: { generation, rowsReady, placementRevision: 1 },
+        });
+        const renderLent = (
+            props: Partial<React.ComponentProps<typeof NewTimelineRenderer>> = {},
+        ): { panel: () => RoomMessagePanel; rerender: (next: Partial<typeof props>) => void } => {
+            const vm = new RoomTimelineViewModel({ client, room });
+            const ref = React.createRef<RoomMessagePanel>();
+            const tree = (more: Partial<typeof props>): React.ReactElement => (
+                <MatrixClientContext.Provider value={client}>
+                    <SDKContext.Provider value={new TestSDKContext()}>
+                        <NewTimelineRenderer
+                            vm={vm}
+                            room={room}
+                            execution={execution}
+                            panelRef={ref}
+                            {...props}
+                            {...more}
+                        />
+                    </SDKContext.Provider>
+                </MatrixClientContext.Provider>
+            );
+            const { rerender } = render(tree({}));
+            return { panel: () => ref.current!, rerender: (next) => rerender(tree(next)) };
+        };
+        /** The view completing a placement, as `TimelineView` does through its execution. */
+        const place = (): boolean => (viewExecution.current as typeof execution).onPlaced();
+
+        beforeEach(() => {
+            open = true;
+            placed = true;
+            execution = { revision: 1, isCurrent: () => open, onPlaced: () => placed };
+            withItems([eventRow(event)], visit(1));
+        });
+
+        it("answers no, and does nothing, once its lending no longer allows it", () => {
+            vmSpies.isAtLiveBottom = true;
+            vmSpies.canJumpToReadMarker = true;
+            const { panel } = renderLent();
+            const scroller = screen.getByTestId("timeline-scroller");
+            const height = vi.fn(() => 500);
+            Object.defineProperty(scroller, "clientHeight", { get: height });
+            scroller.scrollBy = vi.fn();
+            place();
+            expect(panel().isAtEndOfLiveTimeline()).toBe(true);
+
+            open = false;
+            const controls = panel();
+            expect(controls.isAtEndOfLiveTimeline()).toBe(false);
+            expect(controls.canResetTimeline()).toBe(false);
+            expect(controls.canJumpToReadMarker()).toBe(false);
+            controls.jumpToLiveTimeline();
+            controls.jumpToReadMarker();
+            void controls.forgetReadMarker();
+            controls.scrollToEventIfNeeded("$edited");
+            void controls.sendReadReceipts();
+            void controls.updateReadMarker();
+            controls.handleScrollKey(new KeyboardEvent("keydown", { key: "PageUp" }));
+            controls.handleScrollKey(new KeyboardEvent("keydown", { key: "End", ctrlKey: true }));
+
+            for (const spy of [
+                vmSpies.jumpToLive,
+                vmSpies.jumpToReadMarker,
+                vmSpies.onMarkAllAsRead,
+                vmSpies.scrollToEventIfNeeded,
+                vmSpies.sendReadReceiptNow,
+                vmSpies.moveReadMarkerOnNow,
+            ]) {
+                expect(spy).not.toHaveBeenCalled();
+            }
+            // Nothing read from the page, either.
+            expect(height).not.toHaveBeenCalled();
+            expect(scroller.scrollBy).not.toHaveBeenCalled();
+        });
+
+        it("reads what is on screen only once the view has placed it for the visit shown", () => {
+            const { panel, rerender } = renderLent();
+            void panel().sendReadReceipts();
+            void panel().updateReadMarker();
+            expect(vmSpies.sendReadReceiptNow).not.toHaveBeenCalled();
+
+            // A placement its host refuses completes nothing.
+            placed = false;
+            expect(place()).toBe(false);
+            void panel().sendReadReceipts();
+            expect(vmSpies.sendReadReceiptNow).not.toHaveBeenCalled();
+
+            placed = true;
+            expect(place()).toBe(true);
+            void panel().sendReadReceipts();
+            void panel().updateReadMarker();
+            expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledOnce();
+            expect(vmSpies.moveReadMarkerOnNow).toHaveBeenCalledOnce();
+
+            // Lent again: what was placed under the last lending counts for nothing under this one.
+            execution = { ...execution };
+            rerender({ execution });
+            void panel().sendReadReceipts();
+            expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledOnce();
+            place();
+            void panel().sendReadReceipts();
+            expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledTimes(2);
+
+            // A new visit, whose rows are not placed yet, though the view is still the same.
+            withItems([eventRow(event)], visit(2));
+            rerender({ showReactions: true });
+            void panel().sendReadReceipts();
+            expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledTimes(2);
+            // Nor while that visit's rows are not ready, even once a placement for it has completed.
+            withItems([eventRow(event)], visit(2, false));
+            rerender({ showReactions: false });
+            place();
+            void panel().sendReadReceipts();
+            expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledTimes(2);
+        });
+
+        it("hands its view a view model whose actions its lending allows", () => {
+            renderLent();
+            const vm = viewVm.current as { onMarkAllAsRead: () => void };
+            vm.onMarkAllAsRead();
+            expect(vmSpies.onMarkAllAsRead).toHaveBeenCalledOnce();
+
+            open = false;
+            vm.onMarkAllAsRead();
+            expect(vmSpies.onMarkAllAsRead).toHaveBeenCalledOnce();
+        });
+
+        it("leaves a navigation to a message alone once its lending no longer allows it", () => {
+            const { rerender } = renderLent({ highlightedEventId: "$first", eventScrollIntoView: false });
+            open = false;
+            const scrolledIntoView = vi.fn();
+            rerender({
+                highlightedEventId: "$second",
+                eventScrollIntoView: true,
+                onEventScrolledIntoView: scrolledIntoView,
+            });
+
+            expect(vmSpies.showEvent).not.toHaveBeenCalled();
+            expect(scrolledIntoView).not.toHaveBeenCalled();
+        });
     });
 
     it("releases decorative loading, and marks the room painted, only after conversation rows have painted", () => {
