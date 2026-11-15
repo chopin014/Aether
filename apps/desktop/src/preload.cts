@@ -10,7 +10,9 @@ Please see LICENSE files in the repository root for full details.
 
 import { ipcRenderer, contextBridge, type IpcRendererEvent } from "electron";
 import type { ConfigOptions } from "./config.js" with { "resolution-mode": "import" };
-import type { DesktopAudioApi, DesktopAudioPacket, X509Api } from "shared-types" with { "resolution-mode": "import" };
+import type { DesktopAudioApi, DesktopAudioPacket, SiteViewApi, SiteViewEvent, X509Api } from "shared-types" with {
+    "resolution-mode": "import",
+};
 
 import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./global-shortcuts/types.js" with {
     "resolution-mode": "import",
@@ -98,6 +100,19 @@ contextBridge.exposeInMainWorld("electron", {
                   },
               } satisfies DesktopAudioApi)
             : undefined,
+
+    siteView: {
+        open: (url: string) => ipcRenderer.invoke("aether:site-open", url),
+        setBounds: (bounds) => ipcRenderer.send("aether:site-bounds", bounds),
+        command: (command) => ipcRenderer.send("aether:site-command", command),
+        goBack: () => ipcRenderer.send("aether:site-back"),
+        close: () => ipcRenderer.send("aether:site-close"),
+        onEvent: (listener: (event: SiteViewEvent) => void) => {
+            const handler = (_event: IpcRendererEvent, event: SiteViewEvent): void => listener(event);
+            ipcRenderer.on("aether:site-event", handler);
+            return () => ipcRenderer.removeListener("aether:site-event", handler);
+        },
+    } satisfies SiteViewApi,
 
     globalShortcuts: {
         configure: (configuration: ShortcutConfiguration): Promise<ShortcutResult> =>
