@@ -36,7 +36,8 @@ import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
-import { CallEvent, type Call } from "../../models/Call";
+import { CallEvent, ConnectionState, ElementCall, type Call } from "../../models/Call";
+import { emptyCallConnectionStats } from "../../models/CallConnectionStats";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
 import * as RoomNotifs from "../../RoomNotifs";
 import { RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
@@ -54,6 +55,7 @@ import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { type RoomViewStore } from "../../stores/RoomViewStore";
 import { VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
 
 vi.mock("../../components/views/voip/prepareElementCall", () => ({ prepareCallSoon: vi.fn() }));
@@ -439,6 +441,48 @@ describe("RoomListItemViewModel", () => {
         viewModel.openCallParticipantMenu(alice.userId);
         viewModel.dispose();
         expect(preferences.listenerCount(VoiceUserPreferencesEvent.Changed)).toBe(0);
+    });
+
+    it("lists the user, dimmed, from the moment they ask to join until their media connects", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const me = new RoomMember(room.roomId, matrixClient.getUserId()!);
+        me.name = "Me";
+        vi.spyOn(room, "getMember").mockImplementation((userId) => (userId === me.userId ? me : null));
+        // A call as the store sees it, with Element Call's own state getters and nothing behind them.
+        const call = Object.defineProperties(Object.create(ElementCall.prototype), {
+            participants: { value: new Map(), writable: true },
+            callType: { value: CallType.Voice },
+            speakingUserIds: { value: new Set<string>() },
+            soundboardUserIds: { value: new Set<string>() },
+            voiceStates: { value: new Map<string, VoiceState>() },
+            localLeavePending: { value: false, writable: true },
+            _joinRequested: { value: false, writable: true },
+            _connectionState: { value: ConnectionState.Disconnected, writable: true },
+            _connectionStats: { value: emptyCallConnectionStats("disconnected"), writable: true },
+        });
+        // The fixture's private state, which Element Call itself updates in the app.
+        const state = call as { _joinRequested: boolean; _connectionStats: unknown };
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as ElementCall);
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        expect(viewModel.getSnapshot().callParticipants).toEqual([]);
+
+        state._joinRequested = true;
+        call.emit(CallEvent.JoinRequested, true);
+        expect(viewModel.getSnapshot().callParticipants).toEqual([
+            expect.objectContaining({ userId: me.userId, name: "Me", isConnecting: true }),
+        ]);
+
+        state._connectionStats = emptyCallConnectionStats("connected");
+        call.emit(CallEvent.ConnectionStats, state._connectionStats);
+        expect(viewModel.getSnapshot().callParticipants?.[0].isConnecting).toBeUndefined();
+
+        state._joinRequested = false;
+        call.emit(CallEvent.JoinRequested, false);
+        expect(viewModel.getSnapshot().callParticipants).toEqual([]);
     });
 
     it("shows distinct call members before joining and updates every join and leave", () => {
@@ -1011,6 +1055,27 @@ describe("RoomListItemViewModel", () => {
     });
 
     describe("Actions", () => {
+        let joinVoiceChannel: Mock;
+        beforeEach(async () => {
+            // The real store would also answer the room views these tests dispatch, without a logged-in client.
+            const { SDKContextClass } = await import("../../contexts/SDKContextClass");
+            joinVoiceChannel = vi.fn().mockReturnValue(false);
+            vi.spyOn(SDKContextClass.instance, "roomViewStore", "get").mockReturnValue({
+                joinVoiceChannel,
+            } as unknown as RoomViewStore);
+        });
+
+        it("joins a voice channel the store takes on, without opening it", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            joinVoiceChannel.mockReturnValue(true);
+            const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+
+            viewModel.onOpenRoom();
+
+            expect(joinVoiceChannel).toHaveBeenCalledWith(room);
+            expect(dispatchSpy).not.toHaveBeenCalled();
+        });
+
         it("should dispatch view room action on openRoom at once", () => {
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
 

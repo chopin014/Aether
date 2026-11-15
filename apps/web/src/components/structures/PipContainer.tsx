@@ -25,6 +25,10 @@ import { WidgetPipViewModel, type Props as WidgetPipViewModelProps } from "../..
 import { type Call, CallEvent as RoomCallEvent } from "../../models/Call";
 import { CallStore } from "../../stores/CallStore";
 import { SDKContext } from "../../contexts/SDKContext.ts";
+import PersistentApp from "../views/elements/PersistentApp";
+import PersistedElement, { getPersistKey } from "../views/elements/PersistedElement";
+import WidgetStore from "../../stores/WidgetStore";
+import WidgetUtils from "../../utils/WidgetUtils";
 
 const SHOW_CALL_IN_STATES = [
     CallState.Connected,
@@ -53,6 +57,8 @@ interface IState {
     persistentWidgetId: string | null;
     persistentRoomId: string | null;
     showWidgetInPip: boolean;
+    /** Whether an off-screen call that has never been shown needs its first, hidden mount. */
+    mountOffScreen: boolean;
 }
 
 /**
@@ -79,6 +85,7 @@ class PipContainerInner extends React.Component<IProps, IState> {
             persistentWidgetId: ActiveWidgetStore.instance.getPersistentWidgetId(),
             persistentRoomId: ActiveWidgetStore.instance.getPersistentRoomId(),
             showWidgetInPip: false,
+            mountOffScreen: false,
         };
     }
 
@@ -237,8 +244,19 @@ class PipContainerInner extends React.Component<IProps, IState> {
         // A call that does not float stays mounted, hidden, so it carries on while off screen.
         this.watchCall(persistentRoomId, persistentWidgetId);
         const showWidgetInPip = offScreen && (this.watchedCall?.floatsOffScreen ?? true);
+        // A call joined from the channel list without opening it has never been in a tile: it is mounted once,
+        // hidden, and then carries on like any call the user has navigated away from.
+        const app =
+            persistentWidgetId && persistentRoomId
+                ? WidgetStore.instance.get(persistentWidgetId, persistentRoomId)
+                : undefined;
+        const mountOffScreen =
+            offScreen &&
+            !showWidgetInPip &&
+            !!app &&
+            !PersistedElement.isMounted(getPersistKey(WidgetUtils.getWidgetUid(app)));
 
-        this.setState({ showWidgetInPip, persistentWidgetId, persistentRoomId });
+        this.setState({ showWidgetInPip, mountOffScreen, persistentWidgetId, persistentRoomId });
     }
 
     /** The call behind the persistent widget, if any, which decides whether it floats. */
@@ -290,17 +308,58 @@ class PipContainerInner extends React.Component<IProps, IState> {
             ));
         }
 
+        const offScreenMount =
+            this.state.mountOffScreen && this.state.persistentWidgetId && this.state.persistentRoomId ? (
+                <div style={OFF_SCREEN_MOUNT_STYLE} aria-hidden={true}>
+                    <PersistentApp
+                        persistentWidgetId={this.state.persistentWidgetId}
+                        persistentRoomId={this.state.persistentRoomId}
+                        movePersistedElement={this.props.movePersistedElement}
+                    />
+                    <OnMounted onMounted={this.onOffScreenMounted} />
+                </div>
+            ) : null;
+
         if (pipContent.length) {
             return (
-                <PictureInPictureDragger onDoubleClick={this.onDoubleClick} onMove={this.onMove}>
-                    {pipContent}
-                </PictureInPictureDragger>
+                <>
+                    {offScreenMount}
+                    <PictureInPictureDragger onDoubleClick={this.onDoubleClick} onMove={this.onMove}>
+                        {pipContent}
+                    </PictureInPictureDragger>
+                </>
             );
         }
 
-        return null;
+        return offScreenMount;
     }
+
+    /** Once mounted, the off-screen call's persisted root outlives this hidden tile, which can go. */
+    private onOffScreenMounted = (): void => {
+        this.updateShowWidgetInPip();
+    };
 }
+
+/**
+ * Where an off-screen call is first mounted: out of view and out of the layout. The call's persisted root follows its
+ * placeholder there for the moment the hidden tile exists, and is then hidden like any call the user navigated away
+ * from.
+ */
+const OFF_SCREEN_MOUNT_STYLE: React.CSSProperties = {
+    position: "fixed",
+    left: "-10000px",
+    top: 0,
+    width: "1px",
+    height: "1px",
+    overflow: "hidden",
+    pointerEvents: "none",
+};
+
+/** Tells its parent once it has been committed, so that whatever was mounted beside it exists. */
+const OnMounted: React.FC<{ onMounted: () => void }> = ({ onMounted }) => {
+    useEffect(() => onMounted(), [onMounted]);
+    return null;
+};
 
 export const PipContainer: React.FC = () => {
     const movePersistedElement = useRef<() => void>(null);
