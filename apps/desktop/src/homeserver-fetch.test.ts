@@ -12,6 +12,7 @@ import type { HomeserverFetchRequest, HomeserverFetchResponse } from "shared-typ
 import {
     HOMESERVER_FETCH,
     HOMESERVER_FETCH_ABORT,
+    NETWORK_CHANGE_RETRIES,
     PREFLIGHT_POLICY_MS,
     setupHomeserverFetch,
 } from "./homeserver-fetch.js";
@@ -177,6 +178,59 @@ describe("homeserver fetch", () => {
         await vi.waitFor(() => expect(signal).toBeDefined());
         abort(event, "sync");
         expect(signal!.aborted).toBe(true);
-        await expect(pending).rejects.toThrow();
+        // Answered, not thrown: an abort is no error to log.
+        await expect(pending).resolves.toMatchObject({ aborted: true, body: null });
+    });
+
+    const changedOnce = (): void => {
+        let failed = false;
+        const answer = sessionFetch.getMockImplementation() as (url: string, init: RequestInit) => Promise<Response>;
+        sessionFetch.mockImplementation(async (url: string, init: RequestInit) => {
+            if (init.method !== "OPTIONS" && !failed) {
+                failed = true;
+                throw new Error("net::ERR_NETWORK_CHANGED");
+            }
+            return answer(url, init);
+        });
+    };
+
+    it.each([
+        ["a PUT", request()],
+        [
+            "a sync poll",
+            request({
+                method: "POST",
+                url: "https://matrix.example.org/_matrix/client/unstable/org.matrix.simplified_msc3575/sync?pos=1",
+            }),
+        ],
+    ])("sends %s again when the network changed under it", async (_, repeated) => {
+        changedOnce();
+        const response = await handle(event, repeated);
+        expect(response.status).toBe(200);
+        expect(methods().filter((method) => method !== "OPTIONS")).toEqual([repeated.method, repeated.method]);
+    });
+
+    it("does not send a request twice that could do something twice", async () => {
+        changedOnce();
+        await expect(
+            handle(event, request({ method: "POST", url: "https://matrix.example.org/_matrix/client/v3/createRoom" })),
+        ).rejects.toThrow("ERR_NETWORK_CHANGED");
+        expect(methods().filter((method) => method !== "OPTIONS")).toEqual(["POST"]);
+    });
+
+    it("gives up after a few network changes, and on other failures at once", async () => {
+        sessionFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+            if (init.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+            throw new Error("net::ERR_NETWORK_CHANGED");
+        });
+        await expect(handle(event, request())).rejects.toThrow("ERR_NETWORK_CHANGED");
+        expect(methods().filter((method) => method !== "OPTIONS")).toHaveLength(NETWORK_CHANGE_RETRIES + 1);
+        sessionFetch.mockClear();
+        sessionFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+            if (init.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+            throw new Error("net::ERR_CONNECTION_REFUSED");
+        });
+        await expect(handle(event, request({ id: "2" }))).rejects.toThrow("ERR_CONNECTION_REFUSED");
+        expect(methods()).toEqual(["PUT"]);
     });
 });

@@ -47,6 +47,59 @@ const FORBIDDEN_HEADERS = new Set([
 const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 const MAX_BODY_LENGTH = 64 * 1024 * 1024;
 
+/**
+ * How often, and how soon, a request is sent again after the network changed under it. Chromium fails every request in
+ * flight when the machine's network configuration changes (an interface such as a VPN's or a container's coming or
+ * going), which otherwise made sync reconnect and a call show as reconnecting for seconds.
+ */
+export const NETWORK_CHANGE_RETRIES = 2;
+export const NETWORK_CHANGE_RETRY_DELAY_MS = 250;
+
+/** Whether a request can be sent twice without doing something twice: it reads, names its own result, or is a sync. */
+function isRepeatable(method: string, url: URL): boolean {
+    return ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"].includes(method) || url.pathname.endsWith("/sync");
+}
+
+function networkChanged(error: unknown): boolean {
+    return String(error instanceof Error ? error.message : error).includes("ERR_NETWORK_CHANGED");
+}
+
+/** Waits, unless the request is aborted meanwhile. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, ms);
+        signal.addEventListener(
+            "abort",
+            () => {
+                clearTimeout(timer);
+                reject(signal.reason);
+            },
+            { once: true },
+        );
+    });
+}
+
+/** Fetches, sending a repeatable request again if the network changed under it. */
+async function fetchAcrossNetworkChanges(
+    session: Session,
+    url: URL,
+    init: RequestInit & { signal: AbortSignal; method: string },
+): Promise<Response> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await session.fetch(url.href, init);
+        } catch (error) {
+            const retry =
+                attempt < NETWORK_CHANGE_RETRIES &&
+                !init.signal.aborted &&
+                networkChanged(error) &&
+                isRepeatable(init.method, url);
+            if (!retry) throw error;
+            await pause(NETWORK_CHANGE_RETRY_DELAY_MS, init.signal);
+        }
+    }
+}
+
 /** What a server allowed the page to send it, learned from a preflight. */
 interface OriginPolicy {
     methods: Set<string>;
@@ -120,7 +173,7 @@ export function setupHomeserverFetch(): void {
     ): Promise<void> => {
         const key = policyKey(requester, url.origin);
         if (covered(policies.get(key), method, names)) return;
-        const response = await session.fetch(url.href, {
+        const response = await fetchAcrossNetworkChanges(session, url, {
             method: "OPTIONS",
             headers: {
                 "Origin": requester,
@@ -176,7 +229,7 @@ export function setupHomeserverFetch(): void {
                 }
                 // Without the page's origin: with it, Chromium treats the request as the page's and asks the server
                 // first again. The server's answer above, and the check below, stand in for that.
-                const response = await event.sender.session.fetch(url.href, {
+                const response = await fetchAcrossNetworkChanges(event.sender.session, url, {
                     method,
                     headers,
                     body: request.body,
@@ -193,6 +246,11 @@ export function setupHomeserverFetch(): void {
                     headers: [...response.headers].filter(([name]) => name !== "set-cookie"),
                     body,
                 };
+            } catch (error) {
+                // An abort is the page's own doing, not a failure: answer it rather than log it as an error.
+                if (controller.signal.aborted)
+                    return { status: 0, statusText: "", headers: [], body: null, aborted: true };
+                throw error;
             } finally {
                 if (inFlight.get(key) === controller) inFlight.delete(key);
             }

@@ -93,6 +93,13 @@ describe("desktopHomeserverFetch", () => {
         ).rejects.toThrow(TypeError);
     });
 
+    it("rejects as aborted when the desktop app answers that the request was aborted", async () => {
+        bridge.fetch.mockResolvedValue({ status: 0, statusText: "", headers: [], body: null, aborted: true });
+        await expect(
+            desktopHomeserverFetch("https://matrix.example.org")!("https://matrix.example.org/sync"),
+        ).rejects.toMatchObject({ name: "AbortError" });
+    });
+
     it("aborts the desktop app's request with the signal, rejecting with its reason", async () => {
         let fail!: (error: unknown) => void;
         bridge.fetch.mockReturnValue(new Promise((_, reject) => (fail = reject)));

@@ -51,6 +51,8 @@ export function desktopHomeserverFetch(baseUrl: string | undefined): typeof fetc
                 headers: [...new Headers(init.headers)],
                 body: body ?? undefined,
             });
+            if (response.aborted)
+                throw signal ? abortError(signal) : new DOMException("The operation was aborted.", "AbortError");
             return new Response(NULL_BODY_STATUSES.has(response.status) ? null : response.body, {
                 status: response.status,
                 statusText: response.statusText,
@@ -58,6 +60,7 @@ export function desktopHomeserverFetch(baseUrl: string | undefined): typeof fetc
             });
         } catch (error) {
             if (signal?.aborted) throw abortError(signal);
+            if (error instanceof DOMException && error.name === "AbortError") throw error;
             throw new TypeError("Failed to fetch", { cause: error });
         } finally {
             signal?.removeEventListener("abort", onAbort);

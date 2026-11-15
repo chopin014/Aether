@@ -21,6 +21,8 @@ export interface HomeserverFetchResponse {
     statusText: string;
     headers: [string, string][];
     body: ArrayBuffer | null;
+    /** The request was aborted before it was answered. */
+    aborted?: boolean;
 }
 
 /**
