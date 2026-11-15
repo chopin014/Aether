@@ -25,6 +25,7 @@ import {
     type Relations,
     Room,
     RoomMember,
+    RoomStateEvent,
 } from "matrix-js-sdk/src/matrix";
 import {
     type CryptoApi,
@@ -860,6 +861,37 @@ describe("EventTile", () => {
             expect(badges).toHaveLength(1);
             expect(badges[0]).toHaveAttribute("data-badge-type", "dot");
             expect(badges[0]).toHaveAttribute("data-notification-level", "highlight");
+        });
+    });
+
+    describe("pinned messages", () => {
+        it("shows the message pinned, or no longer, as soon as the room's pins change", async () => {
+            const pinned = vi.spyOn(PinningUtils, "isPinned").mockReturnValue(false);
+            const { unmount } = getComponent();
+            expect(screen.queryByText("Pinned message")).toBeNull();
+            const pins = (ids: string[]): MatrixEvent =>
+                new MatrixEvent({
+                    type: EventType.RoomPinnedEvents,
+                    state_key: "",
+                    room_id: room.roomId,
+                    content: { pinned: ids },
+                });
+
+            pinned.mockReturnValue(true);
+            act(() => {
+                room.emit(RoomStateEvent.Events, pins([mxEvent.getId()!]), room.currentState, null);
+            });
+            expect(screen.getByText("Pinned message")).toBeInTheDocument();
+
+            pinned.mockReturnValue(false);
+            act(() => {
+                room.emit(RoomStateEvent.Events, pins([]), room.currentState, null);
+            });
+            expect(screen.queryByText("Pinned message")).toBeNull();
+
+            const following = room.listenerCount(RoomStateEvent.Events);
+            unmount();
+            expect(room.listenerCount(RoomStateEvent.Events)).toBe(following - 1);
         });
     });
 

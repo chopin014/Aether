@@ -26,6 +26,8 @@ import {
     type RoomMember,
     type Thread,
     ThreadEvent,
+    RoomStateEvent,
+    EventType,
 } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 import { uniqueId } from "lodash";
@@ -412,7 +414,17 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
 
         const room = client.getRoom(this.props.mxEvent.getRoomId());
         room?.on(ThreadEvent.New, this.onNewThread);
+        // Whether the message is pinned is read as the tile renders; it is told when the room's pins change.
+        this.pinsRoom = room ?? undefined;
+        this.pinsRoom?.on(RoomStateEvent.Events, this.onRoomStateEvent);
     }
+
+    /** The room whose pinned messages the tile follows, kept to stop following the same one. */
+    private pinsRoom?: Room;
+
+    private readonly onRoomStateEvent = (event: MatrixEvent): void => {
+        if (event.getType() === EventType.RoomPinnedEvents) this.forceUpdate();
+    };
 
     private readonly updateThread = (thread: Thread): void => {
         this.setState({ thread });
@@ -435,6 +447,8 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
             room?.off(ThreadEvent.New, this.onNewThread);
         }
         this.isListeningForReceipts = false;
+        this.pinsRoom?.off(RoomStateEvent.Events, this.onRoomStateEvent);
+        this.pinsRoom = undefined;
         this.props.mxEvent.removeListener(MatrixEventEvent.Decrypted, this.onDecrypted);
         this.props.mxEvent.removeListener(MatrixEventEvent.Replaced, this.onReplaced);
         if (this.props.showReactions) {
