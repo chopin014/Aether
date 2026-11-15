@@ -40,6 +40,7 @@ import {
 import { currentRoomEntryVisit, notifyRoomEntryReady, onRoomEntryVisit } from "../../performance/RoomEntryReady";
 import { markRoomSwitch } from "../../performance/RoomSwitchPerformance";
 import type { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
+import { createTimelineVisitBinding } from "../../viewmodels/room/timeline/TimelineVisitBinding";
 import { sendStateOf } from "../../viewmodels/room/timeline/sendState";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
 import { LegacyEventTileAdapter } from "../views/rooms/LegacyEventTileAdapter";
@@ -323,25 +324,51 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: 
     }
 }
 
+/** When the controls of a lent timeline may act; see {@link roomMessagePanelFor}. */
+interface PanelAuthority {
+    /** Whether the timeline may act at all. */
+    isCurrent: () => boolean;
+    /** Whether the rows shown have been placed for the view model's current visit, so what is on screen is read. */
+    isPlaced: () => boolean;
+}
+
+/** Controls that may always act, for a timeline that is not lent. */
+const ALWAYS: PanelAuthority = { isCurrent: () => true, isPlaced: () => true };
+
 /**
  * The controls a room view uses on a timeline, for shortcuts, sending and editing, acting on `vm`.
  * @param vm - The timeline's view model.
  * @param scroller - Finds the timeline's scroller, for the keys that scroll it.
+ * @param authority - For a timeline a host lends, when the controls may act. Otherwise they always may. When they may
+ *   not, questions are answered no and commands do nothing, and nothing is read from the page.
  */
-export function roomMessagePanelFor(vm: RoomTimelineViewModel, scroller: () => HTMLElement | null): RoomMessagePanel {
+export function roomMessagePanelFor(
+    vm: RoomTimelineViewModel,
+    scroller: () => HTMLElement | null,
+    authority: PanelAuthority = ALWAYS,
+): RoomMessagePanel {
+    const { isCurrent } = authority;
+    const reading = (): boolean => isCurrent() && authority.isPlaced();
     return {
-        isAtEndOfLiveTimeline: () => vm.isAtLiveBottom,
+        isAtEndOfLiveTimeline: () => isCurrent() && vm.isAtLiveBottom,
         // Like the old timeline: the SDK may replace the live timeline while the reader is at its end. The view
         // model follows on to the new one, or keeps a reader of older messages where they are.
-        canResetTimeline: () => vm.isAtLiveBottom,
-        canJumpToReadMarker: () => vm.canJumpToReadMarker,
-        jumpToLiveTimeline: () => vm.jumpToLive(),
-        jumpToReadMarker: () => vm.jumpToReadMarker(),
-        forgetReadMarker: () => vm.onMarkAllAsRead(),
+        canResetTimeline: () => isCurrent() && vm.isAtLiveBottom,
+        canJumpToReadMarker: () => isCurrent() && vm.canJumpToReadMarker,
+        jumpToLiveTimeline: () => {
+            if (isCurrent()) vm.jumpToLive();
+        },
+        jumpToReadMarker: () => {
+            if (isCurrent()) vm.jumpToReadMarker();
+        },
+        forgetReadMarker: () => {
+            if (isCurrent()) vm.onMarkAllAsRead();
+        },
         scrollToEventIfNeeded: (eventId?: string) => {
-            if (eventId) vm.scrollToEventIfNeeded(eventId);
+            if (eventId && isCurrent()) vm.scrollToEventIfNeeded(eventId);
         },
         handleScrollKey: (ev) => {
+            if (!isCurrent()) return;
             const element = scroller();
             if (!element) return;
             switch (getKeyBindingsManager().getRoomAction(ev)) {
@@ -360,9 +387,13 @@ export function roomMessagePanelFor(vm: RoomTimelineViewModel, scroller: () => H
                     break;
             }
         },
-        sendReadReceipts: () => vm.sendReadReceiptNow(),
+        sendReadReceipts: () => {
+            if (reading()) vm.sendReadReceiptNow();
+        },
         // The fully read marker moves on now. The unread line drawn for this visit stays where it is.
-        updateReadMarker: () => vm.moveReadMarkerOnNow(),
+        updateReadMarker: () => {
+            if (reading()) vm.moveReadMarkerOnNow();
+        },
     };
 }
 
@@ -431,6 +462,29 @@ export function NewTimelineRenderer({
     const memberCount = useRoomMemberCount(room, { throttleWait: 250, includeInvited: true });
     const hideSender = effectiveLayout === Layout.Bubble && memberCount <= 2;
 
+    // A lent timeline acts through what its lending allows: each execution gets its own binding of the view model and
+    // of the panel, whose checks ask that execution, so what an earlier one left behind does nothing. Its view counts
+    // as placed for a visit once a placement in that visit has completed under it.
+    const placedRef = useRef<{ execution: TimelineViewExecution; visit: number | undefined } | null>(null);
+    const lent = useMemo(() => {
+        if (!execution) return null;
+        const isCurrent = execution.isCurrent;
+        const isPlaced = (): boolean => {
+            const visit = vm.getSnapshot().visit;
+            const placed = placedRef.current;
+            return placed?.execution === execution && placed.visit === visit?.generation && visit?.rowsReady !== false;
+        };
+        const placing: TimelineViewExecution = {
+            ...execution,
+            onPlaced: () => {
+                if (!execution.onPlaced()) return false;
+                placedRef.current = { execution, visit: vm.getSnapshot().visit?.generation };
+                return true;
+            },
+        };
+        return { authority: { isCurrent, isPlaced }, placing, vm: createTimelineVisitBinding(vm, isCurrent, isPlaced) };
+    }, [vm, execution]);
+
     // The highlighted message the panel opens with is the view model's starting point. Later navigations, from
     // permalinks, replies, pinned messages or search in the room already open, are shown in place.
     const lastNavigation = useRef({ eventId: highlightedEventId, scrollIntoView: eventScrollIntoView });
@@ -438,20 +492,24 @@ export function NewTimelineRenderer({
         const previous = lastNavigation.current;
         lastNavigation.current = { eventId: highlightedEventId, scrollIntoView: eventScrollIntoView };
         if (!highlightedEventId || eventScrollIntoView === false) return;
+        // A lent timeline that may no longer act leaves the navigation to whatever shows the room now.
+        if (execution && !execution.isCurrent()) return;
         if (highlightedEventId !== previous.eventId || previous.scrollIntoView === false) {
             vm.showEvent(highlightedEventId);
         }
         onEventScrolledIntoView?.(highlightedEventId);
-    }, [vm, highlightedEventId, eventScrollIntoView, onEventScrolledIntoView]);
+    }, [vm, execution, highlightedEventId, eventScrollIntoView, onEventScrolledIntoView]);
 
+    const authority = lent?.authority;
     useImperativeHandle(
         panelRef,
         (): RoomMessagePanel =>
             roomMessagePanelFor(
                 vm,
                 () => containerRef.current?.querySelector<HTMLElement>("[data-testid='timeline-scroller']") ?? null,
+                authority,
             ),
-        [vm],
+        [vm, authority],
     );
 
     // The setting can change while the room is open.
@@ -534,11 +592,11 @@ export function NewTimelineRenderer({
             {/* The name column's drag handle, over the timeline as in the old one. */}
             {irc && <IRCTimelineProfileResizer minWidth={20} maxWidth={600} roomId={room.roomId} />}
             <TimelineView
-                vm={vm}
+                vm={lent?.vm ?? vm}
                 renderItem={renderItem}
                 onItemsPainted={entryPainted ? undefined : onItemsPainted}
                 paddingBlock={LIST_PADDING_PX}
-                execution={execution}
+                execution={lent?.placing}
             />
         </div>
     );

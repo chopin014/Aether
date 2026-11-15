@@ -216,6 +216,29 @@ describe("RoomTimelineHost", () => {
         expect(execution.onPlaced()).toBe(false);
     });
 
+    it("tells the timeline, and takes it out of sight and reach, as it gives it up, before React removes it", () => {
+        const { rerender } = render(app(roomView(roomA)));
+        const execution: TimelineViewExecution = drawn.props!.execution!;
+        const timeline = drawn.props!.vm;
+        const container = screen.getByTestId("timeline-area").querySelector<HTMLElement>(".mx_RoomTimelineHost_entry")!;
+        screen.getByTestId("timeline").focus();
+        let seen: Record<string, boolean> | undefined;
+        execution.subscribeToInvalidation!(() => {
+            seen = {
+                current: execution.isCurrent(),
+                concealed: container.classList.contains("mx_RoomTimelineHost_entry_revoked") && container.inert,
+                focused: container.contains(document.activeElement),
+                disposed: timeline.isDisposed,
+                inPage: container.isConnected,
+            };
+        });
+
+        rerender(app(null));
+
+        expect(seen).toEqual({ current: false, concealed: true, focused: false, disposed: false, inPage: true });
+        expect(timeline.isDisposed).toBe(true);
+    });
+
     it("draws the timeline in its slot when React replays effects in StrictMode", async () => {
         render(app(roomView(roomA)), { reactStrictMode: true });
 

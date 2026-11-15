@@ -165,6 +165,22 @@ function placeBeforePaint(
     );
 }
 
+/** The rows a render drew, kept once it is committed, so that a suspended view draws them again as they were. */
+interface DrawnRows {
+    /** The items the rows were drawn for, in order. */
+    readonly items: TimelineItem[];
+    /** The rows themselves, kept so that React leaves each of them, and what it holds, exactly as it is. */
+    readonly rows: JSX.Element[];
+    readonly alignToBottom: boolean | undefined;
+}
+
+const NO_ITEMS: TimelineItem[] = [];
+
+/** Whether `scroller` is in the page with a size, as the rows can only be measured and placed in one that is. */
+function hasGeometry(scroller: HTMLDivElement | null): boolean {
+    return !!scroller?.isConnected && scroller.clientWidth > 0 && scroller.clientHeight > 0;
+}
+
 export function TimelineView({
     vm,
     renderItem,
@@ -174,11 +190,18 @@ export function TimelineView({
 }: TimelineViewProps): JSX.Element {
     const snapshot = useViewModel(vm);
 
+    // Whether the view is suspended; see `TimelineViewExecution.suspended`. The ref is for the callbacks below, which
+    // can learn of a suspension before React renders again; the state draws the rows kept from before it.
+    const pausedRef = useRef(false);
+    const [paused, setPaused] = useState(false);
+    const frozen = paused || execution?.suspended === true;
+
     // Whether a host that lends this view to one room at a time lets it act; see `TimelineViewExecution`. Work that
     // runs later, from a frame or an event, notes the revision it was scheduled under and checks `mayAct` with it then.
     const executionRef = useRef<TimelineViewExecution | undefined>(execution);
     executionRef.current = execution;
     const mayAct = useCallback((revision: number | undefined = executionRef.current?.revision): boolean => {
+        if (pausedRef.current) return false;
         const current = executionRef.current;
         if (!current) return revision === undefined;
         return current.revision === revision && current.isCurrent();
@@ -198,6 +221,10 @@ export function TimelineView({
     const items = snapshot.items;
     const itemsRef = useRef(items);
     itemsRef.current = items;
+    // The rows last committed while the view acted, and the items they are for: while suspended, the virtualizer is
+    // given those, as they are what the page holds, whatever the view model has published since.
+    const drawnRef = useRef<DrawnRows | null>(null);
+    const shownItems = frozen ? (drawnRef.current?.items ?? NO_ITEMS) : items;
 
     const scrollerRef = useRef<HTMLDivElement | null>(null);
     // The virtualizer reads its starting offset once, when it first has rows. Starting it only once the viewport is
@@ -227,8 +254,9 @@ export function TimelineView({
     } | null>(null);
     const receivedResizeEntryRef = useRef(false);
 
+    // Nothing is painted while suspended: the rows on screen were told of before it.
     useEffect(() => {
-        if (!revealed || !onItemsPainted) return;
+        if (!revealed || !onItemsPainted || frozen) return;
         const revision = executionRef.current?.revision;
         let frame = requestAnimationFrame(() => {
             frame = requestAnimationFrame(() => {
@@ -272,8 +300,8 @@ export function TimelineView({
     // possible at all. It also compares the first row's key between renders to spot when
     // rows have been added or removed at the top, so this must always read the current list.
     const getItemKey = useCallback(
-        (index: number): string => (items[index] ? tileKeyOf(items[index]) : String(index)),
-        [items],
+        (index: number): string => (shownItems[index] ? tileKeyOf(shownItems[index]) : String(index)),
+        [shownItems],
     );
 
     // Refuses loading spinners as the row the scroll position is anchored to; see the note
@@ -436,10 +464,10 @@ export function TimelineView({
     );
 
     const virtualizer = useVirtualizer({
-        count: items.length,
+        count: shownItems.length,
         // Keep the initial offset unset until messages arrive, then render near the destination
         // instead of measuring the top of the list before scrolling to its initial anchor.
-        enabled: items.length > 0 && scrollerReady,
+        enabled: shownItems.length > 0 && scrollerReady,
         initialOffset: () => {
             // A nonempty first snapshot can render before the viewport mounts. In that case,
             // leave placement to the existing measured scroll instead of guessing its height.
@@ -571,8 +599,79 @@ export function TimelineView({
         placementCountRef.current++;
         releaseBottom();
     }, [executionRevision, releaseBottom]);
+
+    // ─── Suspension: see `TimelineViewExecution.suspended` ─────────────────────
+    // While waiting to resume into a viewport that has no size yet, the one observer that tells when it has one.
+    const geometryWaitRef = useRef<ResizeObserver | null>(null);
+    const stopWaitingForGeometry = useCallback((): void => {
+        geometryWaitRef.current?.disconnect();
+        geometryWaitRef.current = null;
+    }, []);
+    // Stop everything the view does, at once: `mayAct` refuses from now on, which drops what it scheduled as it comes
+    // due, a placement under way asks for no more frames, and the virtualizer keeps the rows, their sizes and the
+    // offset without observing or scrolling, while the rows last committed are drawn as they were.
+    const pause = useCallback((): void => {
+        if (pausedRef.current) return;
+        pausedRef.current = true;
+        if (coldRafRef.current !== undefined) cancelAnimationFrame(coldRafRef.current);
+        coldRafRef.current = undefined;
+        virtualizer.setPaused(true);
+        setPaused(true);
+    }, [virtualizer]);
+    // Act again, in a viewport that has a size: the current target is placed afresh behind the cover, keeping the
+    // rows and what is known of their sizes, and what it shows is reported anew once it is shown again, even where it
+    // is as before; see the effect that reports after each placement.
+    const resume = useCallback((): void => {
+        stopWaitingForGeometry();
+        pausedRef.current = false;
+        virtualizer.setPaused(false);
+        // Placed afresh, and shown once placed, as a first load is: rows count as measured once they are measured
+        // again, should the placement take frames, as their sizes may have changed while suspended.
+        phaseRef.current = "init";
+        measuredElementsRef.current = new WeakSet();
+        receivedResizeEntryRef.current = false;
+        revealedRef.current = false;
+        setRevealed(false);
+        lastAtBottomRef.current = null;
+        setPaused(false);
+    }, [virtualizer, stopWaitingForGeometry]);
+    // Suspended by its execution, or told by its host that it may no longer act. The host may have stopped allowing
+    // it before this view was given the execution, so that is checked too.
     useLayoutEffect(() => {
-        if (phaseRef.current !== "init" || items.length === 0) return;
+        const unsubscribe = execution?.subscribeToInvalidation?.(pause);
+        if (execution?.suspended || (unsubscribe && !execution?.isCurrent())) pause();
+        return unsubscribe;
+    }, [execution, pause]);
+    // Resumed by an execution that allows the view to act, once its viewport has a size. Until then nothing is read
+    // from the page: one observer of the viewport says when it has one.
+    useLayoutEffect(() => {
+        if (!pausedRef.current) return;
+        if (!execution) {
+            resume();
+            return;
+        }
+        if (execution.suspended || !execution.isCurrent()) return;
+        const scroller = scrollerRef.current;
+        if (hasGeometry(scroller)) {
+            resume();
+            return;
+        }
+        const Observer = scroller?.ownerDocument.defaultView?.ResizeObserver;
+        if (!scroller || !Observer) return;
+        stopWaitingForGeometry();
+        const observer = new Observer(() => {
+            if (geometryWaitRef.current !== observer || !hasGeometry(scroller)) return;
+            if (executionRef.current === execution && execution.isCurrent()) resume();
+            else stopWaitingForGeometry();
+        });
+        geometryWaitRef.current = observer;
+        observer.observe(scroller);
+    }, [execution, resume, stopWaitingForGeometry]);
+    useEffect(() => stopWaitingForGeometry, [stopWaitingForGeometry]);
+
+    useLayoutEffect(() => {
+        // Rows kept from before a suspension are placed once the view draws its own again.
+        if (frozen || phaseRef.current !== "init" || items.length === 0) return;
         // A lent view places only rows its view model has accepted for the visit it is on. Whether it may act is
         // checked as the placement goes, before each step, so it starts over once it may.
         if (executionRef.current && snapshotRef.current.visit?.rowsReady === false) return;
@@ -669,7 +768,7 @@ export function TimelineView({
             coldRafRef.current = requestAnimationFrame(tick);
         };
         coldRafRef.current = requestAnimationFrame(tick);
-    }, [items.length, virtualizer, vm, mayAct, execution, snapshot.visit?.rowsReady]);
+    }, [items.length, virtualizer, vm, mayAct, execution, snapshot.visit?.rowsReady, frozen]);
 
     // ─── First load before the first paint ─────────────────────────────────
     // The rows that end up on screen are usually already mounted: the first render starts near the target (see
@@ -739,7 +838,32 @@ export function TimelineView({
         [offsetForKey, releaseBottom, virtualizer, mayAct],
     );
 
-    const virtualItems = virtualizer.getVirtualItems();
+    // The rows, as the virtualizer lays them out now or, while suspended, as last committed.
+    let drawn: DrawnRows | null = null;
+    if (!frozen) {
+        const rows = virtualizer.getVirtualItems().flatMap((vi) => {
+            const item: TimelineItem | undefined = items[vi.index];
+            if (!item) return [];
+            return [
+                <li
+                    key={vi.key}
+                    className={classNames("mx_TimelineView_tile", styles.tile)}
+                    data-index={vi.index}
+                    data-key={item.key}
+                    ref={virtualizer.measureElement}
+                >
+                    {renderItem(item)}
+                </li>,
+            ];
+        });
+        drawn = { items, rows, alignToBottom: snapshot.alignToBottom };
+    }
+    const shown = drawn ?? drawnRef.current;
+    // Kept once committed, and only while the view acts, so that neither a render React discards nor one made as the
+    // view is being suspended becomes what a suspended view draws.
+    useLayoutEffect(() => {
+        if (drawn && !pausedRef.current) drawnRef.current = drawn;
+    });
 
     return (
         <div className={styles.root}>
@@ -750,7 +874,7 @@ export function TimelineView({
                 tabIndex={0}
                 className={classNames(styles.scroller, {
                     [styles.hidden]: !revealed,
-                    [styles.bottomAligned]: snapshot.alignToBottom,
+                    [styles.bottomAligned]: shown?.alignToBottom,
                 })}
             >
                 {/* An <ol> of <li> rows, so screen readers announce this as a list of messages
@@ -765,21 +889,7 @@ export function TimelineView({
                     role="list"
                 >
                     {/* eslint-enable jsx-a11y/no-redundant-roles */}
-                    {virtualItems.map((vi) => {
-                        const item: TimelineItem | undefined = items[vi.index];
-                        if (!item) return null;
-                        return (
-                            <li
-                                key={vi.key}
-                                className={classNames("mx_TimelineView_tile", styles.tile)}
-                                data-index={vi.index}
-                                data-key={item.key}
-                                ref={virtualizer.measureElement}
-                            >
-                                {renderItem(item)}
-                            </li>
-                        );
-                    })}
+                    {shown?.rows}
                 </ol>
             </div>
             {!revealed && (
@@ -787,7 +897,7 @@ export function TimelineView({
                     <InlineSpinner size={32} />
                 </div>
             )}
-            {revealed && <TimelineOverlayButtons snapshot={snapshot} vm={vm} scrollNow={scrollNow} />}
+            {revealed && !frozen && <TimelineOverlayButtons snapshot={snapshot} vm={vm} scrollNow={scrollNow} />}
         </div>
     );
 }

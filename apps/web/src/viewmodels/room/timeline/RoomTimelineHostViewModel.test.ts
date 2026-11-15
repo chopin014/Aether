@@ -95,6 +95,65 @@ describe("RoomTimelineHostViewModel", () => {
         expect(host.getSnapshot().entry).toBeNull();
     });
 
+    it("gives a timeline up in order: its lease, then those told, its view model, and last its snapshot", () => {
+        const lease = host.bind(request(roomA))!;
+        const timeline = host.getSnapshot().entry!.vm;
+        const order: string[] = [];
+        host.subscribeToRevocation(lease, () =>
+            order.push(`told: current ${host.isCurrent(lease)}, shown ${host.getSnapshot().entry !== null}`),
+        );
+        // Disposing suspends too, which does nothing once suspended.
+        vi.spyOn(timeline, "suspendPresentation").mockImplementation(() => {
+            if (!order.includes("suspended")) order.push("suspended");
+        });
+        const dispose = timeline.dispose.bind(timeline);
+        vi.spyOn(timeline, "dispose").mockImplementation(() => {
+            order.push("disposed");
+            dispose();
+        });
+        host.subscribe(() => order.push(`removed: ${host.getSnapshot().entry === null}`));
+
+        host.release(lease);
+
+        expect(order).toEqual(["told: current false, shown true", "suspended", "disposed", "removed: true"]);
+    });
+
+    it("tells each listener once, and none for a lease given up already or that stopped listening", () => {
+        const stale = host.bind(request(roomA))!;
+        const lease = host.bind(request(roomB))!;
+        const forStale = vi.fn();
+        const told = vi.fn();
+        const stopped = vi.fn();
+        host.subscribeToRevocation(stale, forStale);
+        host.subscribeToRevocation(lease, told);
+        host.subscribeToRevocation(lease, stopped)();
+
+        host.release(lease);
+        host.release(lease);
+        // Another timeline given up tells only those listening for it.
+        host.release(host.bind(request(roomA))!);
+        host.dispose();
+
+        expect(forStale).not.toHaveBeenCalled();
+        expect(told).toHaveBeenCalledOnce();
+        expect(stopped).not.toHaveBeenCalled();
+    });
+
+    it("keeps a timeline bound by one told of the last being given up", () => {
+        const lease = host.bind(request(roomA))!;
+        let next: ReturnType<typeof host.bind> = null;
+        host.subscribeToRevocation(lease, () => {
+            host.release(lease);
+            next = host.bind(request(roomB));
+        });
+
+        host.release(lease);
+
+        expect(host.isCurrent(next!)).toBe(true);
+        expect(host.getSnapshot().entry?.lease).toBe(next);
+        expect(host.getSnapshot().entry?.vm.isDisposed).toBe(false);
+    });
+
     it("binds nothing for another client, or once disposed", () => {
         expect(host.bind(request(roomA, { client: createTestClient() }))).toBeNull();
         expect(host.getSnapshot().entry).toBeNull();

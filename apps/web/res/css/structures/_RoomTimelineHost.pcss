@@ -13,3 +13,8 @@ Please see LICENSE in the repository root for full details.
 .mx_RoomTimelineHost_events {
     display: contents;
 }
+
+/* A timeline the host has given up, until React removes it; see RoomTimelineHost. */
+.mx_RoomTimelineHost_entry.mx_RoomTimelineHost_entry_revoked {
+    display: none;
+}

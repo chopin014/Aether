@@ -31,6 +31,19 @@ import {
     type RoomTimelineSlotPacket,
 } from "./RoomTimelineHostContext";
 
+/**
+ * Take a timeline given up out of sight and out of reach at once, before React removes it: it is hidden and inert, and
+ * keeps neither the focus nor a selection.
+ */
+function conceal(container: HTMLElement): void {
+    container.classList.add("mx_RoomTimelineHost_entry_revoked");
+    container.inert = true;
+    const focused = container.ownerDocument.activeElement;
+    if (focused instanceof HTMLElement && container.contains(focused)) focused.blur();
+    const selection = container.ownerDocument.getSelection();
+    if (selection?.anchorNode && container.contains(selection.anchorNode)) selection.removeAllRanges();
+}
+
 /** The timeline the host draws: its lease, the element it is drawn into, and what the room view last gave it. */
 interface Docked {
     readonly lease: RoomTimelineLease;
@@ -51,7 +64,9 @@ interface Props {
  * The timeline is drawn into an element of the host's own, which the host puts inside the slot, so it sits where the
  * room view would have drawn it while belonging to the host in React's tree. The host owns the timeline's view model
  * and disposes of it once the slot is released: in this first version a timeline lives as long as the room view's
- * slot, and the room view's contexts and key and focus handlers are passed on to it from the slot.
+ * slot, and the room view's contexts and key and focus handlers are passed on to it from the slot. As it is released,
+ * the timeline stops at once, before React removes it: its view is suspended and concealed, and its view model stops
+ * following the room; see `RoomTimelineHostViewModel`.
  */
 export function RoomTimelineHost({ client, children }: Readonly<Props>): JSX.Element {
     const vm = useCreateAutoDisposedViewModel(() => new RoomTimelineHostViewModel({ client }));
@@ -65,6 +80,7 @@ export function RoomTimelineHost({ client, children }: Readonly<Props>): JSX.Ele
                 if (!lease) return null;
                 const container = document.createElement("div");
                 container.className = "mx_RoomTimelineHost_entry";
+                vm.subscribeToRevocation(lease, () => conceal(container));
                 slot.append(container);
                 setDocked({ lease, container, packet });
                 return lease;
@@ -127,9 +143,15 @@ const HostedTimeline = memo(function HostedTimeline({
 }: Readonly<HostedTimelineProps>): JSX.Element {
     const { lease, packet } = docked;
 
-    // The timeline may act only while its lease is current: once released, what it still has scheduled is dropped.
+    // The timeline may act only while its lease is current: once released, it is told so at once and suspends itself,
+    // and what it still has scheduled is dropped.
     const execution = useMemo<TimelineViewExecution>(
-        () => ({ revision: 1, isCurrent: () => host.isCurrent(lease), onPlaced: () => host.isCurrent(lease) }),
+        () => ({
+            revision: 1,
+            isCurrent: () => host.isCurrent(lease),
+            onPlaced: () => host.isCurrent(lease),
+            subscribeToInvalidation: (listener) => host.subscribeToRevocation(lease, listener),
+        }),
         [host, lease],
     );
 
