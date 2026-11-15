@@ -128,6 +128,9 @@ describe("<SpacePanel />", () => {
         doesServerSupportUnstableFeature: vi.fn().mockResolvedValue(false),
         getAuthMetadata: vi.fn().mockRejectedValue(new Error("Legacy auth")),
         getSyncState: vi.fn().mockReturnValue("SYNCING"),
+        getSessionId: vi.fn().mockReturnValue("session"),
+        getDeviceId: vi.fn().mockReturnValue("DEVICE"),
+        getUser: vi.fn().mockReturnValue(null),
     } as unknown as MatrixClient;
     const sdkContext = new TestSDKContext();
     const SpacePanel = wrapInSdkContext(wrapInMatrixClientContext(UnwrappedSpacePanel), sdkContext);
@@ -139,7 +142,14 @@ describe("<SpacePanel />", () => {
     });
 
     beforeEach(() => {
-        sdkContext.spaceStore.enabledMetaSpaces.push(MetaSpace.Home, MetaSpace.Orphans, MetaSpace.VideoRooms);
+        // Each test starts from the same meta spaces, rather than adding to the last test's.
+        sdkContext.spaceStore.enabledMetaSpaces.splice(
+            0,
+            Infinity,
+            MetaSpace.Home,
+            MetaSpace.Orphans,
+            MetaSpace.VideoRooms,
+        );
         vi.mocked(shouldShowComponent).mockClear().mockReturnValue(true);
     });
     afterEach(() => {
@@ -155,7 +165,7 @@ describe("<SpacePanel />", () => {
         render(<SpacePanel />);
 
         // Inspect the order of the rendered MetaSpaces, excluding the "Create a server" button.
-        const tree = screen.getByRole("tree", { name: "Spaces" });
+        const tree = screen.getByRole("tree", { name: "Servers" });
         const spaceButtons = within(tree)
             .getAllByRole("treeitem")
             .filter((el) => within(el).queryByRole("button", { name: "Create a server" }) === null);
@@ -215,7 +225,7 @@ describe("<SpacePanel />", () => {
             .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
         try {
             render(<SpacePanel />);
-            const rail = screen.getByRole("navigation", { name: "Spaces" });
+            const rail = screen.getByRole("navigation", { name: "Servers" });
             expect(rail).toHaveClass("collapsed");
             expect(screen.queryByRole("button", { name: "Expand" })).not.toBeInTheDocument();
 
@@ -229,7 +239,7 @@ describe("<SpacePanel />", () => {
     it("retains the expand control and shortcut outside the desktop shell", () => {
         render(<SpacePanel />);
         expect(screen.queryByRole("button", { name: "Discover public servers" })).not.toBeInTheDocument();
-        const rail = screen.getByRole("navigation", { name: "Spaces" });
+        const rail = screen.getByRole("navigation", { name: "Servers" });
         fireEvent.click(screen.getByRole("button", { name: "Expand" }));
         expect(rail).not.toHaveClass("collapsed");
 
@@ -254,7 +264,7 @@ describe("<SpacePanel />", () => {
 
         it("should show an accessible Discover button immediately below Create a server", async () => {
             render(<SpacePanel />);
-            const tree = screen.getByRole("tree", { name: "Spaces" });
+            const tree = screen.getByRole("tree", { name: "Servers" });
             const create = within(tree).getByRole("button", { name: "Create a server" });
             const discover = within(tree).getByRole("button", { name: "Discover public servers" });
 
@@ -270,7 +280,7 @@ describe("<SpacePanel />", () => {
             try {
                 render(<SpacePanel />);
                 fireEvent.click(screen.getByRole("button", { name: "Discover public servers" }));
-                expect(dispatch).toHaveBeenCalledWith({ action: Action.ViewDiscover });
+                expect(dispatch).toHaveBeenCalledWith({ action: Action.ViewDiscover }, false);
                 expect(screen.getByRole("button", { name: "Create a server" })).toBeVisible();
                 expect(screen.queryByRole("heading", { name: "Create a server" })).not.toBeInTheDocument();
             } finally {
