@@ -34,7 +34,8 @@ Please see LICENSE in the repository root for full details.
     gap: var(--cpd-space-3x);
     padding: var(--cpd-space-3x) var(--cpd-space-4x);
     flex: none;
-    z-index: 2;
+    /* Above the shared player, which is laid over the tiles, so "Reconnecting" is never hidden. */
+    z-index: 3;
 }
 
 .headerIdentity {
