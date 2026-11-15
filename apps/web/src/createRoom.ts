@@ -107,6 +107,11 @@ export const DEFAULT_EVENTS_POWER_LEVEL = {
     [EventType.RoomTombstone]: 100,
 };
 
+/** Whether a server (space) is closed to the public, so that its channels are for its members only. */
+function isPrivateServer(space?: Room): boolean {
+    return !!space && space.getJoinRule() !== JoinRule.Public;
+}
+
 /**
  * Create a new room, and switch to it.
  *
@@ -310,15 +315,20 @@ export default async function createRoom(client: MatrixClient, opts: IOpts): Pro
         }
     }
 
-    // Set history visibility to "invited" for DMs and non-public rooms unless explicitly overridden
-    // This ensures that room history is only visible to invited members by default
+    // Unless explicitly overridden, set history visibility to "shared" for the non-public channels of a private
+    // server and to "invited" for DMs and other non-public rooms, whose history is then only visible to invited
+    // members.
     let historyVisibility = opts.historyVisibility;
     if (!historyVisibility) {
         // Determine if the room will be public based on the join rule or preset
         const isPublicRoom = opts.joinRule === JoinRule.Public || createOpts.preset === Preset.PublicChat;
 
-        // For DMs and non-public rooms, set history visibility to "invited"
-        if (opts.dmUserId || !isPublicRoom) {
+        if (!opts.dmUserId && !isPublicRoom && isPrivateServer(opts.parentSpace)) {
+            // A channel's history belongs to the channel, as in Discord and Slack. "shared" lets the server serve
+            // earlier messages to new members and lets an inviter share the keys to them.
+            historyVisibility = HistoryVisibility.Shared;
+        } else if (opts.dmUserId || !isPublicRoom) {
+            // For DMs and other non-public rooms, set history visibility to "invited"
             historyVisibility = HistoryVisibility.Invited;
         }
     }
