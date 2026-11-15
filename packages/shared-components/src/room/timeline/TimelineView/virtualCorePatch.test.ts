@@ -231,6 +231,24 @@ describe("virtual-core patch: pausing", () => {
         scroller.remove();
     });
 
+    it("stops a smooth scroll the browser is running as it pauses, and keeps where it stopped", async () => {
+        const { virtualizer, scroller } = makeRows(50, 50);
+        virtualizer.scrollToOffset(1000, { behavior: "smooth" });
+        await nextFrame();
+
+        virtualizer.setPaused(true);
+        const stoppedAt = scroller.scrollTop;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(scroller.scrollTop).toBe(stoppedAt);
+        expect(stoppedAt).toBeLessThan(1000);
+        expect(virtualizer.scrollOffset).toBe(stoppedAt);
+
+        virtualizer.setPaused(false);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(scroller.scrollTop).toBe(stoppedAt);
+        scroller.remove();
+    });
+
     it("attaches nothing again as its owner renders while paused, nor keeps rows in place that change meanwhile", async () => {
         const { virtualizer, scroller, onChange } = makeRows(10, 50, { anchorTo: "end" });
         scroller.scrollTop = 150;

@@ -39,7 +39,7 @@ index c9065e73a2565430fc05ec61783490abc0a6d3c0..d69e6b8c42478eb057c422201736759d
          (): VirtualItem[];
          updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044582148f2b8923163b1a431571230bdfef..7765a7e322e731803a2f85b6bea08a32658cb911 100644
+index dcba044582148f2b8923163b1a431571230bdfef..812c52a7d05409acee68823c75bcc489870451a1 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
 @@ -213,6 +213,10 @@ class Virtualizer {
@@ -288,7 +288,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..7765a7e322e731803a2f85b6bea08a32
        if (this.options.count > 0) {
          this._iosDeferredAdjustment = 0;
          const offset = Math.max(this.getMaxScrollOffset(), 0);
-@@ -1249,6 +1344,59 @@ class Virtualizer {
+@@ -1249,6 +1344,72 @@ class Virtualizer {
        }
        this.options.scrollToFn(offset, { behavior, adjustments }, this);
      };
@@ -328,6 +328,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..7765a7e322e731803a2f85b6bea08a32
 +    // written back, as an element taken out of the page and put back loses it. Repeated calls do nothing.
 +    // Element-web patch, pending upstream.
 +    this.setPaused = (paused) => {
++      var _a;
 +      if (paused === this._paused) return;
 +      this._paused = paused;
 +      this._observerEpoch++;
@@ -343,12 +344,24 @@ index dcba044582148f2b8923163b1a431571230bdfef..7765a7e322e731803a2f85b6bea08a32
 +        this.targetWindow.cancelAnimationFrame(this.rafId);
 +        this.rafId = null;
 +      }
-+      if (this._intendedScrollOffset !== null) this.scrollOffset = this._intendedScrollOffset;
++      // A smooth scroll the browser is still running stops where it is: its destination is not kept, and nothing
++      // shown moves while paused. An offset written at once, not yet read back, is the one kept.
++      const el = this.scrollElement;
++      if (((_a = this.scrollState) == null ? void 0 : _a.behavior) === "smooth" && el) {
++        const horizontal = this.options.horizontal;
++        const current = "scrollTop" in el ? horizontal ? el.scrollLeft : el.scrollTop : horizontal ? el.scrollX : el.scrollY;
++        el.scrollTo({ [horizontal ? "left" : "top"]: current, behavior: "instant" });
++        this.scrollOffset = current;
++        this._intendedScrollOffset = null;
++        this.scrollState = null;
++      } else if (this._intendedScrollOffset !== null) {
++        this.scrollOffset = this._intendedScrollOffset;
++      }
 +    };
      this.measure = () => {
        this.pendingMin = null;
        this.itemSizeCache.clear();
-@@ -1274,16 +1422,19 @@ class Virtualizer {
+@@ -1274,16 +1435,19 @@ class Virtualizer {
        }
        return false;
      } else {
