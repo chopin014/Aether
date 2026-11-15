@@ -215,12 +215,17 @@ export class RoomViewStore extends EventEmitter {
             if (this.state.roomId) this.emitForRoom(this.state.roomId, true);
 
             // Fired so we can reduce dependency on event emitters to this store, which is relatively
-            // central to the application and can easily cause import cycles.
-            this.dis.dispatch<ActiveRoomChangedPayload>({
+            // central to the application and can easily cause import cycles. Fired as soon as the dispatch under way
+            // has finished rather than after a timer: the view of the room, which can open in the same task, reads
+            // stores that follow this, such as the right panel's. No dispatch is under way in a microtask. After a timer
+            // still, behind anything dispatched earlier that waits, but for the user activity that comes with a click,
+            // which only presence follows.
+            const changed: ActiveRoomChangedPayload = {
                 action: Action.ActiveRoomChanged,
                 oldRoomId: lastRoomId,
                 newRoomId: this.state.roomId,
-            });
+            };
+            queueMicrotask(() => this.dis.dispatch(changed, !this.dis.hasQueuedOtherThan(Action.UserActivity)));
         }
 
         this.emit(UPDATE_EVENT);
