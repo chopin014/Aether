@@ -16,7 +16,8 @@ import { getRoomContext, stubClient } from "test-utils";
 
 import { ScopedRoomContextProvider, useScopedRoomContext } from "./ScopedRoomContext";
 import { ScopedRoomContext, ScopedRoomContextStore } from "./scoped-room-context-store";
-import RoomContext, { type RoomContextType } from "./RoomContext";
+import RoomContext, { type RoomContextType, TimelineRenderingType } from "./RoomContext";
+import { EventTileContext } from "./EventTileContext";
 
 type Key = keyof RoomContextType;
 
@@ -46,6 +47,56 @@ describe("ScopedRoomContext", () => {
 
     beforeEach(() => {
         room = new Room("!room:example.org", stubClient(), "@me:example.org");
+    });
+
+    it("gives event tiles a value that changes only with the fields they read", () => {
+        const seen: object[] = [];
+        const TileReader = (): JSX.Element => {
+            const tile = useContext(EventTileContext);
+            seen.push(tile);
+            return <span data-testid="tile">{JSON.stringify(tile)}</span>;
+        };
+        const tree = (override: Partial<RoomContextType>): JSX.Element => (
+            <ScopedRoomContextProvider {...value(override)}>
+                <TileReader />
+            </ScopedRoomContextProvider>
+        );
+        const { rerender } = render(tree({ isRoomEncrypted: false }));
+        const first = seen.at(-1);
+        expect(first).toEqual({
+            isRoomEncrypted: false,
+            timelineRenderingType: TimelineRenderingType.Room,
+            showHiddenEvents: false,
+        });
+
+        rerender(tree({ isRoomEncrypted: false, numUnreadMessages: 3, narrow: true }));
+        expect(seen.at(-1)).toBe(first);
+
+        for (const [field, changed] of [
+            ["isRoomEncrypted", true],
+            ["timelineRenderingType", TimelineRenderingType.Thread],
+            ["showHiddenEvents", true],
+        ] as const) {
+            const before = seen.at(-1);
+            rerender(tree({ isRoomEncrypted: false, [field]: changed }));
+            expect(seen.at(-1)).not.toBe(before);
+            expect(seen.at(-1)).toMatchObject({ [field]: changed });
+        }
+    });
+
+    it("gives event tiles the room context's defaults without a provider", () => {
+        const Tile = (): JSX.Element => {
+            const tile = useContext(EventTileContext);
+            const { isRoomEncrypted, timelineRenderingType, showHiddenEvents } = useContext(RoomContext);
+            return (
+                <span data-testid="tile">
+                    {JSON.stringify([tile, { isRoomEncrypted, timelineRenderingType, showHiddenEvents }])}
+                </span>
+            );
+        };
+        render(<Tile />);
+        const [tile, room] = JSON.parse(screen.getByTestId("tile").textContent!);
+        expect(tile).toEqual(room);
     });
 
     it("keeps selected snapshots stable for unrelated changes", () => {

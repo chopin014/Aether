@@ -38,7 +38,7 @@ import { getByTestId } from "@testing-library/dom";
 import { filterConsole, flushPromises, getRoomContext, mkEvent, mkMessage, stubClient } from "test-utils";
 import { mkThread } from "test-utils/threads";
 
-import EventTile, { type EventTileProps } from "./EventTile";
+import EventTile, { type EventTileProps, UnwrappedEventTile } from "./EventTile";
 import * as EventTileFactory from "../../../events/EventTileFactory";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import { type RoomContextType, TimelineRenderingType } from "../../../contexts/RoomContext";
@@ -1357,6 +1357,28 @@ describe("EventTile", () => {
 
             expect(container.querySelectorAll('[data-testid="e2e-padlock"]')).toHaveLength(0);
         });
+    });
+
+    it("draws the tile again for a change to the room view only when it is to something the tile reads", async () => {
+        vi.spyOn(client.getCrypto()!, "getEncryptionInfoForEvent").mockResolvedValue({
+            shieldColour: EventShieldColour.NONE,
+            shieldReason: null,
+        });
+        const draws = vi.spyOn(UnwrappedEventTile.prototype, "render");
+        const { rerender } = render(<WrappedEventTile roomContext={getRoomContext(room, {})} />);
+        await flushPromises();
+        const drawn = draws.mock.calls.length;
+
+        // The room view's state changes in ways no tile reads.
+        rerender(<WrappedEventTile roomContext={getRoomContext(room, { numUnreadMessages: 4, narrow: true })} />);
+        expect(draws.mock.calls.length).toBe(drawn);
+
+        // And then in one it does.
+        rerender(
+            <WrappedEventTile roomContext={getRoomContext(room, { numUnreadMessages: 4, isRoomEncrypted: true })} />,
+        );
+        expect(draws.mock.calls.length).toBeGreaterThan(drawn);
+        await waitFor(() => expect(screen.getByText("Not encrypted")).toBeInTheDocument());
     });
 
     it("should display the not encrypted status for an unencrypted event when the room becomes encrypted", async () => {

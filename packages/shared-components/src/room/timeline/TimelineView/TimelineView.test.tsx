@@ -193,6 +193,45 @@ describe("<TimelineView />", () => {
         );
     });
 
+    it("draws a row's content again only when its item or the function drawing items changes", async () => {
+        const items = eventItems(30);
+        const { vm, actions, update } = makeFakeVm({ items });
+        const drawn: string[] = [];
+        const draw = (item: TimelineItem): React.ReactNode => {
+            drawn.push(item.key);
+            return renderItem(item);
+        };
+        const tree = (drawItem: (item: TimelineItem) => React.ReactNode): React.ReactElement => (
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={drawItem} />
+            </div>
+        );
+        const { rerender } = render(tree(draw));
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        const shown = new Set(drawn);
+        drawn.length = 0;
+
+        // The view model publishes something no row shows, and the reader scrolls.
+        update({ numUnreadMessages: 3 });
+        act(() => {
+            screen.getByTestId("timeline-scroller").scrollTop -= ROW_HEIGHT;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(drawn.filter((key) => shown.has(key))).toEqual([]);
+
+        // One row's item changes. Rows the scroll brought into view are drawn for the first time.
+        for (const key of drawn) shown.add(key);
+        drawn.length = 0;
+        const last = items.at(-1)!;
+        update({ items: [...items.slice(0, -1), { ...last }] });
+        expect(drawn.filter((key) => shown.has(key))).toEqual([last.key]);
+
+        // A new function draws every row again.
+        drawn.length = 0;
+        rerender(tree((item) => draw(item)));
+        expect(drawn.length).toBeGreaterThan(1);
+    });
+
     it("renders each item via the renderItem callback", async () => {
         const { vm } = makeFakeVm({ items: eventItems(5) });
         renderTimeline(vm);

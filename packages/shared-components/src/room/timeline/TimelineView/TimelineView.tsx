@@ -5,7 +5,16 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
+import React, {
+    memo,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type JSX,
+    type ReactNode,
+} from "react";
 import classNames from "classnames";
 import { measureElement, useVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { InlineSpinner } from "@vector-im/compound-web";
@@ -175,6 +184,21 @@ interface DrawnRows {
 }
 
 const NO_ITEMS: TimelineItem[] = [];
+
+/**
+ * What a row shows, drawn again only when its item or the function drawing items changes: the view renders whenever
+ * its view model publishes or the reader scrolls, and the rows whose item is unchanged need nothing new. The row's
+ * list item around it, with its index and position, still follows the virtualizer.
+ */
+const RowContent = memo(function RowContent({
+    item,
+    renderItem,
+}: {
+    item: TimelineItem;
+    renderItem: (item: TimelineItem) => ReactNode;
+}): ReactNode {
+    return renderItem(item);
+});
 
 /** Whether `scroller` is in the page with a size, as the rows can only be measured and placed in one that is. */
 function hasGeometry(scroller: HTMLDivElement | null): boolean {
@@ -860,7 +884,7 @@ export function TimelineView({
                     data-key={item.key}
                     ref={virtualizer.measureElement}
                 >
-                    {renderItem(item)}
+                    <RowContent item={item} renderItem={renderItem} />
                 </li>,
             ];
         });

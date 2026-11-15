@@ -19,7 +19,10 @@ import EditorStateTransfer from "../../../utils/EditorStateTransfer";
 
 // The tile itself is exercised by its own tests; here we only care about what the
 // adapter hands it, so stand in a stub that records the props it received.
-const { tileProps } = vi.hoisted(() => ({ tileProps: { current: null as Record<string, unknown> | null } }));
+const { tileProps, tileRenders } = vi.hoisted(() => ({
+    tileProps: { current: null as Record<string, unknown> | null },
+    tileRenders: { count: 0 },
+}));
 
 vi.mock("./EventTile", async () => {
     const actual = await vi.importActual<typeof import("./EventTile")>("./EventTile");
@@ -27,6 +30,7 @@ vi.mock("./EventTile", async () => {
         ...actual,
         default: (props: Record<string, unknown>) => {
             tileProps.current = props;
+            tileRenders.count++;
             return <div data-testid="event-tile" />;
         },
     };
@@ -40,6 +44,19 @@ describe("<LegacyEventTileAdapter />", () => {
         stubClient();
         tileProps.current = null;
         event = mkMessage({ room: ROOM_ID, user: "@alice:example.org", msg: "hello", event: true });
+    });
+
+    it("draws the tile again only when its props change", () => {
+        const { rerender } = render(<LegacyEventTileAdapter mxEvent={event} layout={Layout.Group} />);
+        const drawn = tileRenders.count;
+
+        // The timeline draws its rows again, as when another message is highlighted.
+        rerender(<LegacyEventTileAdapter mxEvent={event} layout={Layout.Group} />);
+        expect(tileRenders.count).toBe(drawn);
+
+        rerender(<LegacyEventTileAdapter mxEvent={event} layout={Layout.Group} isSelectedEvent />);
+        expect(tileRenders.count).toBe(drawn + 1);
+        expect(tileProps.current?.isSelectedEvent).toBe(true);
     });
 
     it("renders the tile as a div, because the timeline supplies the list item", () => {

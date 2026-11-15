@@ -19,6 +19,7 @@ import React, {
 } from "react";
 
 import RoomContext from "./RoomContext.ts";
+import { EventTileContext } from "./EventTileContext.ts";
 import { ScopedRoomContext, ScopedRoomContextStore } from "./scoped-room-context-store.ts";
 
 // React Contexts with frequently changing values (like State where the object reference is changed on every update)
@@ -38,11 +39,19 @@ export const ScopedRoomContextProvider = memo(
         useEffect(() => {
             store.publish(state, ++revision.current);
         }, [store, state]);
+        // The few fields event tiles read, as a value that changes only with them; see EventTileContext.
+        const { isRoomEncrypted, timelineRenderingType, showHiddenEvents } = state;
+        const eventTile = useMemo(
+            () => ({ isRoomEncrypted, timelineRenderingType, showHiddenEvents }),
+            [isRoomEncrypted, timelineRenderingType, showHiddenEvents],
+        );
 
         // Includes the legacy RoomContext provider for backwards compatibility with class components
         return (
             <RoomContext.Provider value={state}>
-                <ScopedRoomContext.Provider value={store}>{children}</ScopedRoomContext.Provider>
+                <EventTileContext.Provider value={eventTile}>
+                    <ScopedRoomContext.Provider value={store}>{children}</ScopedRoomContext.Provider>
+                </EventTileContext.Provider>
             </RoomContext.Provider>
         );
     },
