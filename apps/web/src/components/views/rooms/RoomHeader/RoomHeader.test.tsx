@@ -88,6 +88,19 @@ vi.mock("../../../../hooks/useSettings.ts", async (importOriginal) => {
     };
 });
 
+// Passed through, and counted, to tell whether the header lists the room's members.
+const { memberLists } = vi.hoisted(() => ({ memberLists: { calls: 0 } }));
+vi.mock("../../../../hooks/useRoomMembers.ts", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../../../hooks/useRoomMembers.ts")>();
+    return {
+        ...actual,
+        useRoomMembers: (...args: Parameters<typeof actual.useRoomMembers>) => {
+            memberLists.calls++;
+            return actual.useRoomMembers(...args);
+        },
+    };
+});
+
 describe("RoomHeader", () => {
     filterConsole(
         "[getType] Room !1:example.org does not have an m.room.create event",
@@ -373,9 +386,11 @@ describe("RoomHeader", () => {
         room.currentState.setJoinedMemberCount(members.length);
         room.getJoinedMembers = vi.fn().mockReturnValue(members);
 
+        memberLists.calls = 0;
         const { container } = render(<RoomHeader room={room} />, getWrapper());
 
         expect(container).toHaveTextContent("4");
+        expect(memberLists.calls).toBeGreaterThan(0);
 
         const facePile = getByLabelText(document.body, "4 members");
         expect(facePile).toHaveTextContent("4");
@@ -383,6 +398,20 @@ describe("RoomHeader", () => {
         await user.click(facePile);
 
         expect(setCardSpy).toHaveBeenCalledWith({ phase: RightPanelPhases.MemberList });
+    });
+
+    it("does not list the room's members in the desktop shell, which shows no face pile", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            memberLists.calls = 0;
+            render(<RoomHeader room={room} />, getWrapper());
+            expect(memberLists.calls).toBe(0);
+        } finally {
+            setting.mockRestore();
+        }
     });
 
     it("has room info icon that opens the room info panel", async () => {
