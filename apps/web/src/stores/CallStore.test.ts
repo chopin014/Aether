@@ -19,7 +19,7 @@ import {
 } from "test-utils";
 
 import { ElementCall } from "../models/Call";
-import { CallStore } from "./CallStore";
+import { CallStore, CallStoreEvent } from "./CallStore";
 import SdkConfig from "../SdkConfig";
 import SettingsStore from "../settings/SettingsStore";
 import { SettingLevel } from "../settings/SettingLevel";
@@ -59,6 +59,28 @@ describe("CallStore", () => {
             succeeds ? [] : [room.roomId],
         );
         CallStore.instance.getCall(room.roomId)?.destroy();
+    });
+
+    it("lists a call the user asked to join as joining until it connects, and tells listeners", async () => {
+        await setupAsyncStoreWithClient(CallStore.instance, client);
+        ElementCall.create(room);
+        const call = CallStore.instance.getCall(room.roomId) as ElementCall;
+        const changed = vi.fn();
+        CallStore.instance.on(CallStoreEvent.JoiningCalls, changed);
+        try {
+            expect(CallStore.instance.joiningCalls.size).toBe(0);
+            call.setJoinRequested(true);
+            expect(changed).toHaveBeenCalledOnce();
+            expect([...CallStore.instance.joiningCalls]).toEqual([call]);
+            call.handleJoined();
+            expect(CallStore.instance.joiningCalls.size).toBe(0);
+            expect(CallStore.instance.connectedCalls.has(call)).toBe(true);
+            call.handleHangup();
+            expect(CallStore.instance.joiningCalls.size).toBe(0);
+        } finally {
+            CallStore.instance.off(CallStoreEvent.JoiningCalls, changed);
+            call.destroy();
+        }
     });
 
     it("constructs one call for one MatrixRTC session", async () => {

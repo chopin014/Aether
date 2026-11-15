@@ -123,6 +123,7 @@ export enum CallEvent {
     ConnectionStats = "connection_stats",
     ComponentRestart = "component_restart",
     SoundboardTransport = "soundboard_transport",
+    JoinRequested = "join_requested",
 }
 
 interface CallEventHandlerMap {
@@ -142,6 +143,7 @@ interface CallEventHandlerMap {
     [CallEvent.ConnectionStats]: (stats: CallConnectionStats) => void;
     [CallEvent.ComponentRestart]: () => void;
     [CallEvent.SoundboardTransport]: () => void;
+    [CallEvent.JoinRequested]: (requested: boolean) => void;
 }
 
 const NO_VOICE_STATES: ReadonlyMap<string, VoiceState> = new Map();
@@ -1203,6 +1205,25 @@ export class ElementCall extends Call {
 
     private desktopDisconnect?: Promise<void>;
     private localLeavePending = false;
+    private _joinRequested = false;
+    /** Whether the leave cue has already been played for the current leave. */
+    private leaveCuePlayed = false;
+
+    /**
+     * Whether the user has asked to be in this call: from the click that joins it until they leave it. The
+     * sidebar, the voice channel and the stage show the call from that moment, as joining, rather than waiting
+     * for Element Call to report that it joined, which takes at least a round trip to the call service.
+     */
+    public get joinRequested(): boolean {
+        return this._joinRequested;
+    }
+
+    /** Marks the call as asked for, or no longer, and tells listeners; see {@link joinRequested}. */
+    public setJoinRequested(requested: boolean): void {
+        if (this._joinRequested === requested) return;
+        this._joinRequested = requested;
+        this.emit(CallEvent.JoinRequested, requested);
+    }
 
     /** Whether the desktop UI should already show this device as having left. */
     public get locallyLeaving(): boolean {
@@ -1222,7 +1243,10 @@ export class ElementCall extends Call {
             return super.disconnect();
         }
         if (this.desktopDisconnect) return this.desktopDisconnect;
+        // Leaving is local: the cue answers the click, before the rest of the app and the engine catch up.
+        this.playLeaveCue();
         this.setLocalLeavePending(true);
+        this.setJoinRequested(false);
         this.desktopDisconnect = (async () => {
             try {
                 if (this.connected) {
@@ -1251,6 +1275,10 @@ export class ElementCall extends Call {
         this.widgetGenerationParameters = { ...this.widgetGenerationParameters, ...widgetGenerationParameters };
 
         if (ElementCall.usesReactComponent) {
+            // Starting without a lobby joins straight away: show the call as joining from now on.
+            if (SettingsStore.getValue("feature_desktop_shell") && this.componentOptions.config.skipLobby === true) {
+                this.setJoinRequested(true);
+            }
             if (this.componentNeedsRestart && this.componentHandle) {
                 this.componentNeedsRestart = false;
                 this.frozenComponentOptions = null;
@@ -1377,6 +1405,7 @@ export class ElementCall extends Call {
         if (this.destroyed) return;
         this.handleSoundboardTransport(null);
         this.setConnectionStats(emptyCallConnectionStats("disconnected"));
+        this.setJoinRequested(false);
         this.destroyed = true;
 
         this.componentHandle = null;
@@ -1463,15 +1492,24 @@ export class ElementCall extends Call {
 
     protected override setDisconnected(): void {
         const wasConnected = this.connected;
-        // Leaving before media ever connected played no join cue, so it gets no leave cue either.
-        const heardJoin = !this.joinCuePending;
+        if (wasConnected) this.playLeaveCue();
         this.joinCuePending = false;
+        this.leaveCuePlayed = false;
         this.mediaConnectedSinceJoin = false;
+        this.setJoinRequested(false);
         this.setConnectionStats(emptyCallConnectionStats("disconnected"));
         super.setDisconnected();
-        if (wasConnected && heardJoin && SettingsStore.getValue("feature_desktop_shell")) {
-            void playDesktopVoiceSound("leave");
-        }
+    }
+
+    /**
+     * Plays the leave cue once per leave, and only for a call whose join cue was heard: leaving before media
+     * ever connected played no join cue, so it gets no leave cue either.
+     */
+    private playLeaveCue(): void {
+        if (this.leaveCuePlayed || !this.connected || this.joinCuePending) return;
+        if (!SettingsStore.getValue("feature_desktop_shell")) return;
+        this.leaveCuePlayed = true;
+        void playDesktopVoiceSound("leave");
     }
 
     /** The user has hung up (`HostBridge.notifyHungUp` / `im.vector.hangup`). */

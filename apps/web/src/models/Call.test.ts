@@ -1613,6 +1613,56 @@ describe("ElementCall with the React component embedding", () => {
         }
     });
 
+    it("plays the leave cue as the user leaves, before the engine acknowledges it, and only once", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleJoined();
+            mediaConnected();
+            const leaving = call.disconnect();
+            // No await: the cue answers the click, ahead of the engine's teardown.
+            expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"]]);
+            await leaving;
+            call.handleHangup();
+            expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"]]);
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("shows the call as asked for from a start that skips the lobby until the user leaves", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        const requested = vi.fn();
+        call.on(CallEvent.JoinRequested, requested);
+        try {
+            const started = call.start({ skipLobby: true });
+            expect(call.joinRequested).toBe(true);
+            expect(requested).toHaveBeenCalledExactlyOnceWith(true);
+            call.markReady();
+            await started;
+            call.handleJoined();
+            expect(call.joinRequested).toBe(true);
+            call.handleHangup();
+            expect(call.joinRequested).toBe(false);
+            expect(requested).toHaveBeenLastCalledWith(false);
+        } finally {
+            call.off(CallEvent.JoinRequested, requested);
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("does not show a call opened in its lobby as asked for", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        try {
+            const started = call.start({ skipLobby: false });
+            expect(call.joinRequested).toBe(false);
+            call.markReady();
+            await started;
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
     it("waits for media to connect before the join cue, and does not replay it on reconnects", () => {
         enabledSettings.add("feature_desktop_shell");
         vi.mocked(playDesktopVoiceSound).mockClear();
