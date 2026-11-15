@@ -1651,6 +1651,14 @@ describe("ElementCall with the React component embedding", () => {
         }
     });
 
+    it("is no longer leaving once asked for again", () => {
+        // The same call is reused for the next join: the last leave must not hide it while it joins.
+        call.setLocalLeavePending(true);
+        expect(call.locallyLeaving).toBe(true);
+        call.setJoinRequested(true);
+        expect(call.locallyLeaving).toBe(false);
+    });
+
     it("does not show a call opened in its lobby as asked for", async () => {
         enabledSettings.add("feature_desktop_shell");
         try {

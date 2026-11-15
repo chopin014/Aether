@@ -29,6 +29,7 @@ import { RoomViewStore } from "./RoomViewStore";
 import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
 import { onServerJoined } from "../utils/servers/joinServer";
+import { afterNextPaint } from "../utils/afterNextPaint";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { PosthogAnalytics } from "../PosthogAnalytics";
 import { TimelineRenderingType } from "../contexts/RoomContext";
@@ -55,6 +56,15 @@ import ActiveWidgetStore from "./ActiveWidgetStore";
 import { ModuleApi } from "../modules/Api";
 import { type JoinRoomPayload } from "../dispatcher/payloads/JoinRoomPayload.ts";
 import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoiceChannelSwitch";
+
+/** Work held until the next paint, run by the tests when they choose. */
+const paintQueue = vi.hoisted(() => [] as (() => void)[]);
+vi.mock("../utils/afterNextPaint", () => ({
+    afterNextPaint: vi.fn((work: () => void) => {
+        paintQueue.push(work);
+        return () => {};
+    }),
+}));
 
 vi.mock("../components/views/voip/confirmVoiceChannelSwitch");
 
@@ -187,6 +197,8 @@ describe("RoomViewStore", function () {
     let stores: TestSDKContext;
 
     beforeEach(function () {
+        paintQueue.length = 0;
+        vi.mocked(afterNextPaint).mockClear();
         vi.clearAllMocks();
         mockClient.credentials = { userId: userId };
         mockClient.joinRoom.mockResolvedValue(room);
@@ -810,7 +822,10 @@ describe("RoomViewStore", function () {
                     roomId: { value: roomId },
                     presented: { value: false, writable: true },
                     _connectionState: { value: ConnectionState.Disconnected },
-                    _joinRequested: { value: state.joinRequested ?? false },
+                    _joinRequested: { value: state.joinRequested ?? false, writable: true },
+                    localLeavePending: { value: false, writable: true },
+                    componentOptions: { value: { config: { skipLobby: true } } },
+                    emit: { value: vi.fn() },
                     widget: { value: { id: "call-widget", roomId } },
                     start: { value: vi.fn().mockResolvedValue(null) },
                 }) as ElementCall;
@@ -839,11 +854,37 @@ describe("RoomViewStore", function () {
                     expect(roomViewStore.joinVoiceChannel(room)).toBe(true);
                     await flushPromises();
                     expect(roomViewStore.getRoomId()).toBe(roomId2);
-                    expect(persist).toHaveBeenCalledWith("call-widget", roomId, true);
+                    // The join shows at once; the call itself starts once that is painted.
+                    expect(call.joinRequested).toBe(true);
+                    expect(afterNextPaint).toHaveBeenCalledOnce();
+                    expect(call.start).not.toHaveBeenCalled();
+                    paintQueue.splice(0).forEach((work) => work());
                     expect(call.start).toHaveBeenCalledOnce();
+                    expect(persist).toHaveBeenCalledWith("call-widget", roomId, true);
                 } finally {
                     callRoom.mockRestore();
                     persist.mockRestore();
+                }
+            });
+
+            it("does not start a call left again before it started", async () => {
+                inDesktopShell();
+                const call = voiceCall();
+                vi.spyOn(CallStore.instance, "getCall").mockReturnValue(call);
+                const callRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+                try {
+                    await roomViewStore.viewRoom({
+                        action: Action.ViewRoom,
+                        room_id: roomId2,
+                        metricsTrigger: undefined,
+                    });
+                    expect(roomViewStore.joinVoiceChannel(room)).toBe(true);
+                    await flushPromises();
+                    call.setJoinRequested(false);
+                    paintQueue.splice(0).forEach((work) => work());
+                    expect(call.start).not.toHaveBeenCalled();
+                } finally {
+                    callRoom.mockRestore();
                 }
             });
 

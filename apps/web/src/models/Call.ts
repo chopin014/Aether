@@ -1225,6 +1225,8 @@ export class ElementCall extends Call {
     public setJoinRequested(requested: boolean): void {
         if (this._joinRequested === requested) return;
         this._joinRequested = requested;
+        // Joining again is no longer leaving: the last leave would otherwise hide the call until it reports joined.
+        if (requested) this.setLocalLeavePending(false);
         this.emit(CallEvent.JoinRequested, requested);
     }
 

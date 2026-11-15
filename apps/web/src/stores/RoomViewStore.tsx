@@ -54,6 +54,7 @@ import { type CancelAskToJoinPayload } from "../dispatcher/payloads/CancelAskToJ
 import { type SubmitAskToJoinPayload } from "../dispatcher/payloads/SubmitAskToJoinPayload";
 import { setMarkedUnreadState } from "../utils/notifications";
 import { ConnectionState, ElementCall } from "../models/Call";
+import { afterNextPaint } from "../utils/afterNextPaint";
 import { isVideoRoom } from "../utils/video-rooms";
 import { ModuleApi } from "../modules/Api";
 import ActiveWidgetStore from "./ActiveWidgetStore";
@@ -445,8 +446,16 @@ export class RoomViewStore extends EventEmitter {
             call = CallStore.instance.getCall(room.roomId);
         }
         if (!(call instanceof ElementCall)) return;
-        ActiveWidgetStore.instance.setWidgetPersistence(call.widget.id, room.roomId, true);
-        if (call.connectionState === ConnectionState.Disconnected) void call.start({});
+        const joining = call;
+        // Starting renders and sets up the whole call engine in one go: show the join in the voice panel and the
+        // channel first, and start the call once that is on screen.
+        if (joining.componentOptions.config.skipLobby === true) joining.setJoinRequested(true);
+        afterNextPaint(() => {
+            // Left again before the call started.
+            if (joining.componentOptions.config.skipLobby === true && !joining.joinRequested) return;
+            ActiveWidgetStore.instance.setWidgetPersistence(joining.widget.id, room.roomId, true);
+            if (joining.connectionState === ConnectionState.Disconnected) void joining.start({});
+        });
     }
 
     public async viewRoom(payload: ViewRoomPayload): Promise<void> {
