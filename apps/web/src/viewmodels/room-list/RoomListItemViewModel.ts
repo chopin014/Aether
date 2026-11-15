@@ -681,11 +681,18 @@ export class RoomListItemViewModel
     };
 
     public onOpenRoom = (): void => {
-        dispatcher.dispatch<ViewRoomPayload>({
-            action: Action.ViewRoom,
-            room_id: this.props.room.roomId,
-            metricsTrigger: "RoomList",
-        });
+        // At once, so that the room opens in the click's own task, before the browser paints the click, rather than a
+        // frame later; but not during a dispatch, nor while anything dispatched earlier waits, such as a room asked
+        // for with the keyboard or a draft to clear, which must come first. The click's own user activity, which only
+        // presence follows, always waits, and may be overtaken.
+        dispatcher.dispatch<ViewRoomPayload>(
+            {
+                action: Action.ViewRoom,
+                room_id: this.props.room.roomId,
+                metricsTrigger: "RoomList",
+            },
+            !dispatcher.isDispatching() && !dispatcher.hasQueuedOtherThan(Action.UserActivity),
+        );
     };
 
     public onMarkAsRead = async (): Promise<void> => {

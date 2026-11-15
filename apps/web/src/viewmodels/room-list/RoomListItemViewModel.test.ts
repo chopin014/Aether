@@ -1011,18 +1011,70 @@ describe("RoomListItemViewModel", () => {
     });
 
     describe("Actions", () => {
-        it("should dispatch view room action on openRoom", () => {
+        it("should dispatch view room action on openRoom at once", () => {
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
 
-            const dispatchSpy = vi.spyOn(dispatcher, "dispatch");
+            const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
 
             viewModel.onOpenRoom();
 
-            expect(dispatchSpy).toHaveBeenCalledWith({
-                action: Action.ViewRoom,
-                room_id: "!room:server",
-                metricsTrigger: "RoomList",
-            });
+            expect(dispatchSpy).toHaveBeenCalledWith(
+                {
+                    action: Action.ViewRoom,
+                    room_id: "!room:server",
+                    metricsTrigger: "RoomList",
+                },
+                true,
+            );
+        });
+
+        it("should dispatch view room action on openRoom after one dispatched earlier that still waits", async () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            // As when the keyboard has asked for another room, which this one must replace.
+            dispatcher.dispatch({ action: Action.ViewRoom, room_id: "!other:server" });
+            const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+
+            viewModel.onOpenRoom();
+
+            expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ room_id: "!room:server" }), false);
+            dispatchSpy.mockRestore();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+
+        it("should dispatch view room action on openRoom at once while only the click's user activity waits", async () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            dispatcher.dispatch({ action: Action.UserActivity });
+            const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+
+            viewModel.onOpenRoom();
+
+            expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ room_id: "!room:server" }), true);
+            dispatchSpy.mockRestore();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+
+        it("should dispatch view room action on openRoom after anything else dispatched earlier that still waits", async () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            // As when a room above or below was asked for with the keyboard, or a draft is still to be cleared.
+            dispatcher.dispatch({ action: Action.UserActivity });
+            dispatcher.dispatch({ action: Action.ViewRoomDelta, delta: 1, unread: false });
+            const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+
+            viewModel.onOpenRoom();
+
+            expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ room_id: "!room:server" }), false);
+            dispatchSpy.mockRestore();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+
+        it("should dispatch view room action on openRoom after a dispatch under way", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            vi.spyOn(dispatcher, "isDispatching").mockReturnValue(true);
+            const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+
+            viewModel.onOpenRoom();
+
+            expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ action: Action.ViewRoom }), false);
         });
 
         it("should return room object", () => {
