@@ -21,6 +21,7 @@ import {
     projectLayout,
 } from "../../stores/space-layout/SpaceLayout";
 import { SpaceLayoutStore } from "../../stores/space-layout/SpaceLayoutStore";
+import DMRoomMap from "../../utils/DMRoomMap";
 
 /** Presentation groups of a server's channel list, never written as Matrix room tags. */
 const DESKTOP_CATEGORY_PREFIX = "desktop.category.";
@@ -67,6 +68,11 @@ export function isConnectedTo(room: Room): boolean {
     return [...CallStore.instance.connectedCalls].some((call) => call.roomId === room.roomId);
 }
 
+/** Whether a room is a direct message, which lives in Home and never among a server's channels. */
+function isDirectMessage(room: Room): boolean {
+    return !!DMRoomMap.shared()?.getUserIdForRoomId(room.roomId);
+}
+
 /** What the channel list of a server needs to know beyond the room list. */
 export interface DesktopChannelOptions {
     /** The room that is open, which is never hidden. */
@@ -85,9 +91,10 @@ function layoutReader(space: Room | null): LayoutStateReader {
 
 /**
  * Arrange a server's channels by its shared layout: the channels outside any category first, then each category in
- * order, each in the order its admins chose. Invitations, the person's favourites (their pinned channels) and direct
- * messages keep their own sections. Low priority and the person's own sections are not groups in a server; their
- * rooms sit in their server category. Outside a server, the room list is unchanged.
+ * order, each in the order its admins chose. Invitations and the person's favourites (their pinned channels) keep
+ * their own sections. Low priority and the person's own sections are not groups in a server; their rooms sit in their
+ * server category. Direct messages stay in Home, as in Discord, even one a server lists. Outside a server, the room
+ * list is unchanged.
  */
 export function getDesktopChannelSections(result: RoomsResult, options: DesktopChannelOptions = {}): Section[] {
     if (!isDesktopChannelList(result.spaceId)) return result.sections;
@@ -99,17 +106,19 @@ export function getDesktopChannelSections(result: RoomsResult, options: DesktopC
     const kept: Section[] = [];
     const pool = new Map<string, Room>();
     for (const section of result.sections) {
-        if (section.tag === DefaultTagID.Invite || section.tag === DefaultTagID.DM) {
-            kept.push(section);
+        if (section.tag === DefaultTagID.DM) continue;
+        const rooms = section.rooms.filter((room) => !isDirectMessage(room));
+        if (section.tag === DefaultTagID.Invite) {
+            kept.push({ tag: section.tag, rooms });
         } else if (section.tag === DefaultTagID.Favourite) {
-            kept.push({ tag: section.tag, rooms: section.rooms.filter(visible) });
+            kept.push({ tag: section.tag, rooms: rooms.filter(visible) });
         } else {
-            for (const room of section.rooms) pool.set(room.roomId, room);
+            for (const room of rooms) pool.set(room.roomId, room);
         }
     }
 
     const layout = projectLayout(layoutReader(space), space, [...pool.values()].filter(visible));
-    const ordered = [DefaultTagID.Invite, DefaultTagID.Favourite, DefaultTagID.DM]
+    const ordered = [DefaultTagID.Invite, DefaultTagID.Favourite]
         .map((tag) => kept.find((section) => section.tag === tag))
         .filter((section): section is Section => !!section);
     return [
@@ -138,7 +147,7 @@ export function getDesktopCategoryMembers(result: RoomsResult): Map<string, Room
     const pool = new Map<string, Room>();
     for (const section of result.sections) {
         if (section.tag === DefaultTagID.Invite || section.tag === DefaultTagID.DM) continue;
-        for (const room of section.rooms) pool.set(room.roomId, room);
+        for (const room of section.rooms) if (!isDirectMessage(room)) pool.set(room.roomId, room);
     }
     const layout = projectLayout(layoutReader(space), space, [...pool.values()]);
     return new Map(layout.categories.map((category) => [categoryTag(category.id), category.rooms]));
