@@ -102,6 +102,11 @@ export interface RoomListItemViewSnapshot {
     isDm: boolean;
     /** Desktop channel symbol; direct messages retain their profile avatars. */
     channelKind?: "text" | "voice";
+    /**
+     * How many people joined a group conversation, shown under its name when there is no message preview, as
+     * Discord does for group messages. Absent for direct messages and channels.
+     */
+    memberCount?: number;
     /** The real Matrix thread currently open beneath this channel. */
     activeThread?: { id: string; title: string };
     /** Whether the desktop channel is private: people join it by invitation rather than through its server. */

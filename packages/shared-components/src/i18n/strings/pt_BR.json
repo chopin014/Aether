@@ -134,7 +134,11 @@
         "notification_options": "Alterar notificações",
         "primary_filters": "Filtros da lista de salas",
         "room": {
-            "more_options": "Mais opções"
+            "more_options": "Mais opções",
+            "member_count": {
+                "one": "%(count)s membro",
+                "other": "%(count)s membros"
+            }
         },
         "room_options": "Opções da sala",
         "section_created": "Seção criada",

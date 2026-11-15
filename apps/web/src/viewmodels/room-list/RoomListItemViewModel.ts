@@ -80,6 +80,11 @@ type Sections = Array<Omit<Section, "isSelected">>;
 interface RoomItemProps {
     room: Room;
     client: MatrixClient;
+    /**
+     * Whether the room is listed as one of a server's channels. In the desktop shell, a server's rooms show as
+     * channels, while Home shows every conversation, direct or group, as a person row, as Discord does.
+     */
+    isServerChannel?: boolean;
 }
 
 /**
@@ -121,6 +126,7 @@ export class RoomListItemViewModel
             props.client,
             notifState,
             availableSections,
+            !!props.isServerChannel,
         );
         super(props, initialItem);
 
@@ -337,6 +343,9 @@ export class RoomListItemViewModel
     private readonly onParticipantProfileChanged = (): void => {
         if (this.snapshot.current.channelKind === "voice") {
             this.updateItem();
+        } else if (this.snapshot.current.memberCount !== undefined) {
+            // A group conversation in Home says how many people are in it.
+            this.snapshot.merge({ memberCount: this.props.room.getJoinedMemberCount() });
         }
     };
 
@@ -454,6 +463,7 @@ export class RoomListItemViewModel
             this.props.client,
             this.notifState,
             this.availableSections,
+            !!this.props.isServerChannel,
         );
         this.snapshot.merge({
             ...newItem,
@@ -527,6 +537,7 @@ export class RoomListItemViewModel
         client: MatrixClient,
         notifState: RoomNotificationState,
         availableSections: Sections,
+        isServerChannel: boolean,
     ): RoomListItemViewSnapshot {
         // Get room tags for menu state
         const roomTags = room.tags;
@@ -589,12 +600,15 @@ export class RoomListItemViewModel
         // A room with a pending invitation always sits in the Invites section, so it can't be moved
         // to another one, by dragging it or through the menu entries that assign a section.
         const canChangeSection = room.getMyMembership() !== KnownMembership.Invite;
+        const desktopShell = SettingsStore.getValue("feature_desktop_shell");
         const channelKind =
-            SettingsStore.getValue("feature_desktop_shell") && !isDm
+            desktopShell && isServerChannel && !isDm
                 ? room.isCallRoom() || room.isElementVideoRoom()
                     ? "voice"
                     : "text"
                 : undefined;
+        // A group conversation in Home says how many people are in it, as Discord's group messages do.
+        const memberCount = desktopShell && !isServerChannel && !isDm ? room.getJoinedMemberCount() : undefined;
         const callParticipants =
             channelKind === "voice"
                 ? [...(call?.participants ?? [])]
@@ -652,6 +666,7 @@ export class RoomListItemViewModel
             isLowPriority,
             isDm,
             channelKind,
+            memberCount,
             channelIconUrl,
             canEditChannel,
             isPrivateChannel,

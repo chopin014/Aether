@@ -1273,6 +1273,10 @@
         "open_space_menu": "Open server menu",
         "primary_filters": "Room list filters",
         "room": {
+            "member_count": {
+                "one": "%(count)s member",
+                "other": "%(count)s members"
+            },
             "more_options": "More Options"
         },
         "room_options": "Room Options",

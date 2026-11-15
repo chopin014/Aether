@@ -27,6 +27,7 @@ const {
     Invitation,
     UnsentMessage,
     NoMessagePreview,
+    GroupConversation,
     WithHoverMenu,
     WithoutHoverMenu,
     DesktopVoiceParticipantSpeaking,
@@ -44,6 +45,14 @@ const {
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
+    it("says how many people are in a group conversation, unless a message preview shows", () => {
+        const { rerender } = render(<GroupConversation />);
+        expect(screen.getByText("5 members")).toBeVisible();
+        rerender(<GroupConversation messagePreview="Alice: see you" />);
+        expect(screen.queryByText("5 members")).not.toBeInTheDocument();
+        rerender(<GroupConversation memberCount={1} />);
+        expect(screen.getByText("1 member")).toBeVisible();
+    });
     it("focuses the active thread independently from opening its parent channel", async () => {
         const onOpen = vi.fn();
         const onRoom = vi.fn();
