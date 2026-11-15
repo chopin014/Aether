@@ -121,7 +121,8 @@ export default class ProtocolHandler {
         if (!global.mainWindow) return false;
         const hash = getMatrixLinkHash(link);
         const webContents = global.mainWindow.webContents;
-        if (webContents.isLoading()) {
+        // Only the app's own page counts: a frame the running app embeds, such as a widget, may be loading at any time.
+        if (webContents.isLoadingMainFrame()) {
             // The app may not be listening yet, and loading it again at the link costs nothing at this point.
             void global.mainWindow.loadURL(MATRIX_LINK_BASE_URL + hash);
         } else {

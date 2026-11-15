@@ -138,10 +138,21 @@ describe("ProtocolHandler", () => {
         const ROOM_LINK = "matrix:r/aether:example.org?via=example.org&action=join";
         const ROOM_HASH = "#/room/%23aether%3Aexample.org?via=example.org";
 
-        function stubWindow(isLoading = false): { loadURL: Mock; webContents: { isLoading: Mock; send: Mock } } {
+        /**
+         * @param appLoading - whether the app's own page is still loading.
+         * @param frameLoading - whether anything in the window is loading, such as a frame the running app embeds.
+         */
+        function stubWindow(
+            appLoading = false,
+            frameLoading = appLoading,
+        ): { loadURL: Mock; webContents: { isLoading: Mock; isLoadingMainFrame: Mock; send: Mock } } {
             const window = {
                 loadURL: vi.fn(),
-                webContents: { isLoading: vi.fn().mockReturnValue(isLoading), send: vi.fn() },
+                webContents: {
+                    isLoading: vi.fn().mockReturnValue(frameLoading),
+                    isLoadingMainFrame: vi.fn().mockReturnValue(appLoading),
+                    send: vi.fn(),
+                },
             };
             vi.stubGlobal("mainWindow", window);
             return window;
@@ -184,6 +195,17 @@ describe("ProtocolHandler", () => {
 
             expect(window.loadURL).toHaveBeenCalledWith(`vector://vector/webapp/${ROOM_HASH}`);
             expect(window.webContents.send).not.toHaveBeenCalled();
+        });
+
+        it("does not reload the running app while a frame it embeds is loading", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+            const window = stubWindow(false, true);
+            new ProtocolHandler(TEST_PROTOCOL);
+
+            app.emit("second-instance", new Event("test"), ["/opt/Aether/aether", ROOM_LINK]);
+
+            expect(window.webContents.send).toHaveBeenCalledWith("openMatrixLink", ROOM_HASH);
+            expect(window.loadURL).not.toHaveBeenCalled();
         });
 
         it("opens a link on macOS", () => {
