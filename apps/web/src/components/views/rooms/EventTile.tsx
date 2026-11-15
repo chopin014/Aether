@@ -302,6 +302,8 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
     private tile = createRef<IEventTileType>();
     private replyChain = createRef<ReplyChain>();
     private readonly viewModel: EventTileViewModel;
+    /** The inputs the constructor derived the view model's state from, until the first render has used them. */
+    private initialRenderInputs?: EventTileRenderInputs;
     private readonly e2eViewModel: EventTileE2eViewModel;
     private readonly unreadNotificationBadgeViewModel?: UnreadNotificationBadgeViewModel;
     private e2eViewModelSubscription?: () => void;
@@ -338,7 +340,12 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
             thread,
         };
 
-        this.viewModel = new EventTileViewModel(this.createViewModelDependencies(), this.createViewModelProps());
+        const renderInputs = this.createRenderInputs();
+        this.initialRenderInputs = renderInputs;
+        this.viewModel = new EventTileViewModel(
+            this.createViewModelDependencies(),
+            this.createViewModelProps(renderInputs),
+        );
 
         this.e2eViewModel = new EventTileE2eViewModel({
             cli: MatrixClientPeg.safeGet(),
@@ -975,10 +982,16 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
 
     public render(): ReactNode {
         const { isQuoteExpanded } = this.state;
-        const renderInputs = this.createRenderInputs();
+        // The first render follows the constructor at once, which derived the view model's state from these inputs:
+        // they are not derived again. Later renders derive them afresh.
+        const initialRenderInputs = this.initialRenderInputs;
+        this.initialRenderInputs = undefined;
+        const renderInputs = initialRenderInputs ?? this.createRenderInputs();
         const { hasPinnedMessageBadge, hasReactionsRow, threadState } = renderInputs;
 
-        this.viewModel.setInputs(this.createViewModelDependencies(), this.createViewModelProps(renderInputs));
+        if (!initialRenderInputs) {
+            this.viewModel.setInputs(this.createViewModelDependencies(), this.createViewModelProps(renderInputs));
+        }
         const eventTileRenderState = this.viewModel.getSnapshot();
         const eventTileSnapshot = eventTileRenderState.snapshot;
 
