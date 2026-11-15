@@ -12,4 +12,5 @@ export type * from "./json.d.ts";
 export type * from "./urlpreview.d.ts";
 export type * from "./x509.d.ts";
 export type * from "./desktop-updates.d.ts";
+export type * from "./homeserver-fetch.d.ts";
 export * from "./desktop-audio.js";
