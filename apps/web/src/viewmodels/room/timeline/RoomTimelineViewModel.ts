@@ -1747,11 +1747,14 @@ export class RoomTimelineViewModel
                 const before = window.getEvents().length;
                 await window.paginate(direction, PAGINATE_SIZE, true, 1);
                 if (superseded()) return;
-                debug(
-                    `[TimelineVM] fillInitialWindow — paginate(${direction === Direction.Backward ? "backward" : "forward"}) ` +
-                        `window: ${before}→${window.getEvents().length}, ` +
-                        `renderable(side)=${this.renderableEventCount(window, centreOn, direction)}`,
-                );
+                // Counting the renderable events walks the window: only for the trace.
+                if (DEBUG_TIMELINE) {
+                    debug(
+                        `[TimelineVM] fillInitialWindow — paginate(${direction === Direction.Backward ? "backward" : "forward"}) ` +
+                            `window: ${before}→${window.getEvents().length}, ` +
+                            `renderable(side)=${this.renderableEventCount(window, centreOn, direction)}`,
+                    );
+                }
             }
         }
     }
@@ -2483,14 +2486,7 @@ export class RoomTimelineViewModel
      * `[ (backward?), ...baseItems, (forward?) ]`.
      */
     private republish(reason: string, extra: Partial<RoomTimelineViewSnapshot> = {}): void {
-        const items: TimelineItem[] = [];
-        if (this.backwardSpinnerVisible) {
-            items.push({ kind: "loading", key: RoomTimelineViewModel.BACKWARD_LOADING_KEY });
-        }
-        items.push(...this.baseItems);
-        if (this.forwardSpinnerVisible) {
-            items.push({ kind: "loading", key: RoomTimelineViewModel.FORWARD_LOADING_KEY });
-        }
+        const items = this.composedItems();
         const events = this.loadedEvents();
         const isShown = this.shownEventTest();
         const anchor = extra.pendingAnchor !== undefined ? extra.pendingAnchor : this.snapshot.current.pendingAnchor;
@@ -2504,6 +2500,42 @@ export class RoomTimelineViewModel
             },
             reason,
         );
+    }
+
+    /** The rows last published and what they were made from; see {@link composedItems}. */
+    private composed: { base: TimelineItem[]; backward: boolean; forward: boolean; items: TimelineItem[] } | null =
+        null;
+    private static readonly BACKWARD_LOADING: TimelineItem = {
+        kind: "loading",
+        key: RoomTimelineViewModel.BACKWARD_LOADING_KEY,
+    };
+    private static readonly FORWARD_LOADING: TimelineItem = {
+        kind: "loading",
+        key: RoomTimelineViewModel.FORWARD_LOADING_KEY,
+    };
+
+    /**
+     * The rows to publish: {@link baseItems} with the spinners shown around it. The same array as last time while
+     * neither has changed, so that a publication of something else, such as receipts or the unread count, does not
+     * hand the view a new list to lay out; {@link baseItems} itself when no spinner shows. {@link baseItems} is only
+     * ever replaced, never changed in place.
+     */
+    private composedItems(): TimelineItem[] {
+        const base = this.baseItems;
+        const backward = this.backwardSpinnerVisible;
+        const forward = this.forwardSpinnerVisible;
+        const last = this.composed;
+        if (last?.base === base && last.backward === backward && last.forward === forward) return last.items;
+        const items =
+            backward || forward
+                ? [
+                      ...(backward ? [RoomTimelineViewModel.BACKWARD_LOADING] : []),
+                      ...base,
+                      ...(forward ? [RoomTimelineViewModel.FORWARD_LOADING] : []),
+                  ]
+                : base;
+        this.composed = { base, backward, forward, items };
+        return items;
     }
 
     /**
@@ -3287,14 +3319,15 @@ export class RoomTimelineViewModel
             this.placementRevision++;
             partial = { ...partial, visit: this.visitState() };
         }
-        const changes: string[] = [];
-        for (const [k, v] of Object.entries(partial)) {
-            const oldV = (before as unknown as Record<string, unknown>)[k];
-            if (Object.is(oldV, v)) continue;
-            changes.push(formatSnapshotChange(k, oldV, v));
+        // Listing the changes is only for the trace; merge itself publishes nothing when nothing changed.
+        if (DEBUG_TIMELINE) {
+            const changes: string[] = [];
+            for (const [k, v] of Object.entries(partial)) {
+                const oldV = (before as unknown as Record<string, unknown>)[k];
+                if (!Object.is(oldV, v)) changes.push(formatSnapshotChange(k, oldV, v));
+            }
+            if (changes.length > 0) debug(`[VM-merge] reason=${reason} changes=[${changes.join(", ")}]`);
         }
-        if (changes.length === 0) return;
-        debug(`[VM-merge] reason=${reason} changes=[${changes.join(", ")}]`);
         this.snapshot.merge(partial);
     }
 }
