@@ -895,6 +895,43 @@ describe("EventTile", () => {
         });
     });
 
+    describe("current profiles", () => {
+        it.each([
+            ["shows", true],
+            ["leaves", false],
+        ])("%s a renamed sender's new name at once, with current profiles %s", async (_, current) => {
+            const senderId = mxEvent.getSender()!;
+            const member = new RoomMember(room.roomId, senderId);
+            member.rawDisplayName = "Alice Before";
+            mxEvent.sender = Object.assign(new RoomMember(room.roomId, senderId), { rawDisplayName: "Alice Before" });
+            vi.spyOn(room, "getMember").mockImplementation((userId) => (userId === senderId ? member : null));
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(
+                (settingName) => current && settingName === "useOnlyCurrentProfiles",
+            );
+            const { container } = getComponent();
+            const shown = (): string | null | undefined =>
+                container.querySelector(".mx_DisambiguatedProfile_displayName")?.textContent;
+            await waitFor(() => expect(shown()).toBe("Alice Before"));
+
+            member.rawDisplayName = "Alice After";
+            act(() => {
+                room.emit(
+                    RoomStateEvent.Events,
+                    new MatrixEvent({
+                        type: EventType.RoomMember,
+                        state_key: senderId,
+                        room_id: room.roomId,
+                        content: { membership: "join", displayname: "Alice After" },
+                    }),
+                    room.currentState,
+                    null,
+                );
+            });
+
+            expect(shown()).toBe(current ? "Alice After" : "Alice Before");
+        });
+    });
+
     describe("EventTile renderingType: Threads", () => {
         it("should display the pinned message badge", async () => {
             vi.spyOn(PinningUtils, "isPinned").mockReturnValue(true);

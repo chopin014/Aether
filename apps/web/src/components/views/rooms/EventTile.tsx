@@ -414,17 +414,35 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
 
         const room = client.getRoom(this.props.mxEvent.getRoomId());
         room?.on(ThreadEvent.New, this.onNewThread);
-        // Whether the message is pinned is read as the tile renders; it is told when the room's pins change.
-        this.pinsRoom = room ?? undefined;
-        this.pinsRoom?.on(RoomStateEvent.Events, this.onRoomStateEvent);
+        // Whether the message is pinned, and the sender's current profile, are read as the tile renders; it is told
+        // when the room's state changes them.
+        this.stateRoom = room ?? undefined;
+        this.stateRoom?.on(RoomStateEvent.Events, this.onRoomStateEvent);
     }
 
-    /** The room whose pinned messages the tile follows, kept to stop following the same one. */
-    private pinsRoom?: Room;
+    /** The room whose state the tile follows, kept to stop following the same one. */
+    private stateRoom?: Room;
 
     private readonly onRoomStateEvent = (event: MatrixEvent): void => {
-        if (event.getType() === EventType.RoomPinnedEvents) this.forceUpdate();
+        const type = event.getType();
+        if (type === EventType.RoomPinnedEvents || (type === EventType.RoomMember && this.showsCurrentProfile())) {
+            this.forceUpdate();
+        }
     };
+
+    /**
+     * Whether the sender is shown as they are now, rather than as they were when they sent the message: a member's
+     * change of name, or another member's that makes theirs ambiguous, then changes what the tile shows.
+     */
+    private showsCurrentProfile(): boolean {
+        if (this.props.useEventSenderSnapshot) return false;
+        const type = this.context.timelineRenderingType;
+        return (
+            type === TimelineRenderingType.Thread ||
+            type === TimelineRenderingType.ThreadsList ||
+            !!SettingsStore.getValue("useOnlyCurrentProfiles")
+        );
+    }
 
     private readonly updateThread = (thread: Thread): void => {
         this.setState({ thread });
@@ -447,8 +465,8 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
             room?.off(ThreadEvent.New, this.onNewThread);
         }
         this.isListeningForReceipts = false;
-        this.pinsRoom?.off(RoomStateEvent.Events, this.onRoomStateEvent);
-        this.pinsRoom = undefined;
+        this.stateRoom?.off(RoomStateEvent.Events, this.onRoomStateEvent);
+        this.stateRoom = undefined;
         this.props.mxEvent.removeListener(MatrixEventEvent.Decrypted, this.onDecrypted);
         this.props.mxEvent.removeListener(MatrixEventEvent.Replaced, this.onReplaced);
         if (this.props.showReactions) {
