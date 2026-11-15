@@ -249,6 +249,44 @@ describe("virtual-core patch: pausing", () => {
         scroller.remove();
     });
 
+    it("keeps where a smooth scroll stopped in a horizontal right-to-left list", async () => {
+        const scroller = document.createElement("div");
+        scroller.dir = "rtl";
+        Object.assign(scroller.style, { width: "200px", height: "50px", overflow: "auto" });
+        const content = document.createElement("div");
+        Object.assign(content.style, { width: "2500px", height: "10px" });
+        scroller.append(content);
+        document.body.append(scroller);
+        const virtualizer = new Virtualizer<HTMLDivElement, HTMLDivElement>({
+            count: 50,
+            estimateSize: () => 50,
+            horizontal: true,
+            isRtl: true,
+            getScrollElement: () => scroller,
+            // Offsets count from the start of a right-to-left list, where the browser's go negative.
+            scrollToFn: (offset, { behavior }, instance) =>
+                instance.scrollElement?.scrollTo({ left: -offset, behavior }),
+            observeElementOffset,
+            observeElementRect,
+            onChange: () => {},
+        });
+        virtualizer._willUpdate();
+        virtualizer.scrollToOffset(1000, { behavior: "smooth" });
+        await nextFrame();
+        await nextFrame();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        virtualizer.setPaused(true);
+        const stoppedAt = -scroller.scrollLeft;
+        expect(stoppedAt).toBeGreaterThan(0);
+        expect(stoppedAt).toBeLessThan(1000);
+        expect(virtualizer.scrollOffset).toBe(stoppedAt);
+
+        virtualizer.setPaused(false);
+        expect(-scroller.scrollLeft).toBe(stoppedAt);
+        scroller.remove();
+    });
+
     it("attaches nothing again as its owner renders while paused, nor keeps rows in place that change meanwhile", async () => {
         const { virtualizer, scroller, onChange } = makeRows(10, 50, { anchorTo: "end" });
         scroller.scrollTop = 150;
