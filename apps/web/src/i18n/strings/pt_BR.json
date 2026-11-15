@@ -4393,6 +4393,25 @@
             "error_description": "O servidor não aceitou a mudança na lista de canais. Confira se você ainda pode gerenciá-la e tente de novo.",
             "error_title": "Não foi possível alterar a lista de canais",
             "save_failed": "Não foi possível salvar a categoria. Tente de novo."
+        },
+        "watch_together": {
+            "error_add": "Não foi possível adicionar este link. Tente novamente.",
+            "error_not_a_link": "Isso não é um link do YouTube ou de arquivo de mídia.",
+            "error_not_connected": "Entre na chamada para compartilhar um link.",
+            "error_not_embeddable": "O dono deste vídeo não permite reproduzi-lo fora do YouTube.",
+            "error_not_found": "Não foi possível encontrar este vídeo ou arquivo. Ele pode ser privado ou ter sido removido.",
+            "error_queue_full": "A fila está cheia. Remova algo primeiro.",
+            "error_unplayable": "Isto não pode ser reproduzido aqui.",
+            "notice_now_playing": "Tocando agora: %(title)s",
+            "notice_paused": "%(name)s pausou",
+            "notice_queued": "%(name)s adicionou %(title)s",
+            "notice_rate": "%(name)s mudou a velocidade para %(rate)s",
+            "notice_resumed": "%(name)s retomou",
+            "notice_seeked": "%(name)s pulou para outro momento",
+            "notice_skipped": "%(name)s pulou para %(title)s",
+            "notice_started": "%(name)s começou %(title)s",
+            "notice_stopped": "%(name)s encerrou a atividade",
+            "youtube_video": "Vídeo do YouTube"
         }
     },
     "create_section_dialog": {

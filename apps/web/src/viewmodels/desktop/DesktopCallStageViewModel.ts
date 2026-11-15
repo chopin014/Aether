@@ -16,6 +16,7 @@ import {
     type DesktopCallStageScreenShareTile,
     type DesktopCallStageViewModel as DesktopCallStageViewModelInterface,
     type DesktopCallStageViewSnapshot,
+    WATCH_TOGETHER_TILE_ID,
 } from "@element-hq/web-shared-components";
 import { ClientEvent, KnownMembership, type MatrixClient, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { isVideoRoom } from "../../utils/video-rooms";
@@ -44,6 +45,7 @@ import { RichProfileStore } from "../../profile/RichProfileStore";
 import { appearanceFromRichProfile } from "../../profile/richProfileView";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
+import { WatchTogetherViewModel } from "./WatchTogetherViewModel";
 import { VoiceUserMenuViewModel } from "./VoiceUserMenuViewModel";
 import {
     MAX_USER_VOLUME,
@@ -189,6 +191,7 @@ export class DesktopCallStageViewModel
     private ringtoneStarted = false;
 
     private qualityUpdate: Promise<void> = Promise.resolve();
+    private watchTogether?: WatchTogetherViewModel;
 
     public constructor(props: DesktopCallStageViewModelProps) {
         const { state } = props.bridge;
@@ -244,6 +247,17 @@ export class DesktopCallStageViewModel
         const soundboard = SoundboardViewModel.acquire({ client: props.client, call: props.call });
         this.disposables.track(soundboard.release);
         this.snapshot.merge({ soundboard: soundboard.vm });
+        const watchTogether = WatchTogetherViewModel.acquire({ client: props.client, call: props.call });
+        this.disposables.track(watchTogether.release);
+        this.watchTogether = watchTogether.vm;
+        this.snapshot.merge({
+            watchTogether: watchTogether.vm,
+            watchTogetherActive: watchTogether.vm.getSnapshot().active,
+        });
+        this.disposables.track(watchTogether.vm.subscribe(this.onWatchTogetherChanged));
+        if (watchTogether.vm.getSnapshot().active) {
+            this.snapshot.merge({ layoutMode: "spotlight", spotlightTileId: WATCH_TOGETHER_TILE_ID });
+        }
         this.bridge = props.bridge;
         this.syncVolumeMaps(state.participants, state.screenShares);
         this.applyUserPreferences();
@@ -308,6 +322,30 @@ export class DesktopCallStageViewModel
         void this.refreshDevices();
     }
 
+    /**
+     * The shared player takes the spotlight when something starts playing, the way a new screen share does, and
+     * gives it back when the activity ends.
+     */
+    private readonly onWatchTogetherChanged = (): void => {
+        const active = !!this.watchTogether?.getSnapshot().active;
+        const current = this.snapshot.current;
+        if (active === !!current.watchTogetherActive) return;
+        if (active) {
+            this.snapshot.merge({
+                watchTogetherActive: true,
+                layoutMode: "spotlight",
+                spotlightTileId: WATCH_TOGETHER_TILE_ID,
+            });
+            return;
+        }
+        const wasFocused = current.spotlightTileId === WATCH_TOGETHER_TILE_ID;
+        const fallback = this.bridge.state.screenShares[0]?.id ?? null;
+        this.snapshot.merge({
+            watchTogetherActive: false,
+            ...(wasFocused ? { spotlightTileId: fallback, layoutMode: fallback ? "spotlight" : "grid" } : {}),
+        });
+    };
+
     /** Starts audio after React commits, so discarded renders cannot leave a second ringback playing. */
     public startRingtone = (): (() => void) => {
         if (this.isDisposed) return () => {};
@@ -344,6 +382,7 @@ export class DesktopCallStageViewModel
             spotlightTileId = state.screenShares[0].id;
         } else if (
             spotlightTileId !== null &&
+            !(spotlightTileId === WATCH_TOGETHER_TILE_ID && this.snapshot.current.watchTogetherActive) &&
             !state.screenShares.some((s) => s.id === spotlightTileId) &&
             !state.participants.some((p) => p.id === spotlightTileId)
         ) {

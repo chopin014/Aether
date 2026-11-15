@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@test-utils";
 
 import type { SoundboardViewSnapshot } from "../SoundboardView";
+import { WATCH_TOGETHER_TILE_ID, type WatchTogetherViewSnapshot } from "../WatchTogetherView";
 import type { VoiceUserMenuViewModel, VoiceUserMenuViewSnapshot } from "../VoiceUserMenuView";
 import { BaseViewModel, MockViewModel } from "../../core/viewmodel";
 import {
@@ -842,4 +843,118 @@ it("opens the soundboard directly from the in-call toolbar", () => {
     expect(soundButton).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Quack" }));
     expect(soundboard.play).toHaveBeenCalledOnce();
+});
+
+describe("Watch together", () => {
+    function makeWatchTogether(overrides: Partial<WatchTogetherViewSnapshot> = {}) {
+        return Object.assign(
+            new MockViewModel<WatchTogetherViewSnapshot>({
+                connected: true,
+                active: true,
+                title: "Big Buck Bunny",
+                sourceName: "YouTube",
+                playing: true,
+                ended: false,
+                startingIn: null,
+                buffering: false,
+                hasVideo: true,
+                embedHandlesClicks: true,
+                position: 10,
+                duration: 600,
+                rate: 1,
+                rates: [1, 1.5],
+                hasPrevious: false,
+                hasNext: false,
+                queue: [{ id: "i1", title: "Big Buck Bunny", addedBy: "Alice", current: true }],
+                volume: 70,
+                deafened: false,
+                draft: "",
+                adding: false,
+                ...overrides,
+            }),
+            {
+                setDraft: vi.fn(),
+                submitDraft: vi.fn(),
+                addLink: vi.fn((text: string) => text.startsWith("https://youtu.be/")),
+                togglePlaying: vi.fn(),
+                seek: vi.fn(),
+                setRate: vi.fn(),
+                next: vi.fn(),
+                previous: vi.fn(),
+                playItem: vi.fn(),
+                removeItem: vi.fn(),
+                stop: vi.fn(),
+                setVolume: vi.fn(),
+                attachPlayer: vi.fn(),
+                openSource: vi.fn(),
+            },
+        );
+    }
+
+    function paste(target: EventTarget, text: string): Event {
+        const event = new Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "clipboardData", { value: { getData: () => text } });
+        target.dispatchEvent(event);
+        return event;
+    }
+
+    it("puts the shared player in the spotlight, over its own tile", () => {
+        const watchTogether = makeWatchTogether();
+        const vm = new TestCallStageViewModel({
+            watchTogether,
+            watchTogetherActive: true,
+            layoutMode: "spotlight",
+            spotlightTileId: WATCH_TOGETHER_TILE_ID,
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        expect(screen.getByTestId("call-tile-watch-together")).toHaveAttribute("data-focused", "true");
+        expect(screen.getByTestId("watch-together-player")).not.toHaveAttribute("data-compact");
+        expect(watchTogether.attachPlayer).toHaveBeenCalled();
+    });
+
+    it("shrinks the player into the filmstrip when someone else is focused, and focuses it on click", async () => {
+        const watchTogether = makeWatchTogether();
+        const vm = new TestCallStageViewModel({
+            watchTogether,
+            watchTogetherActive: true,
+            layoutMode: "spotlight",
+            participants: [makeParticipant()],
+            spotlightTileId: makeParticipant().id,
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        expect(screen.getByTestId("watch-together-player")).toHaveAttribute("data-compact", "true");
+        fireEvent.click(await screen.findByRole("button", { name: "Show the shared player" }));
+        expect(vm.setSpotlightTileId).toHaveBeenCalledWith(WATCH_TOGETHER_TILE_ID);
+    });
+
+    it("has no tile or player until something is shared", () => {
+        const vm = new TestCallStageViewModel({ watchTogether: makeWatchTogether({ active: false }) });
+        render(<DesktopCallStageView vm={vm} />);
+        expect(screen.queryByTestId("call-tile-watch-together")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("watch-together-player")).not.toBeInTheDocument();
+    });
+
+    it("opens the panel from the call controls", () => {
+        const watchTogether = makeWatchTogether({ active: false, queue: [] });
+        const vm = new TestCallStageViewModel({ watchTogether });
+        render(<DesktopCallStageView vm={vm} />);
+        fireEvent.click(screen.getByRole("button", { name: "Watch together" }));
+        expect(vm.setActiveMenu).toHaveBeenCalledWith("watch_together");
+        expect(screen.getByTestId("watch-together-panel")).toBeVisible();
+        expect(screen.getByLabelText("Watch or listen together")).toHaveFocus();
+    });
+
+    it("plays a link pasted while the call is focused, but leaves pastes into text fields alone", () => {
+        const watchTogether = makeWatchTogether({ active: false });
+        const vm = new TestCallStageViewModel({ watchTogether });
+        render(<DesktopCallStageView vm={vm} />);
+        const stage = screen.getByTestId("aether-call-stage");
+        expect(paste(stage, "https://youtu.be/aqz-KE-bpKQ").defaultPrevented).toBe(true);
+        expect(watchTogether.addLink).toHaveBeenCalledWith("https://youtu.be/aqz-KE-bpKQ");
+        expect(paste(stage, "just some text").defaultPrevented).toBe(false);
+        const input = document.createElement("input");
+        stage.appendChild(input);
+        paste(input, "https://youtu.be/aqz-KE-bpKQ");
+        expect(watchTogether.addLink).toHaveBeenCalledTimes(2);
+    });
 });
