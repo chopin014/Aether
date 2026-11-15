@@ -771,11 +771,14 @@
             }
         },
         "server_menu": {
+            "devtools": "View timeline (devtools)",
+            "leave": "Leave server",
             "mark_read": "Mark as read",
             "mute": "Mute server",
             "notification_settings": "Notification settings",
             "notify_all": "All messages",
             "notify_mentions": "Only @mentions",
+            "settings": "Server settings",
             "unmute": "Unmute server"
         },
         "server_voice_activity": {

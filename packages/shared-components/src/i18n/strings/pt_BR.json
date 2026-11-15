@@ -1301,7 +1301,10 @@
             "notification_settings": "Configurações de notificação",
             "notify_all": "Todas as mensagens",
             "notify_mentions": "Somente @menções",
-            "unmute": "Reativar servidor"
+            "unmute": "Reativar servidor",
+            "devtools": "Ver linha do tempo (devtools)",
+            "leave": "Sair do servidor",
+            "settings": "Configurações do servidor"
         },
         "unread_conversations": {
             "label": "Conversas não lidas",
