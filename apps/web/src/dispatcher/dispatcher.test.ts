@@ -137,6 +137,19 @@ describe("MatrixDispatcher", () => {
         expect(dispatcher.hasQueuedOtherThan()).toBe(false);
     });
 
+    it("reports work waiting while held back, until every hold is released", () => {
+        const dispatcher = new MatrixDispatcher();
+        const first = dispatcher.holdBack();
+        const second = dispatcher.holdBack();
+        expect(dispatcher.hasQueuedOtherThan()).toBe(true);
+        first();
+        // Releasing a hold again does not release another's.
+        first();
+        expect(dispatcher.hasQueuedOtherThan()).toBe(true);
+        second();
+        expect(dispatcher.hasQueuedOtherThan()).toBe(false);
+    });
+
     it("should handle AsyncActionPayload", () => {
         const fn = vi.fn();
         defaultDispatcher.register(fn);

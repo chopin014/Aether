@@ -28,6 +28,8 @@ export class MatrixDispatcher {
     private pendingPayload?: ActionPayload;
     /** How many payloads of each action dispatched asynchronously wait for their timers. */
     private readonly queued = new Map<string, number>();
+    /** How many holds placed with {@link holdBack} are not yet released. */
+    private holds = 0;
     private lastId = 1;
 
     /**
@@ -189,10 +191,28 @@ export class MatrixDispatcher {
      * @param overtakable - The actions it does not matter to overtake.
      */
     public hasQueuedOtherThan(...overtakable: string[]): boolean {
+        if (this.holds > 0) return true;
         for (const action of this.queued.keys()) {
             if (!overtakable.includes(action)) return true;
         }
         return false;
+    }
+
+    /**
+     * Has {@link hasQueuedOtherThan} report work waiting until the returned function is called, as for a dispatch
+     * waiting for its timer. For work outside the dispatcher that must finish first, such as an insertion into a
+     * composer waiting for its selection to take: a room opened meanwhile, which would replace the composer, then
+     * waits behind it.
+     * @returns A function that releases the hold; calling it again does nothing.
+     */
+    public holdBack(): () => void {
+        this.holds++;
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            this.holds--;
+        };
     }
 
     /**
