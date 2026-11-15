@@ -47,7 +47,7 @@ export interface RoomTimelineHostController {
     bind: (slot: HTMLElement, packet: RoomTimelineSlotPacket) => RoomTimelineLease | null;
     /** Draw the timeline under `lease` with what the room view now gives it. */
     update: (lease: RoomTimelineLease, packet: RoomTimelineSlotPacket) => void;
-    /** Stop drawing the timeline under `lease`, and dispose of it, if it is still the current one. */
+    /** Revoke `lease` and unmount its presentation; the host may retain a compatible model. */
     release: (lease: RoomTimelineLease) => void;
 }
 

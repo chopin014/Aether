@@ -13,6 +13,7 @@ import { createTestClient } from "test-utils";
 
 import { RoomTimelineHostViewModel, type RoomTimelineRequest } from "./RoomTimelineHostViewModel";
 import { RoomTimelineViewModel } from "./RoomTimelineViewModel";
+import { createTimelineVisitBinding } from "./TimelineVisitBinding";
 
 describe("RoomTimelineHostViewModel", () => {
     let client: MatrixClient;
@@ -40,6 +41,7 @@ describe("RoomTimelineHostViewModel", () => {
 
     afterEach(() => {
         host.dispose();
+        vi.useRealTimers();
         vi.restoreAllMocks();
     });
 
@@ -180,5 +182,120 @@ describe("RoomTimelineHostViewModel", () => {
         expect(start).not.toHaveBeenCalled();
         // The message to open at is the highlighted one until the timeline loads.
         expect(timeline.getSnapshot().highlightedEventId).toBe("$event");
+    });
+
+    describe("bounded model cache", () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        const bindReusable = (input: RoomTimelineRequest): ReturnType<typeof host.bind> => {
+            const lease = host.bind(input);
+            // The timeline suite covers actual admission and invalidation; isolate cache ownership here.
+            const model = host.getSnapshot().entry!.vm;
+            vi.spyOn(model, "parkForReuse").mockReturnValue(true);
+            vi.spyOn(model, "resumeCompatible").mockReturnValue(true);
+            return lease;
+        };
+
+        it("reuses a compatible model under a fresh lease and permanently rejects A1 callbacks", () => {
+            const a1 = bindReusable(request(roomA))!;
+            const model = host.getSnapshot().entry!.vm;
+            const markRead = vi.spyOn(model, "onMarkAllAsRead");
+            const a1Binding = createTimelineVisitBinding(
+                model,
+                () => host.isCurrent(a1),
+                () => true,
+            );
+            const revoked = vi.fn();
+            host.subscribeToRevocation(a1, revoked);
+            host.release(a1);
+            bindReusable(request(roomB));
+            const a2 = bindReusable(request(roomA))!;
+            expect(host.getSnapshot().entry!.vm).toBe(model);
+            expect(a2).not.toBe(a1);
+            expect(a2.entryId).not.toBe(a1.entryId);
+            expect(host.isCurrent(a1)).toBe(false);
+            a1Binding.onMarkAllAsRead();
+            a1Binding.onVisibleRangeChanged(0, 10);
+            expect(markRead).not.toHaveBeenCalled();
+            host.release(a1);
+            host.discard(a1);
+            expect(host.isCurrent(a2)).toBe(true);
+            expect(revoked).toHaveBeenCalledOnce();
+        });
+
+        it.each(["invalidation", "permalink", "receipts", "activity"])("falls back after %s", (kind) => {
+            const lease = bindReusable(request(roomA))!;
+            const model = host.getSnapshot().entry!.vm;
+            host.release(lease);
+            if (kind === "invalidation") vi.mocked(model.resumeCompatible).mockReturnValue(false);
+            const options: Partial<RoomTimelineRequest> =
+                kind === "permalink"
+                    ? { initialEventId: "$target" }
+                    : kind === "receipts"
+                      ? { showReadReceipts: false }
+                      : kind === "activity"
+                        ? { enableReadReceiptsAndMarkersOnActivity: false }
+                        : {};
+            host.bind(request(roomA, options));
+            expect(model.isDisposed).toBe(true);
+            expect(host.getSnapshot().entry!.vm).not.toBe(model);
+        });
+
+        it("keeps at most five parked models plus the active one and evicts one oldest model per admission", () => {
+            const models: RoomTimelineViewModel[] = [];
+            for (let i = 0; i < 20; i++) {
+                const room = new Room(`!room${i}:test`, client, "@me:test", {
+                    pendingEventOrdering: PendingEventOrdering.Detached,
+                });
+                bindReusable(request(room));
+                models.push(host.getSnapshot().entry!.vm);
+                expect(models.filter((vm) => !vm.isDisposed)).toHaveLength(Math.min(i + 1, 6));
+                expect(vi.getTimerCount()).toBe(Math.min(i, 5));
+            }
+            expect(models.slice(0, 14).every((vm) => vm.isDisposed)).toBe(true);
+            host.dispose();
+            expect(models.every((vm) => vm.isDisposed)).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+        });
+
+        it("expires parked models without waiting for another navigation", () => {
+            const lease = bindReusable(request(roomA))!;
+            const model = host.getSnapshot().entry!.vm;
+            host.release(lease);
+            vi.advanceTimersByTime(60_000);
+            expect(model.isDisposed).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+        });
+
+        it("reclaims the oldest room in a six-room cycle after the slot released its predecessor", () => {
+            const rooms = Array.from(
+                { length: 6 },
+                (_, index) =>
+                    new Room(`!cycle${index}:test`, client, "@me:test", {
+                        pendingEventOrdering: PendingEventOrdering.Detached,
+                    }),
+            );
+            bindReusable(request(rooms[0]));
+            const first = host.getSnapshot().entry!.vm;
+            for (const room of rooms.slice(1)) {
+                host.release(host.getSnapshot().entry!.lease);
+                bindReusable(request(room));
+            }
+            host.release(host.getSnapshot().entry!.lease);
+            bindReusable(request(rooms[0]));
+            expect(host.getSnapshot().entry!.vm).toBe(first);
+            expect(first.isDisposed).toBe(false);
+            expect(vi.getTimerCount()).toBe(5);
+        });
+
+        it("never caches a failed presentation", () => {
+            const lease = bindReusable(request(roomA))!;
+            const model = host.getSnapshot().entry!.vm;
+            host.discard(lease);
+            expect(model.isDisposed).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+        });
     });
 });

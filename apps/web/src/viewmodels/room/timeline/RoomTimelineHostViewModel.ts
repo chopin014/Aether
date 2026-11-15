@@ -9,6 +9,7 @@ import { BaseViewModel } from "@element-hq/web-shared-components";
 import type { MatrixClient, Room } from "matrix-js-sdk/src/matrix";
 
 import { RoomTimelineViewModel } from "./RoomTimelineViewModel";
+import { RoomTimelineRetention } from "./RoomTimelineRetention";
 
 /**
  * The right to draw one room's timeline through the host, which the room view holds while its timeline is shown.
@@ -42,15 +43,21 @@ interface Props {
     client: MatrixClient;
 }
 
+interface ParkedTimeline {
+    readonly vm: RoomTimelineViewModel;
+    readonly request: RoomTimelineRequest;
+    readonly timer: ReturnType<typeof setTimeout>;
+}
+
 /**
  * Owns the timeline the room view draws through the host: one room's timeline view model at a time.
  *
- * Binding a room makes it a new view model, not yet started, and disposes of the one it had: a timeline lives as long
- * as the binding it was made for, so leaving a room and coming back makes another. Releasing a lease that is no longer
- * current does nothing, so a late release cannot remove a newer timeline.
+ * Keeps at most five bounded plain-text models between visits. Views still unmount on release: EventTile's own
+ * effects do not support safe parking yet. Compatible models return without a reload, under a fresh lease; all
+ * other returns use a new model. Releasing an old lease cannot remove a newer timeline.
  *
  * A timeline given up stops at once, in this order: its lease stops being current, whatever drew it under that lease
- * is told so (see {@link subscribeToRevocation}), its view model stops following the room and is disposed of, and only
+ * is told so (see {@link subscribeToRevocation}), its view model stops following the room, and only
  * then does the snapshot say it is gone, for React to take its rows away.
  */
 export class RoomTimelineHostViewModel extends BaseViewModel<RoomTimelineHostSnapshot, Props> {
@@ -59,6 +66,11 @@ export class RoomTimelineHostViewModel extends BaseViewModel<RoomTimelineHostSna
     private currentLease: RoomTimelineLease | null = null;
     /** Those to tell as the current lease is given up. */
     private revocationListeners = new Set<() => void>();
+    private readonly parked = new Map<Room, ParkedTimeline>();
+    // A slot releases before its successor binds. Keep one overflow candidate until that binding (or next task),
+    // so a six-room cycle can reclaim its destination rather than evicting it just before looking it up.
+    private retiring: { room: Room; entry: ParkedTimeline } | null = null;
+    private currentRequest: RoomTimelineRequest | null = null;
 
     public constructor(props: Props) {
         super(props, { entry: null });
@@ -70,17 +82,37 @@ export class RoomTimelineHostViewModel extends BaseViewModel<RoomTimelineHostSna
      */
     public bind = (request: RoomTimelineRequest): RoomTimelineLease | null => {
         if (this.isDisposed || request.client !== this.props.client) return null;
-        this.evict();
+        const parked = this.takeParked(request.room);
+        this.evict(true);
+        this.disposeRetiring();
         const lease: RoomTimelineLease = Object.freeze({ entryId: this.nextEntryId++, room: request.room });
-        const vm = new RoomTimelineViewModel({
-            client: request.client,
-            room: request.room,
-            initialEventId: request.initialEventId,
-            showReadReceipts: request.showReadReceipts,
-            sendReadReceiptOnLoad: request.sendReadReceiptOnLoad,
-            enableReadReceiptsAndMarkersOnActivity: request.enableReadReceiptsAndMarkersOnActivity,
-        });
+        let reused: RoomTimelineViewModel | undefined;
+        if (parked) {
+            parked.vm.setSendReadReceiptOnLoad(request.sendReadReceiptOnLoad);
+            if (
+                !request.initialEventId &&
+                parked.request.showReadReceipts === request.showReadReceipts &&
+                parked.request.enableReadReceiptsAndMarkersOnActivity ===
+                    request.enableReadReceiptsAndMarkersOnActivity &&
+                parked.vm.resumeCompatible()
+            ) {
+                reused = parked.vm;
+            } else {
+                parked.vm.dispose();
+            }
+        }
+        const vm =
+            reused ??
+            new RoomTimelineViewModel({
+                client: request.client,
+                room: request.room,
+                initialEventId: request.initialEventId,
+                showReadReceipts: request.showReadReceipts,
+                sendReadReceiptOnLoad: request.sendReadReceiptOnLoad,
+                enableReadReceiptsAndMarkersOnActivity: request.enableReadReceiptsAndMarkersOnActivity,
+            });
         this.currentLease = lease;
+        this.currentRequest = request;
         this.snapshot.set({ entry: { lease, vm } });
         return lease;
     };
@@ -99,25 +131,70 @@ export class RoomTimelineHostViewModel extends BaseViewModel<RoomTimelineHostSna
         return () => this.revocationListeners.delete(listener);
     };
 
-    /** Dispose of the timeline drawn under `lease`, if it is still the current one. */
+    /** Revoke the current lease and retain only an eligible model; the view must unmount its descendants. */
     public release = (lease: RoomTimelineLease): void => {
-        if (this.isCurrent(lease)) this.evict();
+        if (this.isCurrent(lease)) this.evict(true);
+    };
+
+    /** Drawing failed: discard the model rather than offering the same failed data on another visit. */
+    public discard = (lease: RoomTimelineLease): void => {
+        if (this.isCurrent(lease)) this.evict(false);
     };
 
     public override dispose(): void {
-        this.evict();
+        this.evict(false);
+        this.disposeRetiring();
+        for (const room of this.parked.keys()) this.takeParked(room)?.vm.dispose();
         super.dispose();
     }
 
-    private evict(): void {
+    private takeParked(room: Room): ParkedTimeline | undefined {
+        if (this.retiring?.room === room) {
+            const { entry } = this.retiring;
+            this.retiring = null;
+            clearTimeout(entry.timer);
+            return entry;
+        }
+        const parked = this.parked.get(room);
+        if (parked) {
+            clearTimeout(parked.timer);
+            this.parked.delete(room);
+        }
+        return parked;
+    }
+
+    private disposeRetiring(): void {
+        if (this.retiring) this.takeParked(this.retiring.room)?.vm.dispose();
+    }
+
+    private evict(retain: boolean): void {
         const entry = this.snapshot.current.entry;
-        if (!entry) return;
+        if (!entry || !this.currentLease) return;
+        const request = this.currentRequest;
+        this.currentRequest = null;
         this.currentLease = null;
         const listeners = this.revocationListeners;
         this.revocationListeners = new Set();
         for (const listener of listeners) listener();
-        entry.vm.suspendPresentation();
-        entry.vm.dispose();
+        if (retain && request && entry.vm.parkForReuse()) {
+            this.takeParked(request.room)?.vm.dispose();
+            if (this.parked.size === 5) {
+                this.disposeRetiring();
+                const room = this.parked.keys().next().value!;
+                const oldest = this.takeParked(room)!;
+                this.retiring = {
+                    room,
+                    entry: { ...oldest, timer: setTimeout(() => this.disposeRetiring(), 0) },
+                };
+            }
+            const timer = setTimeout(() => {
+                this.takeParked(request.room)?.vm.dispose();
+            }, RoomTimelineRetention.maxAgeMs);
+            this.parked.set(request.room, { vm: entry.vm, request, timer });
+        } else {
+            entry.vm.suspendPresentation();
+            entry.vm.dispose();
+        }
         // Unless a listener has bound another timeline meanwhile.
         if (this.snapshot.current.entry === entry) this.snapshot.set({ entry: null });
     }

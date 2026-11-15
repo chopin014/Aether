@@ -38,10 +38,16 @@ import {
 function conceal(container: HTMLElement): void {
     container.classList.add("mx_RoomTimelineHost_entry_revoked");
     container.inert = true;
+    container.setAttribute("aria-hidden", "true");
     const focused = container.ownerDocument.activeElement;
     if (focused instanceof HTMLElement && container.contains(focused)) focused.blur();
     const selection = container.ownerDocument.getSelection();
-    if (selection?.anchorNode && container.contains(selection.anchorNode)) selection.removeAllRanges();
+    if (
+        selection &&
+        ((selection.anchorNode && container.contains(selection.anchorNode)) ||
+            (selection.focusNode && container.contains(selection.focusNode)))
+    )
+        selection.removeAllRanges();
 }
 
 /** The timeline the host draws: its lease, the element it is drawn into, and what the room view last gave it. */
@@ -63,8 +69,9 @@ interface Props {
  *
  * The timeline is drawn into an element of the host's own, which the host puts inside the slot, so it sits where the
  * room view would have drawn it while belonging to the host in React's tree. The host owns the timeline's view model
- * and disposes of it once the slot is released: in this first version a timeline lives as long as the room view's
- * slot, and the room view's contexts and key and focus handlers are passed on to it from the slot. As it is released,
+ * and may keep a bounded compatible model once the slot is released. The mounted presentation still lives only as
+ * long as the slot: descendants have independent effects that cannot safely be parked. Contexts and handlers come
+ * from the current slot. As it is released,
  * the timeline stops at once, before React removes it: its view is suspended and concealed, and its view model stops
  * following the room; see `RoomTimelineHostViewModel`.
  */
@@ -114,7 +121,7 @@ export function RoomTimelineHost({ client, children }: Readonly<Props>): JSX.Ele
             {current &&
                 entry &&
                 createPortal(
-                    <HostedTimeline host={vm} timeline={entry.vm} docked={current} onError={controller.release} />,
+                    <HostedTimeline host={vm} timeline={entry.vm} docked={current} onError={vm.discard} />,
                     current.container,
                     String(current.lease.entryId),
                 )}

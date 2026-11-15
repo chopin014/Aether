@@ -27,6 +27,7 @@ import {
     Room,
     RoomEvent,
     RoomStateEvent,
+    SyncState,
     TypedEventEmitter,
     type HttpApiEventHandlerMap,
     type IEventRelation,
@@ -167,6 +168,76 @@ describe("RoomTimelineViewModel", () => {
         vi.restoreAllMocks();
         vi.clearAllMocks();
         localStorage.clear();
+    });
+
+    describe("compatible model returns", () => {
+        beforeEach(() => {
+            vi.spyOn(client, "getSyncState").mockReturnValue(SyncState.Syncing);
+        });
+
+        const settled = async (): Promise<RoomTimelineViewModel> => {
+            seedTimeline([makeMessage("$a", { user: OTHER_USER_ID }), makeMessage("$b", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            return vm;
+        };
+
+        it("starts a fresh visit without loading or replacing unchanged descriptors", async () => {
+            const vm = await settled();
+            const before = vm.getSnapshot();
+            const load = vi.spyOn(TimelineWindow.prototype, "load");
+            expect(vm.parkForReuse()).toBe(true);
+            expect(vm.resumeCompatible()).toBe(true);
+            const after = vm.getSnapshot();
+            expect(load).not.toHaveBeenCalled();
+            expect(after.items).toBe(before.items);
+            expect(after.visit!.generation).toBeGreaterThan(before.visit!.generation);
+            expect(after.visit!.rowsReady).toBe(true);
+            expect(after.pendingAnchor).toEqual({ targetKey: "$b", align: "end" });
+            expect(vm.resumeCompatible()).toBe(false);
+        });
+
+        it("refreshes the unread line without replacing event descriptors and waits for placement to read", async () => {
+            const vm = await settled();
+            const before = vm.getSnapshot().items.filter((item) => item.kind === "event");
+            expect(vm.parkForReuse()).toBe(true);
+            room.addAccountData([new MatrixEvent({ type: EventType.FullyRead, content: { event_id: "$a" } })]);
+            vm.setSendReadReceiptOnLoad(true);
+            vi.mocked(client.sendReadReceipt).mockClear();
+            expect(vm.resumeCompatible()).toBe(true);
+            const items = vm.getSnapshot().items;
+            expect(items[indexOfKey(items, "$a") + 1].kind).toBe("read-marker");
+            const after = items.filter((item) => item.kind === "event");
+            after.forEach((item, index) => expect(item).toBe(before[index]));
+            vm.onVisibleRangeChanged(0, items.length - 1);
+            vm.sendReadReceiptNow();
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, items.length - 1);
+            expect(client.sendReadReceipt).toHaveBeenCalledOnce();
+        });
+
+        it.each(["content", "membership", "sync", "target"])("misses after a parked %s change", async (change) => {
+            const vm = await settled();
+            expect(vm.parkForReuse()).toBe(true);
+            if (change === "content") room.getLiveTimeline().getEvents()[0].getContent().body = "edited in place";
+            if (change === "membership") room.updateMyMembership(KnownMembership.Leave);
+            if (change === "sync") client.emit(ClientEvent.Sync, SyncState.Error, SyncState.Syncing);
+            if (change === "target") localStorage.setItem(`timeline_scroll_${ROOM_ID}`, "$a");
+            expect(vm.resumeCompatible()).toBe(false);
+            const load = vi.spyOn(TimelineWindow.prototype, "load");
+            vm.activate();
+            expect(load).toHaveBeenCalledOnce();
+        });
+
+        it("declines an unsettled or scrolled timeline", async () => {
+            const vm = await settled();
+            vm.onAtBottomStateChange(false);
+            expect(vm.parkForReuse()).toBe(false);
+            expect(vm.resumeCompatible()).toBe(false);
+        });
     });
 
     describe("lifecycle", () => {

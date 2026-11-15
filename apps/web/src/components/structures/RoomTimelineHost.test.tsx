@@ -196,6 +196,24 @@ describe("RoomTimelineHost", () => {
         expect(handlers.outerKeyDown).toHaveBeenCalledTimes(1);
     });
 
+    it("unmounts descendants while retaining a model, and rejects the previous visit after returning", () => {
+        const { rerender } = render(app(roomView(roomA)));
+        const a1 = drawn.props!.execution!;
+        const model = drawn.props!.vm;
+        vi.spyOn(model, "parkForReuse").mockReturnValue(true);
+        vi.spyOn(model, "resumeCompatible").mockReturnValue(true);
+        const body = screen.getByTestId("timeline");
+        rerender(app(roomView(roomB)));
+        expect(body.isConnected).toBe(false);
+        expect(model.isDisposed).toBe(false);
+        rerender(app(roomView(roomA)));
+        expect(drawn.props!.vm).toBe(model);
+        expect(a1.isCurrent()).toBe(false);
+        expect(a1.onPlaced()).toBe(false);
+        expect(drawn.props!.execution!.isCurrent()).toBe(true);
+        expect(screen.getAllByTestId("timeline")).toHaveLength(1);
+    });
+
     it("gives the room view the timeline's controls while it is shown, and takes them back as it goes", () => {
         const { rerender } = render(app(roomView(roomA)));
         expect(handlers.panelRef).toHaveBeenLastCalledWith(drawn.panel);
@@ -226,7 +244,10 @@ describe("RoomTimelineHost", () => {
         execution.subscribeToInvalidation!(() => {
             seen = {
                 current: execution.isCurrent(),
-                concealed: container.classList.contains("mx_RoomTimelineHost_entry_revoked") && container.inert,
+                concealed:
+                    container.classList.contains("mx_RoomTimelineHost_entry_revoked") &&
+                    container.inert &&
+                    container.getAttribute("aria-hidden") === "true",
                 focused: container.contains(document.activeElement),
                 disposed: timeline.isDisposed,
                 inPage: container.isConnected,

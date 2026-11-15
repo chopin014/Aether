@@ -59,6 +59,7 @@ import { wantsDateSeparator } from "../../../DateUtils";
 import { getLateEventInfo } from "../../../components/structures/grouper/LateEventGrouper";
 import { sendStateOf } from "./sendState";
 import { markRoomSwitch } from "../../../performance/RoomSwitchPerformance";
+import { RoomTimelineRetention } from "./RoomTimelineRetention";
 
 const DEBUG_TIMELINE = false;
 
@@ -263,6 +264,7 @@ export class RoomTimelineViewModel
      * {@link activate}. Null while the rows are suspended, when nothing the room does rebuilds or publishes them.
      */
     private presentation: Disposables | null = null;
+    private retention: RoomTimelineRetention | null = null;
     /** Counts the times the rows begin and stop following the room, so work queued in one period cannot act in another. */
     private presentationGeneration = 0;
     /** Ends each wait for messages to decrypt that is running; see {@link waitForDecryption}. */
@@ -683,8 +685,32 @@ export class RoomTimelineViewModel
      */
     public activate(eventId?: string): void {
         if (!this.started || this.visitActive || this.isDisposed) return;
+        this.retention?.dispose();
+        this.retention = null;
         // Suspended rows follow the room again before the visit loads its own; see suspendPresentation.
         this.resumePresentation();
+        this.resetVisit();
+        // Where the last visit was still placing the reader no longer matters: this one places them afresh.
+        const fresh: Partial<RoomTimelineViewSnapshot> = {
+            isAtBottom: false,
+            numUnreadMessages: 0,
+            canJumpToReadMarker: false,
+            pendingAnchor: null,
+            visit: this.visitState(),
+        };
+        const items = this.snapshot.current.items;
+        if (items[0]?.kind === "loading" || items.at(-1)?.kind === "loading") this.republish("visit", fresh);
+        else this.mergeSnapshot(fresh, "visit");
+        if (eventId) {
+            void this.loadInitialTimeline({ kind: "permalink", eventId });
+            return;
+        }
+        const savedEventId = RoomTimelineViewModel.readScrollTarget(this.opts.room.roomId);
+        void this.loadInitialTimeline(savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" });
+    }
+
+    /** Reset read authority independently of loading, so a compatible return is a genuinely new visit. */
+    private resetVisit(): void {
         this.lastReceiptTargetId = null;
         this.seenWhileActiveEventId = null;
         this.lastBottomEventId = null;
@@ -702,26 +728,85 @@ export class RoomTimelineViewModel
         this.visitRowsReady = false;
         this.readMarkerFromRoom();
         this.beginVisit();
-        // Where the last visit was still placing the reader no longer matters: this one places them afresh. The view
-        // learns that a new visit has begun, whose rows are not shown yet.
-        const fresh: Partial<RoomTimelineViewSnapshot> = {
+    }
+
+    /**
+     * Suspend a settled live-bottom model and capture bounded reuse evidence. The caller must unmount its views:
+     * this only suspends the model, not EventTile descendants. False means dispose through the ordinary path.
+     */
+    public parkForReuse = (): boolean => {
+        const eligible =
+            this.started &&
+            this.visitActive &&
+            !this.isDisposed &&
+            this.readerPlaced &&
+            this.isAtBottom &&
+            this.snapshot.current.atLiveEnd &&
+            !this.windowDetachedFromLive() &&
+            !this.snapshot.current.highlightedEventId &&
+            !this.snapshot.current.pendingAnchor &&
+            !this.loading &&
+            !this.initialTimelinePending &&
+            !this.backwardPaginateChain &&
+            !this.forwardPaginateChain &&
+            !this.rebuildQueued &&
+            this.decryptDebounceTimer === null &&
+            this.continuationCache.size <= RoomTimelineRetention.maxEvents &&
+            this.receiptsByUserId.size <= RoomTimelineRetention.maxEvents &&
+            this.baseItems.length <= RoomTimelineRetention.maxEvents * 2 &&
+            this.baseItems.every((item) => ["event", "read-marker", "date-separator"].includes(item.kind));
+        this.retention?.dispose();
+        this.retention = eligible
+            ? new RoomTimelineRetention(this.opts.client, this.opts.room, this.timelineWindow.getEvents())
+            : null;
+        this.suspendPresentation();
+        return this.retention?.isCompatible() ?? false;
+    };
+
+    /**
+     * Return to an unchanged live-bottom model without loading a TimelineWindow or rebuilding event descriptors.
+     * Consume the evidence once; refresh read state and require placement before any receipt. False leaves the
+     * model suspended so the host can dispose it and take the ordinary path. Fresh views still validate security.
+     */
+    public resumeCompatible = (): boolean => {
+        const retention = this.retention;
+        this.retention = null;
+        if (!retention) return false;
+        const compatible =
+            !this.isDisposed &&
+            !this.visitActive &&
+            retention.isCompatible() &&
+            RoomTimelineViewModel.readScrollTarget(this.opts.room.roomId) === null;
+        retention.dispose();
+        if (!compatible) return false;
+        const previousMarker = this.frozenMarkerEventId;
+        this.resumePresentation();
+        this.resetVisit();
+        this.freezeReadMarkerForSession();
+        // Only the unread separator changes. The text event descriptors retain their identity.
+        if (previousMarker !== this.frozenMarkerEventId) {
+            this.baseItems = this.baseItems.flatMap((item): TimelineItem[] => {
+                if (item.kind === "read-marker") return [];
+                return item.key === this.frozenMarkerEventId
+                    ? [item, { kind: "read-marker", key: "read-marker" }]
+                    : [item];
+            });
+        }
+        this.showingEarlierVisit = false;
+        this.visitRowsReady = true;
+        this.receiptOnPlacement = this.sendReadReceiptOnLoad;
+        this.placementRevision++;
+        const targetKey = this.baseItems.at(-1)!.key;
+        this.republish("compatible-return", {
+            pendingAnchor: { targetKey, align: "end" },
             isAtBottom: false,
             numUnreadMessages: 0,
-            canJumpToReadMarker: false,
-            pendingAnchor: null,
+            canJumpToReadMarker: this.computeCanJumpToReadMarker(this.baseItems),
             visit: this.visitState(),
-        };
-        const items = this.snapshot.current.items;
-        // A spinner the last visit left, from history it stopped fetching, goes too.
-        if (items[0]?.kind === "loading" || items.at(-1)?.kind === "loading") this.republish("visit", fresh);
-        else this.mergeSnapshot(fresh, "visit");
-        if (eventId) {
-            void this.loadInitialTimeline({ kind: "permalink", eventId });
-            return;
-        }
-        const savedEventId = RoomTimelineViewModel.readScrollTarget(this.opts.room.roomId);
-        void this.loadInitialTimeline(savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" });
-    }
+        });
+        markRoomSwitch("rows", this.opts.room.roomId);
+        return true;
+    };
 
     /** Where this view model is in a reading visit, for the view; see `TimelineVisitState`. */
     private visitState(): TimelineVisitState {
@@ -2376,6 +2461,8 @@ export class RoomTimelineViewModel
      * settings watcher.
      */
     public override dispose(): void {
+        this.retention?.dispose();
+        this.retention = null;
         this.suspendPresentation();
         super.dispose();
     }
