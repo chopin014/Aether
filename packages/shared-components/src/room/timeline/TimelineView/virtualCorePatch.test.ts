@@ -240,8 +240,10 @@ describe("virtual-core patch: pausing", () => {
         await nextFrame();
 
         virtualizer.setPaused(true);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        // Where it settled, which the browser may reach a frame after the pause, and where it stays.
         const stoppedAt = scroller.scrollTop;
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 350));
         expect(scroller.scrollTop).toBe(stoppedAt);
         expect(stoppedAt).toBeLessThan(1000);
         expect(virtualizer.scrollOffset).toBe(stoppedAt);
@@ -280,12 +282,16 @@ describe("virtual-core patch: pausing", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
 
         virtualizer.setPaused(true);
+        await new Promise((resolve) => setTimeout(resolve, 350));
         const stoppedAt = -scroller.scrollLeft;
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        expect(-scroller.scrollLeft).toBe(stoppedAt);
         expect(stoppedAt).toBeGreaterThan(0);
         expect(stoppedAt).toBeLessThan(1000);
         expect(virtualizer.scrollOffset).toBe(stoppedAt);
 
         virtualizer.setPaused(false);
+        await new Promise((resolve) => setTimeout(resolve, 100));
         expect(-scroller.scrollLeft).toBe(stoppedAt);
         scroller.remove();
     });
@@ -324,12 +330,16 @@ describe("virtual-core patch: pausing", () => {
             await new Promise((resolve) => setTimeout(resolve, 50));
 
             virtualizer.setPaused(true);
+            await new Promise((resolve) => setTimeout(resolve, 350));
             const stoppedAt = window.scrollX;
+            await new Promise((resolve) => setTimeout(resolve, 350));
+            expect(window.scrollX).toBe(stoppedAt);
             expect(stoppedAt).toBeLessThan(0);
             expect(stoppedAt).toBeGreaterThan(-2000);
             expect(virtualizer.scrollOffset).toBe(stoppedAt);
 
             virtualizer.setPaused(false);
+            await new Promise((resolve) => setTimeout(resolve, 100));
             expect(window.scrollX).toBe(stoppedAt);
         } finally {
             virtualizer._didMount()();
