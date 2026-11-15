@@ -1,0 +1,126 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/*
+ * Sized like the rail's server icons: 48px circles, 12px from the rail's edge, that round into squares on hover with
+ * a pill at the edge, as in Discord. The rail sets --mx-desktop-rail-icon, --mx-desktop-rail-inset and its background.
+ */
+.unreadConversations {
+    --rail-icon: var(--mx-desktop-rail-icon, 48px);
+    --rail-inset: var(--mx-desktop-rail-inset, 12px);
+
+    list-style: none;
+}
+
+.list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.item {
+    display: flex;
+    padding-block: var(--cpd-space-1x);
+    padding-inline-start: var(--rail-inset);
+    animation: appear 150ms ease-out;
+}
+
+.button {
+    position: relative;
+    flex: none;
+    width: var(--rail-icon);
+    height: var(--rail-icon);
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+    transition: border-radius 150ms ease-out;
+
+    /* The pill at the rail's edge. */
+    &::before {
+        content: "";
+        position: absolute;
+        inset-block-start: 50%;
+        inset-inline-start: calc(-1 * var(--rail-inset));
+        width: 4px;
+        height: 0;
+        border-radius: 0 4px 4px 0;
+        background: var(--cpd-color-text-primary);
+        transform: translateY(-50%);
+        transition: height 150ms ease-out;
+    }
+
+    &:hover,
+    &:focus-visible {
+        border-radius: 16px;
+
+        &::before {
+            height: 20px;
+        }
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--cpd-color-border-focused);
+        outline-offset: 2px;
+    }
+}
+
+.avatar {
+    --cpd-avatar-size: var(--rail-icon);
+
+    border-radius: inherit;
+
+    img {
+        border-radius: inherit;
+    }
+}
+
+/* The unread count, red as Discord marks direct messages, cut out of the rail's background. */
+.badge {
+    position: absolute;
+    inset-block-end: -4px;
+    inset-inline-end: -4px;
+    box-sizing: border-box;
+    min-width: 24px;
+    height: 24px;
+    padding-inline: 5px;
+    border: 4px solid
+        var(--mx-desktop-rail-background, var(--mx-desktop-shell-frame, var(--cpd-color-bg-canvas-default)));
+    border-radius: 12px;
+    background: var(--cpd-color-bg-critical-primary);
+    color: var(--cpd-color-text-on-solid-primary);
+    font: var(--cpd-font-body-xs-semibold);
+    line-height: 16px;
+    text-align: center;
+    pointer-events: none;
+}
+
+@keyframes appear {
+    from {
+        opacity: 0;
+        transform: scale(0.6);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .item {
+        animation: none;
+    }
+
+    .button,
+    .button::before {
+        transition: none;
+    }
+}

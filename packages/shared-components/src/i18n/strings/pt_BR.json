@@ -1302,6 +1302,15 @@
             "notify_all": "Todas as mensagens",
             "notify_mentions": "Somente @menções",
             "unmute": "Reativar servidor"
+        },
+        "unread_conversations": {
+            "label": "Conversas não lidas",
+            "mark_read": "Marcar como lida",
+            "mute": "Silenciar conversa",
+            "unread": {
+                "one": "%(name)s, %(count)s mensagem não lida",
+                "other": "%(name)s, %(count)s mensagens não lidas"
+            }
         }
     },
     "threads": {

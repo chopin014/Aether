@@ -13,7 +13,7 @@ import { vi, describe, it, expect, beforeAll, beforeEach, afterEach } from "vite
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { render, screen, fireEvent, act, cleanup, waitFor, within } from "test-utils-rtl";
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, NotificationCountType, type Room, TypedEventEmitter } from "matrix-js-sdk/src/matrix";
 import { mkStubRoom, wrapInMatrixClientContext, wrapInSdkContext, TestSDKContext } from "test-utils";
 
 import { RoomListCollapsedContext } from "../../../contexts/RoomListCollapsedContext";
@@ -29,6 +29,9 @@ import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
 import Modal from "../../../Modal";
 import { CreateServerDialog } from "../dialogs/CreateServerDialog";
+import { RoomNotificationStateStore } from "../../../stores/notifications/RoomNotificationStateStore";
+import { type RoomNotificationState } from "../../../stores/notifications/RoomNotificationState";
+import * as RoomNotifs from "../../../RoomNotifs";
 
 // DND test utilities based on
 // https://github.com/colinrobertbrooks/react-beautiful-dnd-test-utils/issues/18#issuecomment-1373388693
@@ -101,6 +104,7 @@ vi.mock("../../../stores/spaces/SpaceStore", async () => {
         activeSpace: SpaceKey = "!space1";
         getChildSpaces = () => [] as Room[];
         getNotificationState = () => null as SpaceNotificationState | null;
+        isRoomInSpace = vi.fn((space: SpaceKey) => space === MetaSpace.Home);
         setActiveSpace = vi.fn();
         moveRootSpace = vi.fn();
         start = vi.fn();
@@ -131,6 +135,8 @@ describe("<SpacePanel />", () => {
         getSessionId: vi.fn().mockReturnValue("session"),
         getDeviceId: vi.fn().mockReturnValue("DEVICE"),
         getUser: vi.fn().mockReturnValue(null),
+        getIgnoredUsers: vi.fn().mockReturnValue([]),
+        getVisibleRooms: vi.fn().mockReturnValue([]),
     } as unknown as MatrixClient;
     const sdkContext = new TestSDKContext();
     const SpacePanel = wrapInSdkContext(wrapInMatrixClientContext(UnwrappedSpacePanel), sdkContext);
@@ -246,6 +252,78 @@ describe("<SpacePanel />", () => {
         act(() => defaultDispatcher.dispatch({ action: Action.ToggleSpacePanel }, true));
         expect(rail).toHaveClass("collapsed");
         expect(screen.getByRole("button", { name: "Expand" })).toBeVisible();
+    });
+
+    describe("desktop Home", () => {
+        let settings: { mockRestore: () => void };
+        const spies: { mockRestore: () => void }[] = [];
+
+        function conversation(roomId: string, name: string, membership: string, lastActive = 0): Room {
+            return {
+                roomId,
+                name,
+                getMyMembership: () => membership,
+                isSpaceRoom: () => false,
+                getJoinedMemberCount: () => 2,
+                getLastActiveTimestamp: () => lastActive,
+                getMxcAvatarUrl: () => null,
+                getAvatarFallbackMember: () => undefined,
+                getDMInviter: () => "@friend:test",
+                getMember: () => null,
+            } as unknown as Room;
+        }
+
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            settings = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+            spies.push(
+                vi.spyOn(DMRoomMap, "shared").mockReturnValue({
+                    getUserIdForRoomId: () => "@friend:test",
+                } as unknown as DMRoomMap),
+            );
+            // Alice has three unread messages from Bob; the rest is read.
+            spies.push(
+                vi.spyOn(RoomNotifs, "getRoomNotifsState").mockReturnValue(RoomNotifs.RoomNotifState.AllMessages),
+                vi
+                    .spyOn(RoomNotifs, "getUnreadNotificationCount")
+                    .mockImplementation((room, type) =>
+                        room.roomId === "!alice:test" && type === NotificationCountType.Total ? 3 : 0,
+                    ),
+                vi
+                    .spyOn(RoomNotificationStateStore.instance, "getRoomState")
+                    .mockImplementation(() => new TypedEventEmitter() as unknown as RoomNotificationState),
+            );
+            vi.mocked(mockClient.getVisibleRooms).mockReturnValue([
+                conversation("!alice:test", "Alice", "join", 10),
+                conversation("!read:test", "Read", "join", 20),
+                conversation("!invite:test", "Bob", "invite"),
+            ]);
+        });
+
+        afterEach(() => {
+            settings.mockRestore();
+            for (const spy of spies.splice(0)) spy.mockRestore();
+            vi.mocked(mockClient.getVisibleRooms).mockReturnValue([]);
+        });
+
+        it("shows unread conversations under Home and counts invitations on Home", () => {
+            render(<SpacePanel />);
+            const tree = screen.getByRole("tree", { name: "Servers" });
+            const unread = within(tree).getByRole("group", { name: "Unread conversations" });
+            const home = within(tree).getAllByRole("treeitem")[0];
+            expect(home).toHaveTextContent("1");
+            expect(within(home).getByRole("button", { name: "Home" })).toBeInTheDocument();
+            expect(home.nextElementSibling).toBe(unread.closest("li"));
+            expect(
+                within(unread)
+                    .getAllByRole("button")
+                    .map((button) => button.getAttribute("aria-label")),
+            ).toEqual(["Alice, 3 unread messages"]);
+        });
     });
 
     describe("desktop Space discovery", () => {
