@@ -866,9 +866,12 @@ describe("EventTile", () => {
         });
     });
 
-    // A tile reads much of what it shows as it renders. A change to the room view refreshes it, once the main thread is
-    // next idle, as every such change used to redraw every tile at once; see EventTileContext.
+    // A tile reads much of what it shows as it renders. A change to the room view refreshes it a moment later, as every
+    // such change used to redraw every tile at once; see EventTileContext.
     describe("refreshing with the room view", () => {
+        /** Waits for `check` to pass, giving the refresh its delay; see ScopedRoomContext. */
+        const afterRefresh = (check: () => void): Promise<void> => waitFor(check, { timeout: 3000 });
+
         it("shows the sender as the current-profiles setting now says, once the room view changes", async () => {
             const senderId = mxEvent.getSender()!;
             mxEvent.sender = Object.assign(new RoomMember(room.roomId, senderId), { rawDisplayName: "Historical" });
@@ -882,7 +885,7 @@ describe("EventTile", () => {
             expect(shown()).toBe("Historical");
             enabled = true;
             rerender(<WrappedEventTile roomContext={getRoomContext(room, { narrow: true })} />);
-            await waitFor(() => expect(shown()).toBe("Current"));
+            await afterRefresh(() => expect(shown()).toBe("Current"));
         });
 
         it("shows a thread's current reply count, once the room view changes", async () => {
@@ -916,7 +919,7 @@ describe("EventTile", () => {
                     eventTilePropertyOverrides={{ ref }}
                 />,
             );
-            await waitFor(() => expect(shown()).toBe("2"));
+            await afterRefresh(() => expect(shown()).toBe("2"));
         });
 
         it("draws a room's creation as the dynamic predecessors setting now says, once the room view changes", async () => {
@@ -947,7 +950,7 @@ describe("EventTile", () => {
                     eventTilePropertyOverrides={{ ref }}
                 />,
             );
-            await waitFor(() => expect(hasRenderer()).toBe(false));
+            await afterRefresh(() => expect(hasRenderer()).toBe(false));
         });
 
         it("names a renamed room in a notification, once the room view changes", async () => {
@@ -967,7 +970,7 @@ describe("EventTile", () => {
                     })}
                 />,
             );
-            await waitFor(() => expect(container.textContent).toContain("New Room Name"));
+            await afterRefresh(() => expect(container.textContent).toContain("New Room Name"));
         });
 
         it("links to the message through the servers that now serve the room, once the room view changes", async () => {
@@ -1004,7 +1007,7 @@ describe("EventTile", () => {
                     eventTilePropertyOverrides={{ permalinkCreator, alwaysShowTimestamps: true }}
                 />,
             );
-            await waitFor(() => expect(hrefs()).toContain("via=new.example.org"));
+            await afterRefresh(() => expect(hrefs()).toContain("via=new.example.org"));
         });
 
         it("draws a knock as the ask-to-join setting now says, once the room view changes", async () => {
@@ -1030,7 +1033,7 @@ describe("EventTile", () => {
                     eventTilePropertyOverrides={{ ref }}
                 />,
             );
-            await waitFor(() => expect(hasRenderer()).toBe(false));
+            await afterRefresh(() => expect(hasRenderer()).toBe(false));
         });
     });
 

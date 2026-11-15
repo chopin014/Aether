@@ -30,12 +30,17 @@ import { ScopedRoomContext, ScopedRoomContextStore } from "./scoped-room-context
 
 type ContextValue = ContextType<typeof RoomContext>;
 
-/** How long a refresh of event tiles waits for the main thread to be idle before it happens anyway. */
+/**
+ * How long a refresh of event tiles waits after the first change since the last refresh: past the burst of changes a
+ * room makes as it opens, so that the tiles just drawn are not drawn again while it does.
+ */
+const REFRESH_DELAY_MS = 750;
+/** How long it then waits for the main thread to be idle before it happens anyway. */
 const IDLE_REFRESH_TIMEOUT_MS = 300;
 
 /**
  * Provides the event tiles' context: the fields they read, changed at once with them, and a refresh that grows once
- * the main thread is next idle after the room view has rendered, however often it renders before then; see
+ * a moment after the room view has rendered, when the main thread is idle, however often it renders before then; see
  * EventTileContext. Its own render for the refresh reaches only the tiles: its children are the same as before.
  * @param rendered - What the room view rendered with, a new object each time it renders.
  */
@@ -62,13 +67,15 @@ function EventTileContextProvider({
             pending.current = null;
             setRefresh((n) => n + 1);
         };
-        if (typeof window.requestIdleCallback === "function") {
-            const handle = window.requestIdleCallback(done, { timeout: IDLE_REFRESH_TIMEOUT_MS });
-            pending.current = () => window.cancelIdleCallback(handle);
-        } else {
-            const handle = window.setTimeout(done, 0);
-            pending.current = () => window.clearTimeout(handle);
-        }
+        const timer = window.setTimeout(() => {
+            if (typeof window.requestIdleCallback === "function") {
+                const handle = window.requestIdleCallback(done, { timeout: IDLE_REFRESH_TIMEOUT_MS });
+                pending.current = () => window.cancelIdleCallback(handle);
+            } else {
+                done();
+            }
+        }, REFRESH_DELAY_MS);
+        pending.current = () => window.clearTimeout(timer);
     }, [rendered]);
     useEffect(
         () => () => {
