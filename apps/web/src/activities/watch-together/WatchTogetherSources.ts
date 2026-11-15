@@ -62,9 +62,10 @@ function youTubeId(url: URL): string | undefined {
 
 /**
  * Recognises a link the shared player can play: any common form of YouTube video link, or an https link to an
- * audio or video file. Returns undefined for anything else, including text that merely contains a link.
+ * audio or video file. With `sites`, any other https page is a site to watch together in the desktop app. Returns
+ * undefined for anything else, including text that merely contains a link.
  */
-export function parsePlayableLink(text: string): PlayableLink | undefined {
+export function parsePlayableLink(text: string, options: { sites?: boolean } = {}): PlayableLink | undefined {
     const trimmed = text.trim();
     if (!trimmed || /\s/.test(trimmed) || trimmed.length > 2048) return;
     let url: URL;
@@ -83,6 +84,10 @@ export function parsePlayableLink(text: string): PlayableLink | undefined {
     if (url.protocol === "https:" && MEDIA_EXTENSIONS.test(url.pathname)) {
         url.hash = "";
         return { source: "media", ref: url.href };
+    }
+    // A bare word such as "hello" parses as a host; a site needs a real domain.
+    if (options.sites && url.protocol === "https:" && url.hostname.includes(".")) {
+        return { source: "site", ref: url.href };
     }
 }
 
@@ -109,6 +114,9 @@ export async function fetchMetadata(
     fetchFn: typeof fetch = fetch,
     signal?: AbortSignal,
 ): Promise<PlayableMetadata> {
+    if (link.source === "site") {
+        return { title: clip(new URL(link.ref).hostname.replace(/^www\./, ""), 120) };
+    }
     if (link.source === "media") {
         const url = new URL(link.ref);
         let name = url.pathname.split("/").pop() ?? "";

@@ -18,11 +18,13 @@ import type { WatchPlayer, WatchPlayerEvent, WatchPlayerStatus } from "./WatchPl
 class FakePlayer implements WatchPlayer {
     public readonly element = document.createElement("div");
     public itemId: string | null = null;
+    public itemRef: string | null = null;
     public readonly calls: string[] = [];
     public volume = 1;
     public disposed = false;
     public playing = false;
     public buffering = false;
+    public ready = true;
     public rate = 1;
     private base: number | null = null;
     private baseAt = 0;
@@ -49,6 +51,7 @@ class FakePlayer implements WatchPlayer {
 
     public load(item: WatchItem, position: number, play: boolean): void {
         this.itemId = item.id;
+        this.itemRef = item.ref;
         this.calls.push(`load ${item.id} ${position.toFixed(1)} ${play}`);
         this.time = position;
         this.playing = play;
@@ -77,7 +80,7 @@ class FakePlayer implements WatchPlayer {
     }
     public status(): WatchPlayerStatus {
         return {
-            ready: true,
+            ready: this.ready,
             playing: this.playing,
             buffering: this.buffering,
             time: this.time,
@@ -235,6 +238,44 @@ describe("WatchPlayerSync", () => {
         player().emit("ended");
         expect(session.current?.id).toBe("i2");
         expect(session.state?.ended).toBe(false);
+    });
+
+    it("shares a seek or speed change made with the site's own controls", async () => {
+        session.start([item("i1")]);
+        await vi.advanceTimersByTimeAsync(5000);
+        player().time = 300;
+        player().emit("seeked");
+        expect(session.position()).toBeCloseTo(300, 0);
+        await vi.advanceTimersByTimeAsync(2000);
+        player().rate = 1.5;
+        player().emit("ratechange");
+        expect(session.state?.rate).toBe(1.5);
+    });
+
+    it("reloads when the item is pointed at another page", async () => {
+        const site = { ...item("s1"), source: "site" as const, ref: "https://a.example/one" };
+        session.start([site]);
+        player().calls.length = 0;
+        session.retarget("s1", "https://a.example/two");
+        expect(player().calls[0]).toMatch(/^load s1/);
+        expect(player().itemRef).toBe("https://a.example/two");
+    });
+
+    it("moves a player that just became ready to the shared position, ignoring its page's autoplay", async () => {
+        session.start([item("i1")]);
+        await vi.advanceTimersByTimeAsync(5000);
+        player().ready = false;
+        await vi.advanceTimersByTimeAsync(500);
+        // The page autoplays from the start while it is not yet synced; that is not shared.
+        player().time = 0;
+        player().emit("playing");
+        player().emit("seeked");
+        player().ready = true;
+        player().calls.length = 0;
+        sync.reconcile();
+        expect(player().calls.find((c) => c.startsWith("seek"))).toBeDefined();
+        player().emit("paused");
+        expect(session.state?.playing).toBe(true);
     });
 
     it("swaps players when the source changes and drops them when the activity ends", async () => {

@@ -564,3 +564,17 @@ Please see LICENSE in the repository root for full details.
     font: var(--cpd-font-body-xs-regular);
     color: var(--cpd-color-text-secondary);
 }
+
+.pillButton[data-accent] {
+    background: var(--cpd-color-bg-action-primary-rest);
+    color: var(--cpd-color-text-on-solid-primary);
+}
+.pillButton[data-accent]:hover {
+    background: var(--cpd-color-bg-action-primary-hovered);
+}
+.controlsRow .pillButton {
+    flex: none;
+    height: 28px;
+    padding-inline: var(--cpd-space-3x);
+    font: var(--cpd-font-body-xs-semibold);
+}

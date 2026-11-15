@@ -953,6 +953,7 @@
         },
         "watch_together": {
             "error_add": "Couldn't add this link. Try again.",
+            "error_needs_desktop": "Watching websites together needs the Aether desktop app.",
             "error_not_a_link": "That isn't a YouTube or media file link.",
             "error_not_connected": "Join the call to share a link.",
             "error_not_embeddable": "The owner of this video doesn't allow playing it outside YouTube.",

@@ -27,14 +27,19 @@ const MAX_URL = 2048;
 const MAX_ID = 64;
 const MAX_POSITION = 7 * 24 * 3600;
 
-/** Where an item plays from: a YouTube video, or an audio or video file any browser can play. */
-export type WatchSource = "youtube" | "media";
+/**
+ * Where an item plays from: a YouTube video, an audio or video file any browser can play, or a video on any
+ * website, which each person opens in the desktop app and plays on their own account.
+ */
+export type WatchSource = "youtube" | "media" | "site";
+
+const SOURCES: readonly WatchSource[] = ["youtube", "media", "site"];
 
 /** One video or song in the shared queue. */
 export interface WatchItem {
     readonly id: string;
     readonly source: WatchSource;
-    /** The YouTube video ID, or the https URL of the media file. */
+    /** The YouTube video ID, or the https URL of the media file or web page. */
     readonly ref: string;
     readonly title?: string;
     /** The YouTube channel, or the site a file comes from. */
@@ -92,15 +97,16 @@ export function isValidRef(source: WatchSource, ref: unknown): ref is string {
 function parseItem(value: unknown): WatchItem | undefined {
     if (!value || typeof value !== "object") return;
     const item = value as Record<string, unknown>;
-    if (item.source !== "youtube" && item.source !== "media") return;
-    if (!isString(item.id, MAX_ID) || !isString(item.addedBy, 255) || !isValidRef(item.source, item.ref)) return;
+    if (!SOURCES.includes(item.source as WatchSource)) return;
+    const source = item.source as WatchSource;
+    if (!isString(item.id, MAX_ID) || !isString(item.addedBy, 255) || !isValidRef(source, item.ref)) return;
     if (item.title !== undefined && !isString(item.title, MAX_TITLE)) return;
     if (item.channel !== undefined && !isString(item.channel, MAX_CHANNEL)) return;
     if (item.start !== undefined && (!isFiniteNumber(item.start) || item.start < 0 || item.start > MAX_POSITION))
         return;
     return {
         id: item.id,
-        source: item.source,
+        source,
         ref: item.ref,
         addedBy: item.addedBy,
         ...(item.title !== undefined ? { title: item.title } : {}),

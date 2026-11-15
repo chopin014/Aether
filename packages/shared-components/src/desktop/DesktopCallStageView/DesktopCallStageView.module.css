@@ -822,9 +822,13 @@ Please see LICENSE in the repository root for full details.
     cursor: not-allowed;
 }
 
+/* Pressed media controls use the same accent as the voice panel's camera and screen share buttons. */
 .controlButton[data-active="true"] {
-    background: var(--cpd-color-bg-success-rest);
-    color: var(--cpd-color-text-primary);
+    background: var(--cpd-color-bg-accent-rest);
+    color: var(--cpd-color-icon-on-solid-primary);
+}
+.controlButton[data-active="true"]:hover:not(:disabled) {
+    background: var(--cpd-color-bg-accent-hovered);
 }
 
 .controlButton[data-muted="true"] {
@@ -1596,55 +1600,18 @@ Please see LICENSE in the repository root for full details.
     visibility: hidden;
     transition: visibility 0s 220ms;
 }
-.membersToggle {
-    position: absolute;
-    left: 50%;
-    bottom: 100%;
-    z-index: 3;
-    display: grid;
-    place-items: center;
-    width: 48px;
-    height: 20px;
-    margin-bottom: calc(-1 * var(--cpd-space-1x));
-    padding: 0;
-    border: 0;
-    border-radius: var(--cpd-space-2x) var(--cpd-space-2x) 0 0;
-    background: var(--cpd-color-bg-subtle-secondary);
-    color: var(--cpd-color-icon-secondary);
-    transform: translateX(-50%);
-    cursor: pointer;
-    opacity: 0;
-    transition:
-        opacity 150ms ease-out,
-        color 120ms ease-out;
-}
-.filmstripDock:not([data-open]) .membersToggle,
-.stage:hover .membersToggle,
-.membersToggle:focus-visible {
-    opacity: 1;
-}
-.membersToggle:hover {
-    color: var(--cpd-color-icon-primary);
-}
-.membersToggle:focus-visible {
-    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
-}
-.membersToggle svg {
-    transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
-}
-.filmstripDock:not([data-open]) .membersToggle svg {
-    transform: rotate(180deg);
+/* With the strip tucked away, the focused tile reaches down to the controls. */
+.filmstripDock:not([data-open]) {
+    margin-top: calc(-1 * var(--cpd-space-3x));
 }
 
 /* Fullscreen: the call controls fade while the mouse rests. */
 .stage[data-fullscreen] .bottomBar,
-.stage[data-fullscreen] .header,
-.stage[data-fullscreen] .membersToggle {
+.stage[data-fullscreen] .header {
     transition: opacity 300ms ease-out;
 }
 .stage[data-idle] .bottomBar,
-.stage[data-idle] .header,
-.stage[data-idle] .membersToggle {
+.stage[data-idle] .header {
     opacity: 0;
     pointer-events: none;
 }

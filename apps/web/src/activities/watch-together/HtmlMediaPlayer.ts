@@ -49,6 +49,10 @@ export class HtmlMediaPlayer implements WatchPlayer {
         return this.item?.id ?? null;
     }
 
+    public get itemRef(): string | null {
+        return this.item?.ref ?? null;
+    }
+
     public load(item: WatchItem, position: number, play: boolean): void {
         this.item = item;
         this.error = undefined;

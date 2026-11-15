@@ -26,6 +26,10 @@ const actions = {
     stop: fn(),
     setVolume: fn(),
     attachPlayer: fn(),
+    siteGoBack: fn(),
+    siteOpenShared: fn(),
+    siteShareThisPage: fn(),
+    setObscured: fn(),
     openSource: fn(),
 };
 

@@ -213,6 +213,23 @@ describe("WatchTogetherSession", () => {
         expect(alice.current?.id).toBe("now");
     });
 
+    it("starts a website paused at its beginning, and re-points it for everyone", async () => {
+        const alice = join("alice");
+        const bob = join("bob");
+        const site = item("s1", { source: "site", ref: "https://archive.org/details/movie" });
+        alice.start([site]);
+        expect(alice.state).toMatchObject({ playing: false, position: 0 });
+        alice.setPlaying(true, 42);
+        alice.retarget("s1", "https://archive.org/details/movie/part-2", "Part 2");
+        await vi.advanceTimersByTimeAsync(call.latency);
+        expect(bob.current).toMatchObject({ ref: "https://archive.org/details/movie/part-2", title: "Part 2" });
+        expect(bob.state).toMatchObject({ playing: false, position: 0 });
+        // Only websites can be pointed elsewhere.
+        alice.enqueue([item("y1")]);
+        alice.retarget("y1", "https://example.org/");
+        expect(alice.state?.items[1].ref).toBe("aqz-KE-bpKQ");
+    });
+
     it("starts a t= link at its time without the countdown", () => {
         const alice = join("alice");
         alice.start([item("i1", { start: 90 })]);

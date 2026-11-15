@@ -55,6 +55,8 @@ export class WatchPlayerSync {
     private driftChecks = 0;
     /** The session revision this player last caught up with; a newer one is someone's action, applied at once. */
     private appliedRevision = 0;
+    /** Whether the player could take commands at the last check; a website only can once its video is found. */
+    private wasReady = false;
     private readonly now: () => number;
     private volume = 1;
 
@@ -109,7 +111,7 @@ export class WatchPlayerSync {
         const changed = state.revision !== this.appliedRevision;
         this.appliedRevision = state.revision;
 
-        if (player.itemId !== item.id || this.needsLoad) {
+        if (player.itemId !== item.id || player.itemRef !== item.ref || this.needsLoad) {
             this.needsLoad = false;
             player.load(item, target, shouldPlay);
             if (state.rate !== 1) player.setRate(state.rate);
@@ -120,9 +122,15 @@ export class WatchPlayerSync {
 
         const status = player.status();
         if (!status.ready || status.error) {
+            this.wasReady = false;
             this.options.onTick?.();
             return;
         }
+        // A player that just became ready (a website whose video was found) is moved to the shared position at
+        // once, and what its page does by itself straight after, such as autoplaying from the start, is not news.
+        const becameReady = !this.wasReady;
+        this.wasReady = true;
+        if (becameReady) this.lastCommandAt = now;
         if (status.rate !== state.rate) player.setRate(state.rate);
         if (shouldPlay && !status.playing) {
             player.play();
@@ -132,8 +140,8 @@ export class WatchPlayerSync {
             this.lastCommandAt = now;
         }
         // A buffering player is behind for a reason; seeking it again only restarts the buffering.
-        if (!status.buffering || changed)
-            this.correctDrift(player, status.time, status.duration, target, shouldPlay, now, changed);
+        if (!status.buffering || changed || becameReady)
+            this.correctDrift(player, status.time, status.duration, target, shouldPlay, now, changed || becameReady);
         this.options.onTick?.();
     };
 
@@ -179,8 +187,27 @@ export class WatchPlayerSync {
                 this.needsLoad = true;
                 this.reconcile();
                 break;
+            case "seeked": {
+                if (!player.status().ready) break;
+                // The site's own progress bar; this player's position is where everyone should be.
+                const time = player.status().time;
+                if (now - this.lastCommandAt < COMMAND_ECHO_MS || time === null || state.ended) break;
+                if (Math.abs(time - this.session.position(now)) > PLAYING_TOLERANCE_SECONDS) {
+                    this.lastCommandAt = this.lastSeekAt = now;
+                    this.session.seek(time);
+                }
+                break;
+            }
+            case "ratechange": {
+                if (!player.status().ready) break;
+                const rate = player.status().rate;
+                if (now - this.lastCommandAt < COMMAND_ECHO_MS || rate === state.rate) break;
+                this.session.setRate(rate);
+                break;
+            }
             case "paused":
             case "playing": {
+                if (!player.status().ready) break;
                 const playing = event === "playing";
                 if (now - this.lastCommandAt < COMMAND_ECHO_MS || playing === state.playing || state.ended) break;
                 // During the countdown to a new item the player sits paused on purpose.
@@ -200,6 +227,7 @@ export class WatchPlayerSync {
         this.player?.dispose();
         this.player = player;
         this.needsLoad = false;
+        this.wasReady = false;
         if (player) {
             player.setVolume(this.volume);
             this.unsubscribePlayer = player.subscribe(this.onPlayerEvent);

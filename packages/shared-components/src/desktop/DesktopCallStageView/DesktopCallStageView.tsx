@@ -987,6 +987,8 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         (watchTogether ? 1 : 0);
     const playerInSpotlight = hasSpotlight && spotlightWatch;
     const participantsOpen = snapshot.participantsOpen ?? true;
+    /** A focused tile with other tiles beside it, shown in a strip that can be tucked away. */
+    const hasFilmstrip = hasSpotlight && allScreenShares.length + allParticipants.length + (watchTogether ? 1 : 0) > 1;
     /** Where the shared player is shown; the player itself is laid over this tile. */
     const renderWatchTogetherSlot = (): JSX.Element => (
         <div
@@ -1222,30 +1224,12 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                     ? renderParticipantTile(spotlightParticipant, true)
                                     : null}
                         </div>
-                        {allScreenShares.length + allParticipants.length + (watchTogether ? 1 : 0) > 1 && (
+                        {hasFilmstrip && (
                             <div
                                 className={styles.filmstripDock}
                                 data-open={participantsOpen || undefined}
                                 data-testid="call-filmstrip"
                             >
-                                <button
-                                    type="button"
-                                    className={styles.membersToggle}
-                                    aria-label={
-                                        participantsOpen
-                                            ? _t("desktop|call_stage|hide_members")
-                                            : _t("desktop|call_stage|show_members")
-                                    }
-                                    title={
-                                        participantsOpen
-                                            ? _t("desktop|call_stage|hide_members")
-                                            : _t("desktop|call_stage|show_members")
-                                    }
-                                    aria-expanded={participantsOpen}
-                                    onClick={() => vm.setParticipantsOpen?.(!participantsOpen)}
-                                >
-                                    <ChevronDownIcon width={20} height={20} aria-hidden="true" />
-                                </button>
                                 {/* Hidden rather than removed, so cameras and the shared player keep running. */}
                                 <div className={styles.filmstripClip} inert={!participantsOpen || undefined}>
                                     <div className={styles.filmstrip}>
@@ -1321,6 +1305,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     containerRef={stageRef}
                     compact={!playerInSpotlight && hasSpotlight}
                     focused={playerInSpotlight}
+                    obscured={snapshot.activeMenu !== null || snapshot.participantMenu !== null}
                     fullscreen={snapshot.isFullscreen}
                     onToggleFullscreen={() => {
                         if (!snapshot.isFullscreen) vm.setSpotlightTileId(WATCH_TOGETHER_TILE_ID);
@@ -1804,6 +1789,30 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
 
                     {/* Bottom-right floating/fullscreen controls */}
                     <div className={styles.rightControls}>
+                        {hasFilmstrip && (
+                            <button
+                                type="button"
+                                className={styles.utilityButton}
+                                aria-label={
+                                    participantsOpen
+                                        ? _t("desktop|call_stage|hide_members")
+                                        : _t("desktop|call_stage|show_members")
+                                }
+                                title={
+                                    participantsOpen
+                                        ? _t("desktop|call_stage|hide_members")
+                                        : _t("desktop|call_stage|show_members")
+                                }
+                                aria-pressed={!participantsOpen}
+                                data-testid="call-toggle-members"
+                                onClick={() => vm.setParticipantsOpen?.(!participantsOpen)}
+                            >
+                                <ChevronDownIcon
+                                    aria-hidden="true"
+                                    style={participantsOpen ? undefined : { transform: "rotate(180deg)" }}
+                                />
+                            </button>
+                        )}
                         {(allScreenShares.length > 0 || effectiveSpotlightId !== null) && (
                             <button
                                 type="button"

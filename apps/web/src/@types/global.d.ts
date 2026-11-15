@@ -11,7 +11,7 @@ import "matrix-js-sdk/src/@types/global"; // load matrix-js-sdk's type extension
 
 import type { ModuleLoader, X509Api } from "@element-hq/element-web-module-api";
 import type { logger } from "matrix-js-sdk/src/logger";
-import type { DesktopAudioApi } from "shared-types";
+import type { DesktopAudioApi, SiteViewApi } from "shared-types";
 import type ContentMessages from "../ContentMessages";
 import { type IMatrixClientPeg } from "../MatrixClientPeg";
 import type ToastStore from "../stores/ToastStore";
@@ -123,6 +123,8 @@ declare global {
     interface Electron {
         desktopAudio?: DesktopAudioApi;
         globalShortcuts?: GlobalShortcutApi;
+        /** The embedded browser for watching websites together. */
+        siteView?: SiteViewApi;
         // Legacy
         on(channel: ElectronChannel, listener: (event: Event, ...args: any[]) => void): void;
         send(channel: ElectronChannel, ...args: any[]): void;

@@ -4396,6 +4396,7 @@
         },
         "watch_together": {
             "error_add": "Não foi possível adicionar este link. Tente novamente.",
+            "error_needs_desktop": "Assistir sites juntos precisa do app Aether para computador.",
             "error_not_a_link": "Isso não é um link do YouTube ou de arquivo de mídia.",
             "error_not_connected": "Entre na chamada para compartilhar um link.",
             "error_not_embeddable": "O dono deste vídeo não permite reproduzi-lo fora do YouTube.",
