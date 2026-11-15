@@ -56,7 +56,8 @@ import { type ComposerInsertPayload } from "../../../dispatcher/payloads/Compose
 import { Action } from "../../../dispatcher/actions";
 import PlatformPeg from "../../../PlatformPeg";
 import { type IReadReceiptPosition } from "./ReadReceiptMarker";
-import RoomContext, { TimelineRenderingType } from "../../../contexts/RoomContext";
+import { TimelineRenderingType } from "../../../contexts/RoomContext";
+import { EventTileContext, type EventTileContextValue } from "../../../contexts/EventTileContext";
 import { MediaEventHelper } from "../../../utils/MediaEventHelper";
 import { DecryptionFailureTracker } from "../../../DecryptionFailureTracker";
 import { type ViewRoomPayload } from "../../../dispatcher/payloads/ViewRoomPayload";
@@ -313,13 +314,14 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
         layout: Layout.Group,
     };
 
-    public static contextType = RoomContext;
-    declare public context: React.ContextType<typeof RoomContext>;
+    // Only the fields a tile reads, so that the room view's other changes do not redraw every tile.
+    public static contextType: React.Context<EventTileContextValue> = EventTileContext;
+    declare public context: EventTileContextValue;
 
     private readonly id = uniqueId();
     private staleHoverCheckActive = false;
 
-    public constructor(props: EventTileProps, context: React.ContextType<typeof RoomContext>) {
+    public constructor(props: EventTileProps, context: EventTileContextValue) {
         super(props, context);
 
         const thread = getEventTileThread(

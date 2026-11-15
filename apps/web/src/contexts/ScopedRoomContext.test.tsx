@@ -11,12 +11,13 @@ import React, { type JSX, useContext, useLayoutEffect } from "react";
 import { act, render, screen } from "test-utils-rtl";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Room } from "matrix-js-sdk/src/matrix";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRoomContext, stubClient } from "test-utils";
 
 import { ScopedRoomContextProvider, useScopedRoomContext } from "./ScopedRoomContext";
 import { ScopedRoomContext, ScopedRoomContextStore } from "./scoped-room-context-store";
-import RoomContext, { type RoomContextType } from "./RoomContext";
+import RoomContext, { type RoomContextType, TimelineRenderingType } from "./RoomContext";
+import { EventTileContext } from "./EventTileContext";
 
 type Key = keyof RoomContextType;
 
@@ -46,6 +47,155 @@ describe("ScopedRoomContext", () => {
 
     beforeEach(() => {
         room = new Room("!room:example.org", stubClient(), "@me:example.org");
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    /** Fakes the timers that schedule the refresh of event tiles. */
+    const fakeRefreshTimers = (): void => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestIdleCallback", "cancelIdleCallback"] });
+    };
+    const wait = async (ms: number): Promise<void> => {
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(ms);
+        });
+    };
+
+    it("gives event tiles a value that changes at once only with the fields they read", async () => {
+        fakeRefreshTimers();
+        const seen: object[] = [];
+        const TileReader = (): JSX.Element => {
+            const tile = useContext(EventTileContext);
+            seen.push(tile);
+            return <span data-testid="tile">{JSON.stringify(tile)}</span>;
+        };
+        const tree = (override: Partial<RoomContextType>): JSX.Element => (
+            <ScopedRoomContextProvider {...value(override)}>
+                <TileReader />
+            </ScopedRoomContextProvider>
+        );
+        const { rerender } = render(tree({ isRoomEncrypted: false }));
+        const first = seen.at(-1);
+        expect(first).toEqual({
+            isRoomEncrypted: false,
+            timelineRenderingType: TimelineRenderingType.Room,
+            showHiddenEvents: false,
+            refresh: 0,
+        });
+
+        // Unchanged in the change's own render; refreshed a moment later.
+        rerender(tree({ isRoomEncrypted: false, numUnreadMessages: 3, narrow: true }));
+        expect(seen.at(-1)).toBe(first);
+        await wait(1100);
+        expect(seen.at(-1)).toMatchObject({ refresh: 1 });
+
+        for (const [field, changed] of [
+            ["isRoomEncrypted", true],
+            ["timelineRenderingType", TimelineRenderingType.Thread],
+            ["showHiddenEvents", true],
+        ] as const) {
+            const before = seen.at(-1);
+            rerender(tree({ isRoomEncrypted: false, [field]: changed }));
+            expect(seen.at(-1)).not.toBe(before);
+            expect(seen.at(-1)).toMatchObject({ [field]: changed });
+        }
+    });
+
+    it("refreshes event tiles once, past the changes a room makes as it opens, however many come", async () => {
+        fakeRefreshTimers();
+        const seen: { refresh: number }[] = [];
+        const TileReader = (): JSX.Element => {
+            seen.push(useContext(EventTileContext));
+            return <span />;
+        };
+        const tree = (unread: number): JSX.Element => (
+            <ScopedRoomContextProvider {...value({ numUnreadMessages: unread })}>
+                <TileReader />
+            </ScopedRoomContextProvider>
+        );
+        const { rerender } = render(tree(0));
+        // Opening it is not a change.
+        await wait(2000);
+        expect(seen.at(-1)!.refresh).toBe(0);
+
+        // Not while the changes of a room opening, half a second of them, still come.
+        for (let unread = 1; unread <= 5; unread++) {
+            rerender(tree(unread));
+            await wait(100);
+        }
+        await wait(200);
+        expect(seen.at(-1)!.refresh).toBe(0);
+
+        // Once after them, and not again without a further change.
+        await wait(400);
+        expect(seen.at(-1)!.refresh).toBe(1);
+        await wait(2000);
+        expect(seen.at(-1)!.refresh).toBe(1);
+
+        rerender(tree(6));
+        await wait(1100);
+        expect(seen.at(-1)!.refresh).toBe(2);
+    });
+
+    it("drops a refresh still to come when the room view goes", async () => {
+        fakeRefreshTimers();
+        let refreshes = 0;
+        const TileReader = (): JSX.Element => {
+            if (useContext(EventTileContext).refresh > 0) refreshes++;
+            return <span />;
+        };
+        const tree = (unread: number): JSX.Element => (
+            <ScopedRoomContextProvider {...value({ numUnreadMessages: unread })}>
+                <TileReader />
+            </ScopedRoomContextProvider>
+        );
+        const { rerender, unmount } = render(tree(0));
+        rerender(tree(1));
+        unmount();
+        expect(vi.getTimerCount()).toBe(0);
+        await wait(2000);
+        expect(refreshes).toBe(0);
+    });
+
+    it("drops a refresh waiting for the main thread to be idle when the room view goes", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        // Holds the idle callback, so that the refresh is still to come when the room view goes.
+        const requestIdleCallback = vi.fn((_callback: IdleRequestCallback) => 7);
+        const cancelIdleCallback = vi.fn();
+        vi.stubGlobal("requestIdleCallback", requestIdleCallback);
+        vi.stubGlobal("cancelIdleCallback", cancelIdleCallback);
+        const tree = (unread: number): JSX.Element => (
+            <ScopedRoomContextProvider {...value({ numUnreadMessages: unread })}>
+                <span />
+            </ScopedRoomContextProvider>
+        );
+        const { rerender, unmount } = render(tree(0));
+        rerender(tree(1));
+        await wait(1000);
+        expect(requestIdleCallback).toHaveBeenCalledTimes(1);
+        expect(cancelIdleCallback).not.toHaveBeenCalled();
+
+        unmount();
+        expect(cancelIdleCallback).toHaveBeenCalledWith(7);
+    });
+
+    it("gives event tiles the room context's defaults without a provider", () => {
+        const Tile = (): JSX.Element => {
+            const tile = useContext(EventTileContext);
+            const { isRoomEncrypted, timelineRenderingType, showHiddenEvents } = useContext(RoomContext);
+            return (
+                <span data-testid="tile">
+                    {JSON.stringify([tile, { isRoomEncrypted, timelineRenderingType, showHiddenEvents }])}
+                </span>
+            );
+        };
+        render(<Tile />);
+        const [{ refresh, ...tile }, room] = JSON.parse(screen.getByTestId("tile").textContent!);
+        expect(tile).toEqual(room);
+        expect(refresh).toBe(0);
     });
 
     it("keeps selected snapshots stable for unrelated changes", () => {

@@ -25,6 +25,9 @@ import {
     type Relations,
     Room,
     RoomMember,
+    RoomStateEvent,
+    RoomEvent,
+    ThreadEvent,
 } from "matrix-js-sdk/src/matrix";
 import {
     type CryptoApi,
@@ -38,7 +41,7 @@ import { getByTestId } from "@testing-library/dom";
 import { filterConsole, flushPromises, getRoomContext, mkEvent, mkMessage, stubClient } from "test-utils";
 import { mkThread } from "test-utils/threads";
 
-import EventTile, { type EventTileProps } from "./EventTile";
+import EventTile, { type EventTileProps, UnwrappedEventTile } from "./EventTile";
 import * as EventTileFactory from "../../../events/EventTileFactory";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import { type RoomContextType, TimelineRenderingType } from "../../../contexts/RoomContext";
@@ -863,6 +866,177 @@ describe("EventTile", () => {
         });
     });
 
+    // A tile reads much of what it shows as it renders. A change to the room view refreshes it a moment later, as every
+    // such change used to redraw every tile at once; see EventTileContext.
+    describe("refreshing with the room view", () => {
+        /** Waits for `check` to pass, giving the refresh its delay; see ScopedRoomContext. */
+        const afterRefresh = (check: () => void): Promise<void> => waitFor(check, { timeout: 3000 });
+
+        it("shows the sender as the current-profiles setting now says, once the room view changes", async () => {
+            const senderId = mxEvent.getSender()!;
+            mxEvent.sender = Object.assign(new RoomMember(room.roomId, senderId), { rawDisplayName: "Historical" });
+            const current = Object.assign(new RoomMember(room.roomId, senderId), { rawDisplayName: "Current" });
+            vi.spyOn(room, "getMember").mockImplementation((id) => (id === senderId ? current : null));
+            let enabled = false;
+            vi.mocked(SettingsStore.getValue).mockImplementation((key) => key === "useOnlyCurrentProfiles" && enabled);
+            const { container, rerender } = getComponent();
+            await flushPromises();
+            const shown = () => container.querySelector(".mx_DisambiguatedProfile_displayName")?.textContent;
+            expect(shown()).toBe("Historical");
+            enabled = true;
+            rerender(<WrappedEventTile roomContext={getRoomContext(room, { narrow: true })} />);
+            await afterRefresh(() => expect(shown()).toBe("Current"));
+        });
+
+        it("shows a thread's current reply count, once the room view changes", async () => {
+            vi.spyOn(client, "supportsThreads").mockReturnValue(true);
+            const { rootEvent } = mkThread({
+                room,
+                client,
+                authorId: "@alice:example.org",
+                participantUserIds: ["@alice:example.org"],
+                length: 2,
+            });
+            mxEvent = rootEvent;
+            const thread = rootEvent.getThread()!;
+            let count = 1;
+            vi.spyOn(thread, "length", "get").mockImplementation(() => count);
+            const ref = React.createRef<UnwrappedEventTile>();
+            const { container, rerender } = getComponent({ ref }, TimelineRenderingType.ThreadsList);
+            await flushPromises();
+            const shown = () => container.querySelector(".mx_ThreadPanel_replies_amount")?.textContent;
+            expect(shown()).toBe("1");
+            count = 2;
+            act(() => {
+                thread.emit(ThreadEvent.Update, thread);
+            });
+            rerender(
+                <WrappedEventTile
+                    roomContext={getRoomContext(room, {
+                        timelineRenderingType: TimelineRenderingType.ThreadsList,
+                        numUnreadMessages: 2,
+                    })}
+                    eventTilePropertyOverrides={{ ref }}
+                />,
+            );
+            await afterRefresh(() => expect(shown()).toBe("2"));
+        });
+
+        it("draws a room's creation as the dynamic predecessors setting now says, once the room view changes", async () => {
+            mxEvent = new MatrixEvent({
+                type: EventType.RoomCreate,
+                room_id: room.roomId,
+                state_key: "",
+                event_id: "$create",
+                sender: "@alice:example.org",
+                content: { creator: "@alice:example.org" },
+            });
+            let dynamic = true;
+            vi.mocked(SettingsStore.getValue).mockImplementation(
+                (key) => key === "feature_dynamic_room_predecessors" && dynamic,
+            );
+            vi.spyOn(room, "findPredecessor").mockImplementation((enabled) =>
+                enabled ? { roomId: "!old:example.org", eventId: "$old" } : null,
+            );
+            const ref = React.createRef<UnwrappedEventTile>();
+            const { rerender } = getComponent({ ref });
+            await flushPromises();
+            const hasRenderer = () => (ref.current as any).viewModel.getSnapshot().snapshot.event.hasRenderer;
+            expect(hasRenderer()).toBe(true);
+            dynamic = false;
+            rerender(
+                <WrappedEventTile
+                    roomContext={getRoomContext(room, { msc3946ProcessDynamicPredecessor: false })}
+                    eventTilePropertyOverrides={{ ref }}
+                />,
+            );
+            await afterRefresh(() => expect(hasRenderer()).toBe(false));
+        });
+
+        it("names a renamed room in a notification, once the room view changes", async () => {
+            room.name = "Old Room Name";
+            const { container, rerender } = getComponent({}, TimelineRenderingType.Notification);
+            await flushPromises();
+            expect(container.textContent).toContain("Old Room Name");
+            room.name = "New Room Name";
+            act(() => {
+                room.emit(RoomEvent.Name, room);
+            });
+            rerender(
+                <WrappedEventTile
+                    roomContext={getRoomContext(room, {
+                        timelineRenderingType: TimelineRenderingType.Notification,
+                        narrow: true,
+                    })}
+                />,
+            );
+            await afterRefresh(() => expect(container.textContent).toContain("New Room Name"));
+        });
+
+        it("links to the message through the servers that now serve the room, once the room view changes", async () => {
+            mxEvent = makeTimestampedMessage();
+            const permalinkCreator = new RoomPermalinkCreator(room);
+            let via = "old.example.org";
+            vi.spyOn(permalinkCreator, "forEvent").mockImplementation(
+                () => `https://matrix.to/#/${room.roomId}/${mxEvent.getId()}?via=${via}`,
+            );
+            const { container, rerender } = getComponent({ permalinkCreator, alwaysShowTimestamps: true });
+            await flushPromises();
+            const hrefs = () =>
+                Array.from(container.querySelectorAll("a"))
+                    .map((a) => a.href)
+                    .join(" ");
+            expect(hrefs()).toContain("via=old.example.org");
+            via = "new.example.org";
+            act(() => {
+                room.emit(
+                    RoomStateEvent.Events,
+                    new MatrixEvent({
+                        type: EventType.RoomServerAcl,
+                        state_key: "",
+                        room_id: room.roomId,
+                        content: { deny: ["old.example.org"] },
+                    }),
+                    room.currentState,
+                    null,
+                );
+            });
+            rerender(
+                <WrappedEventTile
+                    roomContext={getRoomContext(room, { canReact: false })}
+                    eventTilePropertyOverrides={{ permalinkCreator, alwaysShowTimestamps: true }}
+                />,
+            );
+            await afterRefresh(() => expect(hrefs()).toContain("via=new.example.org"));
+        });
+
+        it("draws a knock as the ask-to-join setting now says, once the room view changes", async () => {
+            mxEvent = new MatrixEvent({
+                type: EventType.RoomMember,
+                room_id: room.roomId,
+                event_id: "$knock",
+                sender: "@alice:example.org",
+                state_key: "@alice:example.org",
+                content: { membership: "knock" },
+            });
+            let ask = true;
+            vi.mocked(SettingsStore.getValue).mockImplementation((key) => key === "feature_ask_to_join" && ask);
+            const ref = React.createRef<UnwrappedEventTile>();
+            const { rerender } = getComponent({ ref });
+            await flushPromises();
+            const hasRenderer = () => (ref.current as any).viewModel.getSnapshot().snapshot.event.hasRenderer;
+            expect(hasRenderer()).toBe(true);
+            ask = false;
+            rerender(
+                <WrappedEventTile
+                    roomContext={getRoomContext(room, { narrow: true })}
+                    eventTilePropertyOverrides={{ ref }}
+                />,
+            );
+            await afterRefresh(() => expect(hasRenderer()).toBe(false));
+        });
+    });
+
     describe("EventTile renderingType: Threads", () => {
         it("should display the pinned message badge", async () => {
             vi.spyOn(PinningUtils, "isPinned").mockReturnValue(true);
@@ -1357,6 +1531,28 @@ describe("EventTile", () => {
 
             expect(container.querySelectorAll('[data-testid="e2e-padlock"]')).toHaveLength(0);
         });
+    });
+
+    it("draws the tile again for a change to the room view only when it is to something the tile reads", async () => {
+        vi.spyOn(client.getCrypto()!, "getEncryptionInfoForEvent").mockResolvedValue({
+            shieldColour: EventShieldColour.NONE,
+            shieldReason: null,
+        });
+        const draws = vi.spyOn(UnwrappedEventTile.prototype, "render");
+        const { rerender } = render(<WrappedEventTile roomContext={getRoomContext(room, {})} />);
+        await flushPromises();
+        const drawn = draws.mock.calls.length;
+
+        // The room view's state changes in ways no tile reads.
+        rerender(<WrappedEventTile roomContext={getRoomContext(room, { numUnreadMessages: 4, narrow: true })} />);
+        expect(draws.mock.calls.length).toBe(drawn);
+
+        // And then in one it does.
+        rerender(
+            <WrappedEventTile roomContext={getRoomContext(room, { numUnreadMessages: 4, isRoomEncrypted: true })} />,
+        );
+        expect(draws.mock.calls.length).toBeGreaterThan(drawn);
+        await waitFor(() => expect(screen.getByText("Not encrypted")).toBeInTheDocument());
     });
 
     it("should display the not encrypted status for an unencrypted event when the room becomes encrypted", async () => {
