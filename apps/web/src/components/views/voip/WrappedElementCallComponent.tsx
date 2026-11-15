@@ -19,6 +19,7 @@ import Spinner from "../elements/Spinner";
 import { loadElementCallComponent } from "./ElementCallLoader";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
 import { DesktopCallStage } from "./DesktopCallStage";
+import { pendingCallPresentation } from "./pendingCallPresentation";
 import { useTypedEventEmitterState } from "../../../hooks/useEventEmitter";
 
 /**
@@ -99,10 +100,24 @@ export const WrappedElementCallComponent: FC<{ call: ElementCallModel; client: M
         [call, client, desktopShell, useMock],
     );
     const { intent, config } = call.componentOptions;
+    // While Element Call loads, the stage already shows the call rather than a spinner.
+    const loading = useMemo(
+        () =>
+            desktopShell && !useMock ? (
+                <DesktopCallStage
+                    client={client}
+                    call={call}
+                    bridge={pendingCallPresentation(call, client.getRoom(call.roomId)?.name ?? call.roomId)}
+                />
+            ) : (
+                <Spinner />
+            ),
+        [call, client, desktopShell, useMock],
+    );
     const generation = useTypedEventEmitterState(call, CallEvent.ComponentRestart, () => call.componentGeneration);
 
     return (
-        <Suspense fallback={<Spinner />}>
+        <Suspense fallback={loading}>
             <React.Fragment key={generation}>
                 <ElementCall
                     client={client}
