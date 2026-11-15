@@ -1991,6 +1991,23 @@ describe("ElementCall with the React component embedding", () => {
             expect(config.returnToLobby).toBeUndefined();
         });
 
+        it("announces no voice channel call in the desktop shell, but leaves other rooms' calls as they were", () => {
+            const original = call.getCallOptions().config;
+            expect("sendNotificationType" in original).toBe(false);
+            enabledSettings.add("feature_desktop_shell");
+            const isCallRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+            try {
+                const { config } = call.getCallOptions();
+                expect("sendNotificationType" in config).toBe(true);
+                expect(config.sendNotificationType).toBeUndefined();
+                isCallRoom.mockReturnValue(false);
+                expect("sendNotificationType" in call.getCallOptions().config).toBe(false);
+            } finally {
+                isCallRoom.mockRestore();
+                enabledSettings.delete("feature_desktop_shell");
+            }
+        });
+
         it("decides the component's options once per call, until the call is closed", () => {
             call.widgetGenerationParameters = { skipLobby: true };
             const options = call.componentOptions;

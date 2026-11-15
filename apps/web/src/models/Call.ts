@@ -956,6 +956,11 @@ export class ElementCall extends Call {
             noiseSuppression: SettingsStore.getValue("webrtc_audio_noiseSuppression"),
         };
         if (returnToLobby !== undefined) config.returnToLobby = returnToLobby;
+        // Joining a voice channel announces nothing, as on Discord: Element Call would otherwise post a notification
+        // mentioning the whole room each time someone starts its call. Conversations still ring.
+        if (SettingsStore.getValue("feature_desktop_shell") && client.getRoom(roomId)?.isCallRoom()) {
+            config.sendNotificationType = undefined;
+        }
         // The room's rule (e.g. video rooms never skip the lobby) wins over what the caller asked for.
         const effectiveSkipLobby = skipLobby ?? opts.skipLobby;
         if (typeof effectiveSkipLobby === "boolean") config.skipLobby = effectiveSkipLobby;

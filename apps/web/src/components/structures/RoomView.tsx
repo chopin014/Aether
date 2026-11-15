@@ -1672,7 +1672,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         if (
             this.getMainSplitContentType(room) !== MainSplitContentType.Timeline &&
-            this.context.roomNotificationStateStore.getRoomState(room).isUnread
+            this.context.roomNotificationStateStore.getRoomState(room).isUnread &&
+            // A voice channel opens on its call alone, as on Discord: its chat is opened from the header when wanted.
+            !(SettingsStore.getValue("feature_desktop_shell") && room.isCallRoom())
         ) {
             // Automatically open the chat panel to make unread messages easier to discover
             this.context.rightPanelStore.setCard({ phase: RightPanelPhases.Timeline }, true, room.roomId);
