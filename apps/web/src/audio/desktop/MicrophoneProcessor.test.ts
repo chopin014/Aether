@@ -9,7 +9,8 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MicrophoneProcessor } from "./MicrophoneProcessor";
+import { CAPTURE_LINGER_MS } from "./lingerCapture";
+import { MicrophoneProcessor, REPREPARE_AFTER_LEAVE_MS } from "./MicrophoneProcessor";
 import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 import { INAUDIBLE_LEVEL } from "./keepRealtimeClock";
@@ -360,11 +361,44 @@ describe("MicrophoneProcessor", () => {
         await init(child);
         await child.destroy();
         await vi.advanceTimersByTimeAsync(0);
+        // The next graph waits until the call that just ended has finished with the audio device.
+        expect(contexts).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS);
         expect(contexts).toHaveLength(3);
         root.clearPrepared();
         await root.destroy();
         await vi.advanceTimersByTimeAsync(0);
         expect(contexts).toHaveLength(3);
+    });
+    it("does not prepare the next graph when the account leaves before the call's device is released", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        await child.destroy();
+        root.clearPrepared();
+        await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS);
+        expect(contexts).toHaveLength(1);
+        await root.destroy();
+    });
+    it("keeps a released microphone's capture open, silently, until its leave cue has played", async () => {
+        vi.useFakeTimers();
+        const clone = { enabled: true, stop: vi.fn() };
+        const captured = { id: "mic", enabled: true, clone: vi.fn(() => clone) } as unknown as MediaStreamTrack;
+        const root = new MicrophoneProcessor(config);
+        const child = root.createProcessor();
+        await init(child, captured);
+        expect(captured.clone).toHaveBeenCalledOnce();
+        expect(clone.enabled).toBe(false);
+        await child.destroy();
+        expect(clone.stop).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(CAPTURE_LINGER_MS);
+        expect(clone.stop).toHaveBeenCalledOnce();
+        await root.destroy();
     });
     it("rebuilds a graph that crashes while prepared instead of publishing a silent track", async () => {
         const root = new MicrophoneProcessor(config);

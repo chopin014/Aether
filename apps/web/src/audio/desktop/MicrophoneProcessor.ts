@@ -16,6 +16,10 @@ import { type DenoiserStatus } from "./denoiser/DenoiserStatus";
 import { PreparedMicrophoneGraph } from "./PreparedMicrophoneGraph";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 import { keepRealtimeClock } from "./keepRealtimeClock";
+import { lingerCapture } from "./lingerCapture";
+
+/** How long after a call's microphone is released before the next call's graph is prepared. */
+export const REPREPARE_AFTER_LEAVE_MS = 3000;
 
 /** What LiveKit gives a track processor when it starts or restarts. */
 interface ProcessorOptions {
@@ -56,6 +60,8 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     }
 
     private context?: AudioContext;
+    /** Lets go of the captured microphone, see {@link lingerCapture}. */
+    private releaseCapture?: () => void;
     private source?: MediaStreamAudioSourceNode;
     private processor?: AudioWorkletNode;
     private destination?: MediaStreamAudioDestinationNode;
@@ -82,9 +88,26 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         this.preparationTimer = setTimeout(() => this.discardPrepared(), 60000);
     }
 
+    private reprepareTimer?: ReturnType<typeof setTimeout>;
+
+    /**
+     * Prepare the next call's graph once the call that just ended has finished with the audio device. Opening a
+     * fresh low-latency context while the call's own audio is being torn down makes Chromium's output underrun,
+     * which is heard as the leave cue crackling.
+     */
+    private prepareAfterLeave(): void {
+        clearTimeout(this.reprepareTimer);
+        this.reprepareTimer = setTimeout(() => {
+            this.reprepareTimer = undefined;
+            if (this.preparationEnabled) this.prepare();
+        }, REPREPARE_AFTER_LEAVE_MS);
+    }
+
     /** Stop preparing and release an unused graph when leaving the account. */
     public clearPrepared(): void {
         this.preparationEnabled = false;
+        clearTimeout(this.reprepareTimer);
+        this.reprepareTimer = undefined;
         this.discardPrepared();
     }
 
@@ -110,7 +133,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     public createProcessor = (): MicrophoneProcessor => {
         const child = new MicrophoneProcessor(this.config, () => {
             this.children.delete(child);
-            if (this.preparationEnabled) this.prepare();
+            if (this.preparationEnabled) this.prepareAfterLeave();
         });
         child.takePrepared = this.claimPrepared;
         child.onDenoiserStatus = (status): void => this.onDenoiserStatus?.(status);
@@ -179,6 +202,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     public async init({ track }: ProcessorOptions): Promise<void> {
         const generation = ++this.generation;
         this.closeGraph();
+        this.releaseCapture = lingerCapture(track);
         let prepared = this.takePrepared?.() ?? this.claimPrepared();
         if (prepared && prepared.denoiser !== this.wantsDenoiser(this.config)) {
             prepared.graph.close();
@@ -273,6 +297,8 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     }
 
     private closeGraph(): void {
+        this.releaseCapture?.();
+        this.releaseCapture = undefined;
         if (this.processor) {
             this.processor.port.onmessage = null;
             this.processor.onprocessorerror = null;
