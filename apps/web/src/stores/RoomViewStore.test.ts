@@ -299,6 +299,87 @@ describe("RoomViewStore", function () {
         expect(payload.oldRoomId).toEqual(roomId);
     });
 
+    describe("telling who follows the viewed room", () => {
+        /** Waits until nothing dispatched waits for its timer, and the timers' work has finished. */
+        const settled = async (): Promise<void> => {
+            const waiting = (): boolean => dis.hasQueuedOtherThan();
+            for (let tries = 0; tries < 100 && waiting(); tries++) {
+                await new Promise((resolve) => setTimeout(resolve, 1));
+            }
+            expect(waiting()).toBe(false);
+            await new Promise((resolve) => setTimeout(resolve, 1));
+        };
+
+        /** Records the "earlier" action and each ActiveRoomChanged's new room, in the order they are dispatched. */
+        const record = (): { seen: (string | null)[]; stop: () => void } => {
+            const seen: (string | null)[] = [];
+            const token = dis.register((payload) => {
+                if (payload.action === "earlier") seen.push("earlier");
+                if (payload.action === Action.UserActivity) seen.push("activity");
+                if (payload.action === Action.ActiveRoomChanged) {
+                    seen.push((payload as ActiveRoomChangedPayload).newRoomId);
+                }
+            });
+            return { seen, stop: () => dis.unregister(token) };
+        };
+
+        it("does so as soon as the dispatch has finished, without a timer", async () => {
+            const { seen, stop } = record();
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+            try {
+                dis.dispatch({ action: Action.ViewRoom, room_id: roomId }, true);
+                expect(seen).toEqual([]);
+                await Promise.resolve();
+                expect(seen).toEqual([roomId]);
+            } finally {
+                vi.useRealTimers();
+                stop();
+            }
+        });
+
+        it("does so after an earlier change's that still waits, and in order across changes", async () => {
+            const { seen, stop } = record();
+            try {
+                dis.dispatch({ action: Action.ActiveRoomChanged, oldRoomId: null, newRoomId: "!earlier:server" });
+                dis.dispatch({ action: Action.ViewRoom, room_id: roomId }, true);
+                await Promise.resolve();
+                dis.dispatch({ action: Action.ViewRoom, room_id: roomId2 }, true);
+                await settled();
+                expect(seen).toEqual(["!earlier:server", roomId, roomId2]);
+            } finally {
+                stop();
+            }
+        });
+
+        it("does so before the user's activity dispatched earlier, which comes with a click", async () => {
+            const { seen, stop } = record();
+            try {
+                dis.dispatch({ action: Action.UserActivity });
+                dis.dispatch({ action: Action.ViewRoom, room_id: roomId }, true);
+                await Promise.resolve();
+                expect(seen).toEqual([roomId]);
+                await settled();
+                expect(seen).toEqual([roomId, "activity"]);
+            } finally {
+                stop();
+            }
+        });
+
+        it("does so after anything else dispatched earlier that still waits", async () => {
+            const { seen, stop } = record();
+            try {
+                dis.dispatch({ action: "earlier" });
+                dis.dispatch({ action: Action.ViewRoom, room_id: roomId }, true);
+                await Promise.resolve();
+                expect(seen).toEqual([]);
+                await settled();
+                expect(seen).toEqual(["earlier", roomId]);
+            } finally {
+                stop();
+            }
+        });
+    });
+
     it("marks the navigation phase of opening a room for each room the view changes to", async () => {
         const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
         dis.dispatch({ action: Action.ViewRoom, room_id: roomId });

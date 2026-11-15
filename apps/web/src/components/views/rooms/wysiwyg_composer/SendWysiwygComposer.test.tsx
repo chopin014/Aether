@@ -105,6 +105,42 @@ describe("SendWysiwygComposer", () => {
         });
     };
 
+    it("keeps text inserted into the composer when a room is opened before its selection takes", async () => {
+        const onChange = vi.fn();
+        const { unmount } = customRender(onChange, vi.fn(), false, false);
+        await waitForComposerReady();
+        onChange.mockClear();
+        // A room opened as the room list opens one: at once unless something must come first. It replaces the
+        // composer.
+        const token = defaultDispatcher.register((payload) => {
+            if (payload.action === "open another room") unmount();
+        });
+        try {
+            act(() => {
+                defaultDispatcher.dispatch(
+                    {
+                        action: Action.ComposerInsert,
+                        text: "pending insert",
+                        composerType: ComposerType.Send,
+                        timelineRenderingType: defaultRoomContext.timelineRenderingType,
+                    },
+                    true,
+                );
+            });
+            act(() =>
+                defaultDispatcher.dispatch(
+                    { action: "open another room" },
+                    !defaultDispatcher.hasQueuedOtherThan(Action.UserActivity),
+                ),
+            );
+            await waitFor(() => expect(onChange).toHaveBeenCalledWith("pending insert"));
+            expect(defaultDispatcher.hasQueuedOtherThan(Action.UserActivity)).toBe(false);
+        } finally {
+            defaultDispatcher.unregister(token);
+            unmount();
+        }
+    });
+
     it("Should render WysiwygComposer when isRichTextEnabled is at true", async () => {
         // When
         customRender(vi.fn(), vi.fn(), false, true);

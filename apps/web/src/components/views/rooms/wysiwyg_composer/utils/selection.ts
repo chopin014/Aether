@@ -7,6 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { type SubSelection } from "../types";
+import defaultDispatcher from "../../../../../dispatcher/dispatcher";
 
 export function setSelection(selection: SubSelection): Promise<void> {
     if (selection.anchorNode && selection.focusNode) {
@@ -23,8 +24,15 @@ export function setSelection(selection: SubSelection): Promise<void> {
         document.getSelection()?.addRange(range);
     }
 
-    // Waiting for the next loop to ensure that the selection is effective
-    return new Promise((resolve) => setTimeout(resolve, 0));
+    // Waiting for the next loop to ensure that the selection is effective. A room opened meanwhile waits for it, so
+    // that what the caller does next, such as inserting text, is done in this composer rather than lost with it.
+    const release = defaultDispatcher.holdBack();
+    return new Promise((resolve) =>
+        setTimeout(() => {
+            release();
+            resolve();
+        }, 0),
+    );
 }
 
 export function isSelectionEmpty(): boolean {

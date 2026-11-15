@@ -1308,6 +1308,8 @@ describe("RoomView", () => {
         });
 
         it("should render joined video room view", async () => {
+            // With no unread messages, as the spy of an earlier test would otherwise say there are.
+            vi.spyOn(NotificationState.prototype, "isUnread", "get").mockReturnValue(false);
             vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
             const { asFragment } = await mountRoomView();
             expect(asFragment()).toMatchSnapshot();
