@@ -222,12 +222,37 @@ function problemsInSelectors(selectorList: string, file: string): string[] {
 /** Whether a compound, or a selector list of its `:is()`, `:where()` or `:not()`, matches on the class attribute. */
 function matchesOnClass(compound: string): boolean {
     const { own, pseudos } = splitCompound(compound);
-    if (/\[\s*class\s*[\]~|^$*=]/i.test(own)) return true;
-    // What a :has() holds is looked for only when the element it is on may have changed, not on every class change.
+    if (/\[\s*class\s*[\]~|^$*=]/i.test(unescapeCss(own))) return true;
+    // What a :has() holds is looked for only when the element it is on may have changed, not on every class change,
+    // except within its :is(), :where() and :not(); see hasArgumentProblems.
     return pseudos.some(
         (pseudo) =>
             pseudo.name !== "has" && pseudo.selectors.some((selector) => compounds(selector).some(matchesOnClass)),
     );
+}
+
+/** `text` with its CSS escapes, such as the `\61` in `cl\61ss`, replaced by the characters they stand for. */
+function unescapeCss(text: string): string {
+    return text
+        .replace(/\\([0-9a-f]{1,6})\s?/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+        .replace(/\\(.)/g, "$1");
+}
+
+/**
+ * The problems with the selector lists of the `:is()`, `:where()` and `:not()` within each `:has()` of a compound.
+ * Chrome looks for what a `:has()` holds only when the element it is on may have changed, but a complex selector in
+ * one of those within it is followed as one outside a `:has()` is: `.item:has(:is([class*="x"] .caption))` restyles
+ * on every class change as `[class*="x"] .caption` does.
+ */
+function hasArgumentProblems(compound: string, file: string): string[] {
+    return splitCompound(compound)
+        .pseudos.filter((pseudo) => pseudo.name === "has")
+        .flatMap((has) => has.selectors.flatMap((selector) => compounds(selector)))
+        .flatMap((part) =>
+            splitCompound(part)
+                .pseudos.filter((pseudo) => pseudo.name !== "has")
+                .flatMap((pseudo) => classMatchesInSelectors(pseudo.selectors.join(", "), file)),
+        );
 }
 
 /** The selectors in a selector list that match on the class attribute before the part naming the element styled. */
@@ -243,6 +268,7 @@ function classMatchesInSelectors(selectorList: string, file: string): string[] {
         for (const pseudo of splitCompound(subject).pseudos) {
             if (pseudo.name !== "has") problems.push(...classMatchesInSelectors(pseudo.selectors.join(", "), file));
         }
+        for (const part of parts) problems.push(...hasArgumentProblems(part, file));
     }
     return problems;
 }
@@ -267,7 +293,7 @@ function hasProblemsIn(source: string, file = "test.pcss"): string[] {
 /** Each selector in `source` that matches on the class of an element around or beside the one it styles. */
 function classProblemsIn(source: string, file = "test.pcss"): string[] {
     return selectorsIn(source, file).flatMap((selector) =>
-        /\[\s*class\b/i.test(selector) ? classMatchesInSelectors(selector, file) : [],
+        /\[\s*class\b/i.test(unescapeCss(selector)) ? classMatchesInSelectors(selector, file) : [],
     );
 }
 
@@ -321,6 +347,10 @@ describe("stylesheets", () => {
         ['.panel :not([class$="_open"]) > .item {}'],
         ['.item:is([class*="_tooltip_"] > .caption) {}'],
         ['.header { [class*="_tooltip_"] & { color: red; } }'],
+        ['.item:has(:is([class*="_tooltip_"] .caption)) {}'],
+        ['.panel:has(> :not([class^="x"] + .a)) .item {}'],
+        ["[cl\\61ss*=x] .item {}"],
+        ["[c\\lass] .item {}"],
     ])("reports %s", (source) => {
         expect(problemsIn(source)).toHaveLength(1);
     });
@@ -347,6 +377,8 @@ describe("stylesheets", () => {
         ['.item[data-label="[class*=x] y"] .icon {}'],
         ['.item:not([class*="_hidden_"]) {}'],
         ["[classname] .item {}"],
+        ['.item:has(:is(.a [data-x], [class*="_b_"])) {}'],
+        ["[cl\\61 ssname] .item {}"],
     ])("accepts %s", (source) => {
         expect(problemsIn(source)).toEqual([]);
     });
