@@ -34,6 +34,18 @@ import { Action } from "../../dispatcher/actions";
 import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
+
+vi.mock("../../utils/call/serverVoiceMute", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/call/serverVoiceMute")>()),
+    getServerVoiceMute: vi.fn(() => ({ muted: false, deafened: false })),
+    onServerVoiceMutesChanged: vi.fn(() => () => {}),
+}));
+
+// Nobody is muted by a moderator unless a test says so.
+beforeEach(() => {
+    vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+});
 
 vi.mock("../../audio/DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
 
@@ -286,6 +298,24 @@ describe("DesktopVoiceControlsViewModel", () => {
         window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
         expect(calls.mock.calls.filter(([name]) => name === "audioInputMuted")).toHaveLength(1);
         created.forEach((model) => model.dispose());
+    });
+
+    it("keeps the microphone and playback as a moderator left them, and says so", async () => {
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: true });
+        await connect();
+        expect(getServerVoiceMute).toHaveBeenCalledWith(client, call.roomId, client.getSafeUserId());
+        expect(vm.getSnapshot()).toMatchObject({ serverMuted: true, serverDeafened: true });
+        vi.mocked(call.setDeviceMute).mockClear();
+        vi.mocked(call.setAudioOutputEnabled).mockClear();
+        await vm.toggleMicrophone();
+        await vm.toggleDeafened();
+        expect(call.setDeviceMute).not.toHaveBeenCalled();
+        expect(call.setAudioOutputEnabled).not.toHaveBeenCalled();
+
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+        expect(vm.getSnapshot()).toMatchObject({ serverMuted: false, serverDeafened: false });
     });
 
     it("serializes overlapping shortcut/device actions and preserves mute intent", async () => {
