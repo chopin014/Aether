@@ -163,6 +163,35 @@ describe("MemberTileView", () => {
                 renderTile(true);
                 expect(screen.queryByText("In Geral")).toBeNull();
             });
+
+            it("leaves out the verified mark but keeps the warning", async () => {
+                const deviceMap = new Map<string, Map<string, Device>>();
+                deviceMap.set(member.userId, new Map([["deviceId", {} as Device]]));
+                vi.mocked(matrixClient.getCrypto()!.getUserDeviceInfo).mockResolvedValue(deviceMap);
+                vi.mocked(matrixClient.getCrypto()!.getDeviceVerificationStatus).mockResolvedValue({
+                    crossSigningVerified: true,
+                } as DeviceVerificationStatus);
+                const status = vi.mocked(matrixClient.getCrypto()!.getUserVerificationStatus);
+                status.mockResolvedValue({
+                    isCrossSigningVerified: vi.fn().mockReturnValue(true),
+                } as unknown as UserVerificationStatus);
+                const verified = render(
+                    <RoomMemberTileView item={item} member={member} index={0} memberCount={1} onFocus={vi.fn()} />,
+                );
+                await waitFor(() => expect(status).toHaveBeenCalled());
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(verified.container.querySelector(".mx_E2EIconView")).toBeNull();
+                verified.unmount();
+
+                status.mockResolvedValue({
+                    isCrossSigningVerified: vi.fn().mockReturnValue(false),
+                    wasCrossSigningVerified: vi.fn().mockReturnValue(true),
+                } as unknown as UserVerificationStatus);
+                const { container } = render(
+                    <RoomMemberTileView item={item} member={member} index={0} memberCount={1} onFocus={vi.fn()} />,
+                );
+                await waitFor(() => expect(container.querySelector(".mx_E2EIconView")).not.toBeNull());
+            });
         });
 
         it("renders user labels correctly", async () => {

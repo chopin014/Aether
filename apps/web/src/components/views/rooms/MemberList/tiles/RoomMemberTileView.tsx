@@ -31,6 +31,7 @@ import { useUserStatus } from "../../../../../hooks/useUserStatus";
 import { useRichRowProfile } from "../../../../../profile/useRichProfile";
 import { useVoiceRoom } from "../../../../../profile/voiceActivity";
 import { useMatrixClientContext } from "../../../../../contexts/MatrixClientContext";
+import { E2EStatus } from "../../../../../utils/ShieldUtils";
 
 interface IProps {
     /**
@@ -119,7 +120,8 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
     }
 
     let iconJsx;
-    if (vm.e2eStatus) {
+    // The desktop list keeps only the warning: a verified mark on every row competed with the nameplate art.
+    if (vm.e2eStatus && !(desktopShell && vm.e2eStatus === E2EStatus.Verified)) {
         iconJsx = <E2EIconView status={vm.e2eStatus} />;
     }
     if (member.isInvite) {
