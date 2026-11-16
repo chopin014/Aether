@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { WebContents } from "electron";
 import type { DesktopAudioPacket } from "shared-types";
 
-import { DesktopAudioCapture, setupDesktopAudio } from "./desktop-audio.js";
+import { DesktopAudioCapture, selectPortalDesktopAudio, setupDesktopAudio } from "./desktop-audio.js";
 
 const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, (event: unknown, value: unknown) => unknown>() }));
 vi.mock("electron", () => ({
@@ -109,6 +109,45 @@ describe("DesktopAudioCapture", () => {
         capture.stop("one");
         deliver(data, format);
         expect(owner.send).toHaveBeenCalledOnce();
+    });
+
+    it("captures system audio without Aether for a Wayland portal source", () => {
+        const { capture, native } = fixture();
+        capture.selectPortal(true);
+        expect(capture.start("session")).toBe(true);
+        // The portal hides the chosen application, so its id is never treated as a window handle.
+        expect(native.getPidFromWindowHandle).not.toHaveBeenCalled();
+        expect(native.startCapture).toHaveBeenCalledWith(process.pid, false, expect.any(Function));
+        capture.stop("session");
+        expect(capture.start("again")).toBe(false);
+    });
+
+    it("uses the audio preference sent before a Wayland portal capture, once", () => {
+        const owner = { on: vi.fn(), mainFrame: {}, isDestroyed: () => false } as unknown as WebContents;
+        const native = fixture().native;
+        setupDesktopAudio(owner, native);
+        const event = { sender: owner, senderFrame: owner.mainFrame };
+        const prepare = handlers.get("aether:desktop-audio-prepare")!;
+        const start = handlers.get("aether:desktop-audio-start")!;
+
+        prepare(event, true);
+        selectPortalDesktopAudio("window:1:0:s");
+        expect(start(event, "one")).toBe(true);
+        handlers.get("aether:desktop-audio-stop")!(event, "one");
+
+        // The preference is consumed by one portal selection.
+        selectPortalDesktopAudio("window:2:0:s");
+        expect(start(event, "two")).toBe(false);
+
+        prepare(event, false);
+        selectPortalDesktopAudio("window:3:0:s");
+        expect(start(event, "three")).toBe(false);
+
+        // A cancelled portal returns no source.
+        prepare(event, true);
+        selectPortalDesktopAudio("");
+        expect(start(event, "four")).toBe(false);
+        expect(native.startCapture).toHaveBeenCalledOnce();
     });
 
     it("restricts audio IPC to the owning main frame", () => {
