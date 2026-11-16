@@ -102,6 +102,7 @@ describe("<RoomListItemView />", () => {
                 isIgnored: false,
                 inviteServers: [],
                 roles: [],
+                canChangeNickname: false,
             }),
             {
                 viewProfile: vi.fn(),
@@ -120,6 +121,7 @@ describe("<RoomListItemView />", () => {
                 copyUserId: vi.fn(),
                 toggleIgnore: vi.fn(),
                 setRole: vi.fn(),
+                changeNickname: vi.fn(),
             },
         );
         const openMenu = vi.fn(() => menu);

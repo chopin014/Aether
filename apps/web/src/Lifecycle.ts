@@ -29,6 +29,7 @@ import UserActivity from "./UserActivity";
 import Presence from "./Presence";
 import { RichProfileStore } from "./profile/RichProfileStore";
 import { AetherPresenceService } from "./presence/AetherPresenceService";
+import { ServerNicknameKeeper } from "./models/ServerNicknameKeeper";
 import dis from "./dispatcher/dispatcher";
 import DMRoomMap from "./utils/DMRoomMap";
 import Modal from "./Modal";
@@ -1164,6 +1165,9 @@ async function startMatrixClient(
 
     CallStatusListener.sharedInstance().start(CallStore.instance, client);
 
+    // Per-server nicknames are written into the user's memberships by their own app.
+    if (SettingsStore.getValue("feature_desktop_shell")) ServerNicknameKeeper.instance.start(client);
+
     // Similarly, don't start sending presence updates until we've started the client
     if (!SettingsStore.getValue("lowBandwidth")) {
         void Presence.start(createPresenceHints(CallStore.instance));
@@ -1324,6 +1328,7 @@ export function stopMatrixClient(unsetClient = true): void {
     UserActivity.sharedInstance().stop();
     SDKContextClass.instance.typingStore.reset();
     AetherPresenceService.instance.stop();
+    ServerNicknameKeeper.instance.stop();
     Presence.stop();
     ActiveWidgetStore.instance.stop();
     IntegrationManagers.sharedInstance().stopWatching();

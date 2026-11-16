@@ -4274,6 +4274,9 @@
         "share_picker": {
             "title": "Compartilhar sua tela"
         },
+        "nickname": {
+            "change": "Alterar apelido"
+        },
         "profile_editor": {
             "error_forbidden": "Seu servidor doméstico não permite essa alteração.",
             "error_generic": "Não foi possível salvar seu perfil. O que já foi enviado foi mantido, então você pode tentar de novo.",

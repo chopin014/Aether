@@ -71,6 +71,8 @@ export interface VoiceUserMenuViewSnapshot {
     readonly inviteServers: readonly VoiceUserMenuServer[];
     /** Roles the user may give the person in this channel; the entry is hidden when there are none. */
     readonly roles: readonly VoiceUserMenuRole[];
+    /** Whether the user may change the person's nickname in the channel's server: their own, or as a moderator. */
+    readonly canChangeNickname: boolean;
 }
 
 /** What choosing an entry in the voice user menu does. */
@@ -91,6 +93,8 @@ export interface VoiceUserMenuViewActions {
     copyUserId(): void;
     toggleIgnore(): void;
     setRole(level: number): void;
+    /** Opens the dialog that changes the person's nickname in the server. */
+    changeNickname(): void;
 }
 
 /** The view model behind the voice user menu. */
@@ -516,6 +520,14 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                         </SubMenu>
                     )}
                 </>
+            )}
+            {s.canChangeNickname && (
+                <Item
+                    onHover={closeSubMenu}
+                    label={_t("desktop|voice_user_menu|change_nickname")}
+                    onSelect={select(vm.changeNickname)}
+                    testId="voice-user-menu-change-nickname"
+                />
             )}
             <Item
                 onHover={closeSubMenu}

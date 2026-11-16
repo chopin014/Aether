@@ -18,6 +18,7 @@ import { type MediaPreviewConfig } from "./media_preview.ts";
 import { type INVITE_RULES_ACCOUNT_DATA_TYPE, type InviteConfigAccountData } from "./invite-rules.ts";
 import type { StoredSound } from "../audio/soundboard/Soundboard";
 import type { PublishedVoiceStateContent } from "../utils/call/publishedVoiceState";
+import type { MemberNickContent, ServerNicknamesContent } from "../utils/serverNickname";
 
 // Extend Matrix JS SDK types via Typescript declaration merging to support unspecced event fields and types
 declare module "matrix-js-sdk/src/types" {
@@ -42,6 +43,8 @@ declare module "matrix-js-sdk/src/types" {
         "io.aether.space.channel": { v?: number; category?: string | null; order?: string } | EmptyObject;
         "io.aether.space.category.deleted": { v?: number } | EmptyObject;
         "io.aether.call.voice_state": PublishedVoiceStateContent | EmptyObject;
+        // A moderator's nickname for someone in a server, see utils/serverNickname.ts
+        "io.aether.member.nick": MemberNickContent;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 
@@ -89,6 +92,8 @@ declare module "matrix-js-sdk/src/types" {
         };
     }
     export interface AccountDataEvents {
+        // The user's per-server nicknames, see utils/serverNickname.ts
+        "io.aether.server_nicknames": ServerNicknamesContent;
         // Analytics account data event
         "im.vector.analytics": {
             id: string;

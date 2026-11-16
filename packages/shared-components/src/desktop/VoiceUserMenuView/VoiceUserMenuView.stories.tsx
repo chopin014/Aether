@@ -29,6 +29,7 @@ const actions: VoiceUserMenuViewActions = {
     copyUserId: fn(),
     toggleIgnore: fn(),
     setRole: fn(),
+    changeNickname: fn(),
 };
 
 function MenuStory(snapshot: VoiceUserMenuViewSnapshot): JSX.Element {
@@ -67,6 +68,7 @@ const meta = {
             { level: 50, label: "Moderator", selected: false },
             { level: 0, label: "Default", selected: true },
         ],
+        canChangeNickname: true,
     },
     parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof MenuStory>;

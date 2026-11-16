@@ -213,6 +213,28 @@ taken by others. Each device announces its deafen both as a LiveKit attribute an
 every 10 seconds while deafened, because the attribute needs a JWT service that lets participants update their own
 metadata (`lk-jwt-service` since July 2026). The local user's own row follows this device directly.
 
+## Server nicknames
+
+As in Discord, everyone can have a nickname in a server ("Change nickname" in the server's menu, or in your own voice
+menu or profile), and moderators can change someone else's ("Change nickname" in that person's voice menu or profile,
+with Discord's warning).
+
+Matrix shows a name in each room's membership, and only the person can change their own membership. So the person's own
+Aether writes the nickname there (`ServerNicknameKeeper`), in the server and every channel of it they are in, where
+every app shows it:
+
+- The user's own nicknames are kept in the account data `io.aether.server_nicknames` (`own`, by server), with the names
+  their Aether last wrote (`shown`), so that a nickname that ends gives way to their own name again.
+- A moderator's nickname is the server state event `io.aether.member.nick`, with the state key `u:` plus the person's
+  user ID and `{ "nick": "…" }`; empty content resets it. It takes the server's power level for that event type (falling
+  back to `state_default`), and Aether only honours it from someone above the person's level, as Discord only lets
+  people manage nicknames below their highest role. A moderator's nickname wins over the person's own until it is reset.
+- The homeserver replaces per-room names whenever someone changes their global name (Synapse "stomps over" them), so
+  the keeper writes the nickname again whenever it sees it replaced, and when the user joins another channel.
+
+A moderator's nickname for someone who does not use Aether is recorded but not shown: only the person's own app can
+change their name in a room. Nicknames are at most 32 characters.
+
 ## Channel menu and topic
 
 Clicking a channel's name in the header opens an anchored menu beneath it, and right-clicking a channel in the room
