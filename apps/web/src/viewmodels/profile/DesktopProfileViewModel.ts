@@ -200,6 +200,8 @@ export class DesktopProfileViewModel
         // member list, is not a status.
         const merged = getMergedPresence(client, userId);
         const presence = merged && merged.source !== "activity" ? merged.state : undefined;
+        const shownPresence =
+            presence === "online" || presence === "unavailable" || presence === "busy" ? presence : "offline";
         const me = room?.getMember(client.getSafeUserId());
         const canModerate =
             !isMe &&
@@ -224,7 +226,7 @@ export class DesktopProfileViewModel
             displayName: name,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(160, 160, "crop") ?? undefined) : undefined,
             avatarPreviewUrl: mxc ? props.avatarPreviewUrls?.find((url) => showsMedia(url, mxc)) : undefined,
-            presence: presence === "online" || presence === "unavailable" || presence === "busy" ? presence : "offline",
+            presence: shownPresence,
             roles: DesktopProfileViewModel.roles(props, userId, member),
             status: extra.status ?? rich?.status,
             appearance: rich && appearanceFromRichProfile(rich, mxc),
@@ -263,7 +265,11 @@ export class DesktopProfileViewModel
             mutualRooms: extra.mutualRooms ?? { state: props.full ? "loading" : "unsupported", items: [] },
             mutualSpaces: props.full ? shared : [],
             mutual: isMe ? undefined : { count: shared.length, faces: shared.slice(0, 3) },
-            activity: voiceActivity(client, VoiceActivityIndex.instance.roomOf(userId)),
+            // As in the member list, someone who appears offline shows no voice channel.
+            activity:
+                shownPresence === "offline"
+                    ? undefined
+                    : voiceActivity(client, VoiceActivityIndex.instance.roomOf(userId)),
         };
     }
 

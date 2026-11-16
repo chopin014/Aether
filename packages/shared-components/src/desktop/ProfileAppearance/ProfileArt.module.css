@@ -192,11 +192,29 @@ Please see LICENSE in the repository root for full details.
     object-position: right center;
     opacity: 0.6;
     transition: opacity 300ms ease;
-    mask-image: linear-gradient(
-        to right,
-        rgb(0 0 0 / 30%) var(--plate-text-end, 40%),
-        #000000 calc(var(--plate-text-end, 40%) + 50px)
-    );
+    /*
+     * Two masks, both of which must let the art through. The first is Discord's: faint behind the text, full 50px
+     * after it. The second fades the art in from nothing across the row, following the alpha of Discord's own
+     * nameplate artwork (measured over 49 of them: clear for the first quarter, full from about four fifths). Our
+     * scenes paint a whole sky, so without it the art would sit in the row as a box with a visible edge.
+     */
+    mask-image:
+        linear-gradient(
+            to right,
+            rgb(0 0 0 / 30%) var(--plate-text-end, 40%),
+            #000000 calc(var(--plate-text-end, 40%) + 50px)
+        ),
+        linear-gradient(
+            to right,
+            transparent 28%,
+            rgb(0 0 0 / 8%) 39%,
+            rgb(0 0 0 / 29%) 50%,
+            rgb(0 0 0 / 61%) 61%,
+            rgb(0 0 0 / 87%) 72%,
+            rgb(0 0 0 / 98%) 83%,
+            #000000 94%
+        );
+    mask-composite: intersect;
 }
 .nameplate[data-selected="true"] .nameplateArt {
     opacity: 0.9;
