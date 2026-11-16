@@ -334,7 +334,7 @@ index 0000000..201f68f
 +    };
 +}
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18..6113f56 100644
+index e597a18..cf54501 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -1,3 +1,4 @@
@@ -439,7 +439,7 @@ index e597a18..6113f56 100644
  	let s, c = i?.matrixRTCMode === void 0, l = i?.matrixRTCMode === x.Matrix_2_0;
  	if (c || l) try {
  		return a?.info(`Trying to get JWT via default endpoint for focus ${n}...`), AX(await NX(t, n, r, o, i?.delayEndpointBaseUrl, i?.delayId));
-@@ -42205,6 +42220,87 @@ function y4(e, t) {
+@@ -42205,17 +42220,226 @@ function y4(e, t) {
  	};
  }
  //#endregion
@@ -524,10 +524,158 @@ index e597a18..6113f56 100644
 +	aetherAutoReconnectAttempts.delete(roomId);
 +}
 +//#endregion
++// Aether: the shortest sync outage that counts as losing the homeserver during a call. Element Call paused the
++// microphone and showed the call as reconnecting after 10 seconds without sync, while the call's media kept flowing.
++// A network change or a slow homeserver often interrupts sync that long. A longer outage still counts, because without
++// sync the call cannot see people joining or leaving, so it cannot send them its key or replace it when they leave.
++// The time runs from the first sync state other than syncing that the call sees (from its start, if it starts during
++// an outage), and a configured grace period longer than this applies instead.
++const aetherSyncOutageLimitMs = 6e4;
++// Aether: decides whether the homeserver side of a call holds, from the sync state, the membership status and the
++// membership manager's "probably left" signal. Reports `[connected, reason]` through `publish` when it changes.
++// Once the delayed leave may have been sent, the membership counts as lost until the call's own membership is seen
++// again: the manager learns that the leave was sent only from sync, and reports a lost membership only some time after
++// that, so resuming when it recovers could send media while the membership is gone. After each sync response that
++// arrives once the manager no longer reports a probable leave, `confirmMembership` resolves whether the memberships,
++// recalculated from that response, include the call's own. An answer counts only if no sync response arrived while it
++// was worked out; otherwise the latest state is checked instead.
++function aetherHomeserverGate({ syncing, membershipConnected, probablyLeft, outageLimitMs }, publish, log, confirmMembership) {
++	let syncLost = !syncing && outageLimitMs <= 0, leaveSuspected = probablyLeft, timer = null, last = null;
++	let disposed = !1, confirming = !1, recheck = !1, generation = 0, syncRevision = 0;
++	const report = () => {
++		const next = syncLost ? [!1, "sync"] : !membershipConnected ? [!1, "membership"] : probablyLeft || leaveSuspected ? [!1, "probablyLeft"] : [!0, null];
++		if (last && last[0] === next[0] && last[1] === next[1]) return;
++		last = next;
++		publish(next);
++	};
++	const clearTimer = () => {
++		if (timer !== null) clearTimeout(timer);
++		timer = null;
++	};
++	const watchOutage = () => {
++		if (syncing || syncLost || timer !== null) return;
++		if (outageLimitMs <= 0) {
++			syncLost = !0;
++			return;
++		}
++		timer = setTimeout(() => {
++			timer = null;
++			syncLost = !0;
++			log?.(`Homeserver sync interrupted for ${outageLimitMs}ms`);
++			report();
++		}, outageLimitMs);
++	};
++	// Checks the recalculated memberships for the call's own, one check at a time. A sync response that arrives during a
++	// check makes its answer out of date, so the check runs again on the latest state.
++	function confirmAfterLeave() {
++		if (!leaveSuspected || probablyLeft) return;
++		if (confirming) {
++			recheck = !0;
++			return;
++		}
++		confirming = !0;
++		recheck = !1;
++		const checkedGeneration = generation, checkedRevision = syncRevision;
++		const settle = (present, error) => {
++			confirming = !1;
++			if (disposed) return;
++			const current = checkedGeneration === generation && checkedRevision === syncRevision;
++			if (error !== void 0) log?.(`Could not confirm the call membership after a possible leave: ${error}`);
++			else if (current && present && !probablyLeft && leaveSuspected) {
++				leaveSuspected = !1;
++				log?.("Own call membership confirmed after a possible leave");
++				report();
++			} else if (current && !present) log?.("Own call membership missing after a possible leave; waiting for it to return");
++			if (recheck) confirmAfterLeave();
++		};
++		Promise.resolve().then(confirmMembership).then((present) => settle(present, void 0), (error) => settle(!1, error ?? "failed"));
++	}
++	watchOutage();
++	report();
++	return {
++		sync(state) {
++			const wasSyncing = syncing;
++			syncing = state;
++			if (syncing) {
++				syncRevision++;
++				clearTimer();
++				syncLost = !1;
++				if (!wasSyncing) log?.("Homeserver sync connected");
++				confirmAfterLeave();
++			} else {
++				if (wasSyncing) log?.("Homeserver sync interrupted; the call keeps its media while its membership holds");
++				watchOutage();
++			}
++			report();
++		},
++		membership(connected) {
++			membershipConnected = connected;
++			report();
++		},
++		probablyLeft(value) {
++			probablyLeft = value;
++			if (value) {
++				leaveSuspected = !0;
++				// A confirmation from before this possible leave says nothing about it.
++				generation++;
++			}
++			report();
++		},
++		dispose() {
++			disposed = !0;
++			clearTimer();
++		}
++	};
++}
++// Aether: whether a membership is this call's own participation. Matrix 2.0 gives each participation its own member
++// id, so an older one of the same device that was never cleaned up does not count.
++function aetherIsOwnParticipation(membership, { userId, deviceId, memberId }) {
++	return membership.sender === userId && membership.deviceId === deviceId && (memberId === void 0 || membership.memberId === memberId);
++}
  //#region src/state/CallViewModel/localMember/HomeserverConnected.ts
- function b4(e, t, n, r) {
- 	let i = V.getChild("[HomeserverConnected]"), a = r ?? ce.get().sync_disconnect_grace_period_ms, o = Yk(t, Bn.Sync).pipe(CA([t.getSyncState()]), F(([e]) => e === Jn.Syncing), $e(), wA((e) => e || a <= 0 ? Ck(e) : Ck(!1).pipe(hA(a), CA(!0))), $e()), s = e.behavior(Yk(n, er.StatusChanged).pipe(F(() => n.membershipStatus ?? tr.Unknown)), n.membershipStatus ?? tr.Unknown), c = s.pipe(F((e) => e === tr.Connected)), l = Yk(n, er.ProbablyLeft).pipe(CA(null), F(() => n.probablyLeft !== !0));
-@@ -42228,7 +42324,7 @@ var x4 = /* @__PURE__ */ function(e) {
+-function b4(e, t, n, r) {
+-	let i = V.getChild("[HomeserverConnected]"), a = r ?? ce.get().sync_disconnect_grace_period_ms, o = Yk(t, Bn.Sync).pipe(CA([t.getSyncState()]), F(([e]) => e === Jn.Syncing), $e(), wA((e) => e || a <= 0 ? Ck(e) : Ck(!1).pipe(hA(a), CA(!0))), $e()), s = e.behavior(Yk(n, er.StatusChanged).pipe(F(() => n.membershipStatus ?? tr.Unknown)), n.membershipStatus ?? tr.Unknown), c = s.pipe(F((e) => e === tr.Connected)), l = Yk(n, er.ProbablyLeft).pipe(CA(null), F(() => n.probablyLeft !== !0));
++function b4(e, t, n, r, ownIdentity) {
++	let i = V.getChild("[HomeserverConnected]"), a = r ?? ce.get().sync_disconnect_grace_period_ms, s = e.behavior(Yk(n, er.StatusChanged).pipe(F(() => n.membershipStatus ?? tr.Unknown)), n.membershipStatus ?? tr.Unknown);
++	// Aether: one gate for sync, membership and probable leave, so a sync outage alone does not pause the call.
++	const combined = new C((observer) => {
++		const gate = aetherHomeserverGate({
++			syncing: t.getSyncState() === Jn.Syncing,
++			membershipConnected: s.value === tr.Connected,
++			probablyLeft: n.probablyLeft === !0,
++			outageLimitMs: a <= 0 ? 0 : Math.max(a, aetherSyncOutageLimitMs)
++		}, (value) => {
++			i.info(`Homeserver connected update: ${value[0] ? "connected" : value[1]}`);
++			observer.next(value);
++		}, (message) => i.info(message), () => n.ensureRecalculateSessionMembers().then(() => n.memberships.some((m) => aetherIsOwnParticipation(m, ownIdentity ?? {
++			userId: t.getUserId(),
++			deviceId: t.getDeviceId()
++		}))));
++		const onSync = (state) => gate.sync(state === Jn.Syncing);
++		const onProbablyLeft = () => gate.probablyLeft(n.probablyLeft === !0);
++		const status = s.subscribe((value) => gate.membership(value === tr.Connected));
++		t.on(Bn.Sync, onSync);
++		n.on(er.ProbablyLeft, onProbablyLeft);
++		return () => {
++			t.off(Bn.Sync, onSync);
++			n.off(er.ProbablyLeft, onProbablyLeft);
++			status.unsubscribe();
++			gate.dispose();
++		};
++	});
+ 	return {
+-		combined$: e.behavior(Lk([
+-			o,
+-			c,
+-			l
+-		]).pipe(F(([e, t, n]) => e ? t ? n ? [!0, null] : [!1, "probablyLeft"] : [!1, "membership"] : [!1, "sync"]), kA(([e, t]) => {
+-			i.info(`Homeserver connected update: ${e ? "connected" : t}`);
+-		}))),
++		combined$: e.behavior(combined),
+ 		rtsSession$: s
+ 	};
+ }
+@@ -42228,7 +42452,7 @@ var x4 = /* @__PURE__ */ function(e) {
  		return this._livekitAlias;
  	}
  	constructor(e, t) {
@@ -536,7 +684,7 @@ index e597a18..6113f56 100644
  		let { transport: n, client: r, scope: i } = e;
  		this.scope = i, this.livekitRoom = e.livekitRoomFactory(), this.transport = n, this.client = r, this.remoteParticipants$ = i.behavior(oL(this.livekitRoom)), this.logRemoteTrackEvents(), i.onEnd(() => {
  			this.logger.info("Connection scope ended, stopping connection"), this.stop();
-@@ -42249,9 +42345,19 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42249,9 +42473,19 @@ var x4 = /* @__PURE__ */ function(e) {
  		try {
  			this._state$.next("FetchingConfig");
  			let { url: e, jwt: t, livekitAlias: n } = this.existingSFUConfig ?? await this.getSFUConfigForRemoteConnection();
@@ -558,7 +706,7 @@ index e597a18..6113f56 100644
  			});
  			try {
  				this.logger.info(`livekitRoom.connect ${e}`), await this.livekitRoom.connect(e, t), this.logger.info(`livekitRoom.connect SUCCESS ${e}`);
-@@ -42264,6 +42370,8 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42264,6 +42498,8 @@ var x4 = /* @__PURE__ */ function(e) {
  				this.logger.debug("Connect aborted because the connection was stopped");
  				return;
  			}
@@ -567,7 +715,7 @@ index e597a18..6113f56 100644
  			throw this.logger.debug(`Failed to connect to LiveKit room: ${e}`), this._state$.next(e instanceof hX ? e : e instanceof Error ? new xX(e) : new xX(/* @__PURE__ */ Error(`${e}`))), e;
  		}
  	}
-@@ -42275,28 +42383,67 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42275,28 +42511,67 @@ var x4 = /* @__PURE__ */ function(e) {
  	}
  }, C4 = /* @__PURE__ */ function(e) {
  	return e.Waiting = "transport_waiting", e;
@@ -650,7 +798,7 @@ index e597a18..6113f56 100644
  		_.info(`Local connection updated: ${e?.transport?.livekit_service_url}`);
  	})), null);
  	C.pipe(wA((e) => e ? Yk(e.livekitRoom, q.MediaDevicesError, (e) => Xm.getFailure(e) ?? null) : Ck(null))).pipe(e.bind()).subscribe((e) => {
-@@ -42416,7 +42563,39 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42416,7 +42691,39 @@ var x4 = /* @__PURE__ */ function(e) {
  		}
  	});
  	let de = e.behavior(ue.pipe(wA((e) => e === null ? Ck(!1) : E4(e)))), fe = new Rt(null), pe = null;
@@ -691,7 +839,7 @@ index e597a18..6113f56 100644
  		let e = {
  			audio: {
  				autoGainControl: !1,
-@@ -42452,6 +42631,16 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42452,6 +42759,16 @@ var x4 = /* @__PURE__ */ function(e) {
  		_.info(`toggleScreenSharing called. Switching ${n ? "On" : "Off"}`);
  		let r = ue.value;
  		r && T4(r.setScreenShareEnabled(n, e, t), n, _, (e) => fe.next(e));
@@ -708,7 +856,7 @@ index e597a18..6113f56 100644
  	}), {
  		startTracks: D,
  		requestJoinAndPublish: k,
-@@ -42490,6 +42679,7 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
+@@ -42490,6 +42807,7 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
  		delayedLeaveEventRestartLocalTimeoutMs: a.restart_timeout_ms,
  		networkErrorRetryMs: l.network_error_retry_ms,
  		membershipEventExpiryMs: l.membership_event_expiry_ms,
@@ -716,7 +864,7 @@ index e597a18..6113f56 100644
  		keyRotationParticipantLimit: l.key_rotation_participant_limit,
  		unstableSendStickyEvents: i === x.Matrix_2_0,
  		maximumNetworkErrorRetryCount: f
-@@ -42497,6 +42687,11 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
+@@ -42497,6 +42815,11 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
  }
  //#endregion
  //#region src/state/CallViewModel/localMember/RtcTransportAutoDiscovery.ts
@@ -728,7 +876,7 @@ index e597a18..6113f56 100644
  var O4 = class {
  	constructor({ client: e, resolvedConfig: t, logger: n }) {
  		this.client = e, this.resolvedConfig = t, this.logger = n.getChild("[RtcTransportAutoDiscovery]");
-@@ -42504,6 +42699,12 @@ var O4 = class {
+@@ -42504,6 +42827,12 @@ var O4 = class {
  	async discoverPreferredTransport() {
  		let e = await this.tryBackendTransports();
  		if (e) return this.logger.info(`Found backend transport: ${e.livekit_service_url}`), e;
@@ -741,7 +889,7 @@ index e597a18..6113f56 100644
  		let t = this.tryConfigTransport();
  		return t ? (this.logger.info(`Found app config transport: ${t.livekit_service_url}`), t) : null;
  	}
-@@ -42511,7 +42712,8 @@ var O4 = class {
+@@ -42511,7 +42840,8 @@ var O4 = class {
  		let e = this.client;
  		this.logger.info("First try to use getRTCTransports end point ...");
  		try {
@@ -751,7 +899,7 @@ index e597a18..6113f56 100644
  			if (n) return n;
  			this.logger.info("No livekit transport found in getRTCTransports end point", t);
  		} catch (e) {
-@@ -42532,7 +42734,89 @@ var O4 = class {
+@@ -42532,7 +42862,89 @@ var O4 = class {
  function k4(e) {
  	return "transport" in e && "sfuConfig" in e;
  }
@@ -842,7 +990,7 @@ index e597a18..6113f56 100644
  	let i = V.getChild("[LocalTransport]"), a = new O4({
  		client: t,
  		resolvedConfig: ce.get(),
-@@ -42548,7 +42832,30 @@ async function A4({ ownMembershipIdentity: e, client: t, roomId: n, matrixRTCMod
+@@ -42548,7 +42960,30 @@ async function A4({ ownMembershipIdentity: e, client: t, roomId: n, matrixRTCMod
  		throw i.error(`Failed to authenticate to transport ${s.livekit_service_url}`, e), M4(e);
  	}
  }
@@ -873,7 +1021,7 @@ index e597a18..6113f56 100644
  	return {
  		transport: e,
  		sfuConfig: await kX(i, n, e.livekit_service_url, r, { matrixRTCMode: t }, a)
-@@ -42634,6 +42941,33 @@ function H4() {
+@@ -42634,6 +43069,33 @@ function H4() {
  }
  //#endregion
  //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
@@ -907,7 +1055,7 @@ index e597a18..6113f56 100644
  var U4 = class {
  	constructor(e, t, n, r, i, a, o) {
  		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
-@@ -42647,7 +42981,11 @@ var U4 = class {
+@@ -42647,7 +43109,11 @@ var U4 = class {
  				},
  				controlledAudioDevices: this.controlledAudioDevices
  			});
@@ -920,7 +1068,7 @@ index e597a18..6113f56 100644
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -42699,7 +43037,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
+@@ -42699,7 +43165,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
  			autoGainControl: b.getValue()
  		},
  		audioOutput: { deviceId: r ? void 0 : e.audioOutput.selected$.value?.id },
@@ -929,7 +1077,7 @@ index e597a18..6113f56 100644
  	};
  }
  //#endregion
-@@ -42895,7 +43233,8 @@ var c3 = class {
+@@ -42895,7 +43361,8 @@ var c3 = class {
  	constructor(e, t, n, r, i, a) {
  		this.connection = e, this.muteStates = n, this.logger = i, this.shouldPublish = !1, this.scope = new yL();
  		let o = e.livekitRoom;
@@ -939,7 +1087,7 @@ index e597a18..6113f56 100644
  			this.logger.error("Failed to set E2EE enabled on room", e);
  		}), this.observeTrackProcessors(this.scope, o, r), this.observeMediaDevices(this.scope, t, a), this.workaroundRestartAudioInputTrackChrome(t, this.scope), this.connection.livekitRoom.localParticipant.on(J.LocalTrackPublished, this.onLocalTrackPublished.bind(this));
  	}
-@@ -42935,6 +43274,21 @@ var c3 = class {
+@@ -42935,6 +43402,21 @@ var c3 = class {
  		let e = this.connection.livekitRoom;
  		this.observeMuteStates();
  		let t = this.muteStates.audio.enabled$.value, n = this.muteStates.video.enabled$.value;
@@ -961,7 +1109,7 @@ index e597a18..6113f56 100644
  		return t && n ? e.localParticipant.enableCameraAndMicrophone() : t ? e.localParticipant.setMicrophoneEnabled(!0) : n && e.localParticipant.setCameraEnabled(!0), Promise.resolve();
  	}
  	async pauseUpstreams(e, t) {
-@@ -43118,6 +43472,411 @@ function _3(e, t) {
+@@ -43118,6 +43600,411 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -1373,7 +1521,7 @@ index e597a18..6113f56 100644
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43886,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +44014,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -1381,7 +1529,7 @@ index e597a18..6113f56 100644
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43913,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +44041,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -1390,7 +1538,7 @@ index e597a18..6113f56 100644
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43969,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +44097,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -1399,7 +1547,7 @@ index e597a18..6113f56 100644
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43234,6 +43994,7 @@ function S3(e, t) {
+@@ -43234,6 +44122,7 @@ function S3(e, t) {
  function C3(e, t) {
  	return {
  		...S3(e, t),
@@ -1407,7 +1555,7 @@ index e597a18..6113f56 100644
  		local: !0
  	};
  }
-@@ -43244,7 +44005,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +44133,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -1416,7 +1564,16 @@ index e597a18..6113f56 100644
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,7 +44372,112 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43344,7 +44233,7 @@ function k3(e, t, n, r, i, a, o, s, c) {
+ 		}
+ 	}), A = w4({
+ 		scope: e,
+-		homeserverConnected: b4(e, u, t),
++		homeserverConnected: b4(e, u, t, void 0, E),
+ 		muteStates: i,
+ 		joinMatrixRTC: (e, n) => D4(t, E, e, {
+ 			encryptMedia: b !== void 0,
+@@ -43611,7 +44500,112 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -1529,7 +1686,7 @@ index e597a18..6113f56 100644
  		autoLeave$: ie,
  		ringingVm$: de,
  		ringingStatusLocation: h === Ut.AppBar ? "app_bar" : "tile",
-@@ -45408,18 +46274,31 @@ function J8(e, t, n, r, i) {
+@@ -45408,18 +46402,31 @@ function J8(e, t, n, r, i) {
  		s?.abort(), await a, await o;
  	};
  }
@@ -1564,7 +1721,7 @@ index e597a18..6113f56 100644
  		};
  	}, c = [e.sounds, e.latencyHint], t[0] = e.latencyHint, t[1] = e.sounds, t[2] = s, t[3] = c) : (s = t[2], c = t[3]), z(s, c);
  	let l = P(XL().audioOutput.selected$)?.id, { controlledAudioDevices: u } = k(), d, f;
-@@ -45955,7 +46834,7 @@ var k5 = (e) => {
+@@ -45955,7 +46962,7 @@ var k5 = (e) => {
  		n
  	], t[30] = u, t[31] = e.client, t[32] = e.e2eeSystem, t[33] = e.matrixRoom, t[34] = e.muteStates, t[35] = e.onLeft, t[36] = e.rtcSession, t[37] = d, t[38] = c, t[39] = n, t[40] = g) : g = t[40], z(h, g), n === null || i === null || o === null) return null;
  	let _;
@@ -1573,7 +1730,7 @@ index e597a18..6113f56 100644
  		...e,
  		vm: n,
  		footerVm: i,
-@@ -45967,6 +46846,315 @@ var k5 = (e) => {
+@@ -45967,6 +46974,315 @@ var k5 = (e) => {
  		rtcSession: e.rtcSession,
  		children: _
  	}), t[46] = e.rtcSession, t[47] = _, t[48] = n, t[49] = v) : v = t[49], v;
@@ -1889,7 +2046,7 @@ index e597a18..6113f56 100644
  }, A5 = ({ client: e, vm: t, footerVm: n, developerSettingsVm: r, matrixInfo: i, matrixRoom: a, muteStates: o, onShareClick: s }) => {
  	let c = V.getChild("[InCallView]"), { t: l } = Je(), u = pe(), { sendReaction: d, toggleRaisedHand: f } = rZ();
  	N2();
-@@ -47656,6 +48844,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
+@@ -47656,6 +48972,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
  	}) }), t[23] = n.localisedTitle, t[24] = a, t[25] = c, t[26] = u, t[27] = d, t[28] = f, t[29] = p) : p = t[29], p;
  }, v7 = (e) => {
  	let t = I(8), { recoveryActionHandler: n, onError: r, children: i } = e, a;
@@ -1898,7 +2055,7 @@ index e597a18..6113f56 100644
  	t[0] === n ? a = t[1] : (a = (e) => {
  		let { error: t, resetError: r } = e, i = t instanceof hX ? t : new xX(t instanceof Error ? t : /* @__PURE__ */ Error());
  		return /* @__PURE__ */ H(_7, {
-@@ -47874,8 +49064,8 @@ var T7 = (e) => {
+@@ -47874,8 +49192,8 @@ var T7 = (e) => {
  		s
  	]);
  	let [ee, te] = B(!1), ne = st(), M = nn((e) => {
@@ -1909,7 +2066,7 @@ index e597a18..6113f56 100644
  			case "allOthersLeft":
  				r = g.current?.playSound("left", 0);
  				break;
-@@ -47925,7 +49115,8 @@ var T7 = (e) => {
+@@ -47925,7 +49243,8 @@ var T7 = (e) => {
  		a
  	]);
  	let ie = F5(_), [ae, oe] = B(!1), se = nn(() => oe(!1), [oe]), ce = nn(() => oe(!0), [oe]), le = ie === Hn.Public ? ce : null;
@@ -1919,7 +2076,7 @@ index e597a18..6113f56 100644
  	let ue = /* @__PURE__ */ H(g7, {
  		room: _,
  		open: ae,
-@@ -47940,9 +49131,26 @@ var T7 = (e) => {
+@@ -47940,9 +49259,26 @@ var T7 = (e) => {
  		participantCount: D,
  		onShareClick: le
  	})] }), fe;
@@ -1947,7 +2104,7 @@ index e597a18..6113f56 100644
  		client: e,
  		matrixInfo: E,
  		rtcSession: a,
-@@ -47950,6 +49158,7 @@ var T7 = (e) => {
+@@ -47950,6 +49286,7 @@ var T7 = (e) => {
  		onLeft: M,
  		muteStates: c,
  		e2eeSystem: T,
@@ -1955,7 +2112,7 @@ index e597a18..6113f56 100644
  		onShareClick: le
  	})] }) : ee && !m ? t || tt.instance.isEnabled() ? /* @__PURE__ */ H(sQ, {
  		endedCallId: a.room.roomId,
-@@ -47964,7 +49173,10 @@ var T7 = (e) => {
+@@ -47964,7 +49301,10 @@ var T7 = (e) => {
  			}));
  		},
  		onError: (e) => {
@@ -1967,7 +2124,7 @@ index e597a18..6113f56 100644
  		},
  		children: fe
  	});
-@@ -48021,7 +49233,9 @@ function j7(e, t, n) {
+@@ -48021,7 +49361,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -1978,7 +2135,7 @@ index e597a18..6113f56 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +49259,28 @@ function j7(e, t, n) {
+@@ -48045,6 +49387,28 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -2007,7 +2164,7 @@ index e597a18..6113f56 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +49297,20 @@ function j7(e, t, n) {
+@@ -48061,7 +49425,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -2029,7 +2186,7 @@ index e597a18..6113f56 100644
  	}), [i]), a;
  }
  //#endregion
-@@ -48173,7 +49422,7 @@ var I7 = (e) => {
+@@ -48173,7 +49550,7 @@ var I7 = (e) => {
  		children: /* @__PURE__ */ H(dt, {
  			value: m,
  			children: /* @__PURE__ */ H(oo, {
@@ -2038,7 +2195,7 @@ index e597a18..6113f56 100644
  				onError: () => void d.setAlwaysOnScreen(!1),
  				children: /* @__PURE__ */ H(I7, { children: /* @__PURE__ */ H(zn, { children: /* @__PURE__ */ H(Mt, {
  					client: n,
-@@ -48219,6 +49468,6 @@ function z7(e) {
+@@ -48219,6 +49596,6 @@ function z7(e) {
  	return /* @__PURE__ */ H(S, { error: e });
  }
  //#endregion
