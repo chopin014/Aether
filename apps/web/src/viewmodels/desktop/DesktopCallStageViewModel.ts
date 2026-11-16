@@ -53,6 +53,7 @@ import {
     VoiceUserPreferences,
     VoiceUserPreferencesEvent,
 } from "../../audio/desktop/VoiceUserPreferences";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
 import { DesktopCallRingtone } from "../../audio/DesktopCallRingtone";
 
 /** The existing call engine and Matrix client shown by the desktop stage. */
@@ -420,6 +421,8 @@ export class DesktopCallStageViewModel
             VoiceUserPreferencesEvent.Changed,
             this.onUserPreferencesChanged,
         );
+        // Someone a moderator muted is not played, whatever their own app does.
+        this.disposables.track(onServerVoiceMutesChanged(props.client, this.onUserPreferencesChanged));
         this.disposables.trackListener(props.call, CallEvent.Participants, this.onCallParticipantsChanged);
         this.disposables.track(() => this.closeParticipantMenu());
 
@@ -841,12 +844,16 @@ export class DesktopCallStageViewModel
     };
 
     /**
-     * Plays each remote person as this user chose on this device. The engine rebuilds its controllers on every
-     * change, so this only touches one whose volume differs, and settles once they match.
+     * Plays each remote person as this user chose on this device, and nobody a moderator muted in the server. The
+     * engine rebuilds its controllers on every change, so this only touches one whose volume differs, and settles
+     * once they match.
      */
     private applyUserPreferences(): void {
+        const { client, call } = this.props;
         for (const [userId, controllers] of this.participantVolumes) {
-            const volume = VoiceUserPreferences.instance.effectiveVolume(userId);
+            const volume = getServerVoiceMute(client, call.roomId, userId).muted
+                ? 0
+                : VoiceUserPreferences.instance.effectiveVolume(userId);
             for (const controller of controllers) {
                 if (Math.abs(controller.volume - volume) > 0.001) controller.setVolume(volume);
             }
