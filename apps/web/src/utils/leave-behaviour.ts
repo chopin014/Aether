@@ -8,7 +8,14 @@ Please see LICENSE files in the repository root for full details.
 
 import { sleep } from "matrix-js-sdk/src/utils";
 import React, { type ReactNode } from "react";
-import { EventStatus, MatrixEventEvent, type Room, type MatrixClient, MatrixError } from "matrix-js-sdk/src/matrix";
+import {
+    EventStatus,
+    KnownMembership,
+    MatrixEventEvent,
+    type Room,
+    type MatrixClient,
+    MatrixError,
+} from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import Modal, { type IHandle } from "../Modal";
@@ -138,6 +145,16 @@ export async function leaveRoomBehaviour(
     }
 
     spinnerModal?.close();
+
+    // Rooms the server let the user leave are shown as left straight away: sliding sync may only say so once it
+    // reconnects, which can take a minute.
+    for (const leftRoomId of leavingAllVersions ? leaving : [roomId]) {
+        if (results[leftRoomId]) continue;
+        const leftRoom = matrixClient.getRoom(leftRoomId);
+        if (leftRoom && leftRoom.getMyMembership() !== KnownMembership.Leave) {
+            leftRoom.updateMyMembership(KnownMembership.Leave);
+        }
+    }
 
     const errors = Object.entries(results).filter((r) => !!r[1]);
     if (errors.length > 0) {

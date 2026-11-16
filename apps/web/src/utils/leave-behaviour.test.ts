@@ -9,7 +9,7 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach, afterEach, type Mocked } from "vitest";
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { KnownMembership, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { sleep } from "matrix-js-sdk/src/utils";
 import { mkRoom, resetAsyncStoreWithClient, setupAsyncStoreWithClient, stubClient } from "test-utils/test-utils";
 
@@ -173,6 +173,17 @@ describe("leaveRoomBehaviour", () => {
             room_id: space.roomId,
             metricsTrigger: undefined,
         });
+    });
+
+    it("shows a room as left as soon as the server lets the user leave it", async () => {
+        await leaveRoomBehaviour(client, room.roomId);
+        expect(room.updateMyMembership).toHaveBeenCalledWith(KnownMembership.Leave);
+    });
+
+    it("keeps a room the user could not leave", async () => {
+        client.leaveRoomChain.mockResolvedValue({ [room.roomId]: new Error("nope") });
+        await leaveRoomBehaviour(client, room.roomId);
+        expect(room.updateMyMembership).not.toHaveBeenCalled();
     });
 
     describe("If the feature_dynamic_room_predecessors is not enabled", () => {
