@@ -19,6 +19,7 @@ import {
     type DisambiguatedProfileViewSnapshot,
 } from "./DisambiguatedProfileView";
 import { MockViewModel } from "../../../../../core/viewmodel/MockViewModel";
+import styles from "./DisambiguatedProfile.module.css";
 
 const { Default, WithMxid, WithColorClass, Emphasized, WithTooltip, FullExample } = composeStories(stories);
 
@@ -218,5 +219,12 @@ describe("DisambiguatedProfileView", () => {
         render(<DisambiguatedProfileView vm={vm} className="custom-profile another-class" />);
         const profileContainer = getProfileContainer("Classed User");
         expect(profileContainer).toHaveClass("custom-profile", "another-class");
+    });
+
+    it("draws a worn tag as a flat chip beside the name", () => {
+        const vm = new DisambiguatedProfileViewModel({ displayName: "Tagged User" });
+
+        render(<DisambiguatedProfileView vm={vm} tag={{ label: "ENG", emoji: "🍀", spaceName: "English" }} />);
+        expect(screen.getByText("ENG")).toHaveClass(styles.tag);
     });
 });
