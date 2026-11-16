@@ -29,6 +29,8 @@ const actions: VoiceUserMenuViewActions = {
     copyUserId: fn(),
     toggleIgnore: fn(),
     setRole: fn(),
+    toggleServerMuted: fn(),
+    toggleServerDeafened: fn(),
 };
 
 function MenuStory(snapshot: VoiceUserMenuViewSnapshot): JSX.Element {
@@ -78,6 +80,8 @@ export const SomeoneElse: Story = {};
 /** Turned up past full volume, muted for this user only, with their soundboard silenced. */
 export const Boosted: Story = { args: { volumePercent: 175, soundboardMuted: true } };
 export const Muted: Story = { args: { muted: true } };
+/** Seen by a moderator, who has muted the person in the whole server. */
+export const ServerMuted: Story = { args: { serverVoiceMute: { muted: true, deafened: false } } };
 /** The user's own menu offers their microphone and deafen instead of a volume. */
 export const Self: Story = {
     args: { isSelf: true, canCall: false, canMessage: false, inviteServers: [], roles: [], microphoneMuted: true },

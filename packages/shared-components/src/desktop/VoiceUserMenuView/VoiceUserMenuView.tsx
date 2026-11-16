@@ -71,6 +71,11 @@ export interface VoiceUserMenuViewSnapshot {
     readonly inviteServers: readonly VoiceUserMenuServer[];
     /** Roles the user may give the person in this channel; the entry is hidden when there are none. */
     readonly roles: readonly VoiceUserMenuRole[];
+    /**
+     * Whether a moderator muted or deafened the person in the server's voice channels. Present only when the user
+     * may do so; the entries are hidden otherwise.
+     */
+    readonly serverVoiceMute?: { readonly muted: boolean; readonly deafened: boolean };
 }
 
 /** What choosing an entry in the voice user menu does. */
@@ -91,6 +96,10 @@ export interface VoiceUserMenuViewActions {
     copyUserId(): void;
     toggleIgnore(): void;
     setRole(level: number): void;
+    /** Mutes or unmutes the person in all of the server's voice channels. */
+    toggleServerMuted(): void;
+    /** Deafens or undeafens the person in all of the server's voice channels. */
+    toggleServerDeafened(): void;
 }
 
 /** The view model behind the voice user menu. */
@@ -294,17 +303,20 @@ interface CheckboxItemProps {
     checked: boolean;
     onToggle: () => void;
     onHover: () => void;
+    /** Red, for what the user does to someone else as a moderator. */
+    critical?: boolean;
     testId?: string;
 }
 
 /** An entry that turns something on or off, with Discord's checkbox at its end. It keeps the menu open. */
-function CheckboxItem({ label, checked, onToggle, onHover, testId }: CheckboxItemProps): JSX.Element {
+function CheckboxItem({ label, checked, onToggle, onHover, critical, testId }: CheckboxItemProps): JSX.Element {
     return (
         <button
             type="button"
             role="menuitemcheckbox"
             aria-checked={checked}
             className={styles.item}
+            data-kind={critical ? "critical" : undefined}
             data-testid={testId}
             onPointerEnter={onHover}
             onClick={onToggle}
@@ -556,6 +568,27 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                             </button>
                         ))}
                     </SubMenu>
+                </>
+            )}
+            {s.serverVoiceMute && (
+                <>
+                    <Separator />
+                    <CheckboxItem
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|server_mute")}
+                        checked={s.serverVoiceMute.muted}
+                        onToggle={vm.toggleServerMuted}
+                        critical
+                        testId="voice-user-menu-server-mute"
+                    />
+                    <CheckboxItem
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|server_deafen")}
+                        checked={s.serverVoiceMute.deafened}
+                        onToggle={vm.toggleServerDeafened}
+                        critical
+                        testId="voice-user-menu-server-deafen"
+                    />
                 </>
             )}
         </div>

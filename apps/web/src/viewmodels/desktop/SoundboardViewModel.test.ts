@@ -32,6 +32,18 @@ import { VoiceUserPreferences } from "../../audio/desktop/VoiceUserPreferences";
 import type SpaceStore from "../../stores/spaces/SpaceStore";
 import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import type { SoundboardTransport } from "../../audio/soundboard/SoundboardTransport";
+import { getServerVoiceMute } from "../../utils/call/serverVoiceMute";
+
+vi.mock("../../utils/call/serverVoiceMute", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/call/serverVoiceMute")>()),
+    getServerVoiceMute: vi.fn(() => ({ muted: false, deafened: false })),
+    onServerVoiceMutesChanged: vi.fn(() => () => {}),
+}));
+
+// Nobody is muted by a moderator unless a test says so.
+beforeEach(() => {
+    vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+});
 
 const builtin = { id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" };
 
@@ -566,6 +578,12 @@ describe("SoundboardViewModel", () => {
         });
         receive(event());
         expect(get).toHaveBeenCalledWith("@bob:example.org");
+        expect(SoundboardAudio.prototype.play).not.toHaveBeenCalled();
+    });
+    it("stays silent for someone a moderator muted", () => {
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
+        receive(event());
+        expect(getServerVoiceMute).toHaveBeenCalledWith(client, call.roomId, "@bob:example.org");
         expect(SoundboardAudio.prototype.play).not.toHaveBeenCalled();
     });
     it("handles live encrypted requests after decryption but ignores decrypted history", () => {

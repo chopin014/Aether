@@ -70,6 +70,7 @@ import { prepareCallInBackground, prepareCallSoon } from "../../components/views
 import { SlidingSyncManager } from "../../SlidingSyncManager";
 import { getCallSessionStart } from "../../utils/call/callSessionStart";
 import { getPublishedVoiceState, VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
 import { VoiceUserMenuViewModel } from "../desktop/VoiceUserMenuViewModel";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 
@@ -189,6 +190,10 @@ export class RoomListItemViewModel
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Members, this.onParticipantProfileChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Events, this.onRoomStateEvent);
+        // Moderators mute people in the server's state, not the channel's.
+        if (initialItem.channelKind === "voice") {
+            this.disposables.track(onServerVoiceMutesChanged(props.client, this.onVoiceActivityChanged));
+        }
 
         // Rebuild the available sections when their order changes or when one is created/renamed/removed
         const orderSectionsRef = SettingsStore.watchSetting("RoomList.OrderedCustomSections", null, () =>
@@ -282,6 +287,7 @@ export class RoomListItemViewModel
             callParticipants: callParticipants.map((member) => ({
                 ...member,
                 ...RoomListItemViewModel.voiceActivityOf(
+                    this.props.client,
                     this.props.room,
                     this.currentCall,
                     member.userId,
@@ -302,6 +308,7 @@ export class RoomListItemViewModel
      * devices have published to the room.
      */
     private static voiceActivityOf(
+        client: MatrixClient,
         room: Room,
         call: Call | null | undefined,
         userId: string,
@@ -312,11 +319,16 @@ export class RoomListItemViewModel
         isMuted: boolean;
         isDeafened: boolean;
         isLocallyMuted: boolean;
+        isServerMuted: boolean;
+        isServerDeafened: boolean;
     } {
         const voiceState = call?.connected
             ? call.voiceStates.get(userId)
             : getPublishedVoiceState(room, userId, deviceIds);
+        const serverMute = getServerVoiceMute(client, room.roomId, userId);
         return {
+            isServerMuted: serverMute.muted,
+            isServerDeafened: serverMute.deafened,
             isSpeaking: call?.speakingUserIds.has(userId) ?? false,
             isSoundboardPlaying: call?.soundboardUserIds?.has(userId) ?? false,
             isMuted: voiceState?.muted ?? false,
@@ -580,7 +592,7 @@ export class RoomListItemViewModel
                 return {
                     userId: member.userId,
                     name: member.name,
-                    ...RoomListItemViewModel.voiceActivityOf(room, call, member.userId, devices),
+                    ...RoomListItemViewModel.voiceActivityOf(client, room, call, member.userId, devices),
                     avatarUrl: mxc
                         ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
                         : undefined,
