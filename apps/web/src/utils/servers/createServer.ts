@@ -5,7 +5,14 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { JoinRule, KnownMembership, type MatrixClient, Preset, RoomType } from "matrix-js-sdk/src/matrix";
+import {
+    HistoryVisibility,
+    JoinRule,
+    KnownMembership,
+    type MatrixClient,
+    Preset,
+    RoomType,
+} from "matrix-js-sdk/src/matrix";
 
 import createRoom, { type IOpts } from "../../createRoom";
 import { createSpace } from "../../components/views/spaces/SpaceCreateMenu";
@@ -36,7 +43,7 @@ export type CreateServerStep = "server" | "channels";
 /**
  * Create a server the way Discord does: a space holding one text channel and one voice channel, ready to talk in.
  * A community server and its channels are public; a friends server is invite only and its channels are open to
- * the server's members.
+ * the server's members, who can read the channels' earlier messages.
  */
 export async function createServer(
     client: MatrixClient,
@@ -62,6 +69,10 @@ export async function createServer(
         andView: false,
         joinRule: isPublic ? undefined : JoinRule.Restricted,
         encryption: !isPublic && privateShouldBeEncrypted(client),
+        // A channel's earlier messages stay readable to people added later, as in Discord: the homeserver serves
+        // them, and whoever invites someone shares the keys to the encrypted ones. A community server's public
+        // channels already show their history to anyone.
+        historyVisibility: isPublic ? undefined : HistoryVisibility.Shared,
         createOpts: { preset: isPublic ? Preset.PublicChat : Preset.PrivateChat },
     };
     const [textChannelId, voiceChannelId] = await Promise.all([
