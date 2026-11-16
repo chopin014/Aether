@@ -21,6 +21,7 @@ import { SpaceItem, SpaceButton } from "./SpaceTreeLevel";
 import { MetaSpace, type SpaceKey } from "../../../stores/spaces";
 import { StaticNotificationState } from "../../../stores/notifications/StaticNotificationState";
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
+import { SpaceNotificationState } from "../../../stores/notifications/SpaceNotificationState";
 import { SDKContextClass } from "../../../contexts/SDKContextClass";
 import SettingsStore from "../../../settings/SettingsStore";
 import { useSpaceVoiceActivity } from "../../../hooks/useSpaceVoiceActivity";
@@ -220,5 +221,40 @@ describe("SpaceItem", () => {
         expect(queryByText("Root Space")).toBeVisible();
         expect(queryByText("Subspace")).toBeVisible();
         expect(asFragment()).toMatchSnapshot();
+    });
+
+    it("opens the Discord-style server menu on right-click in the desktop shell", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        vi.mocked(SDKContextClass.instance.spaceStore.getChildSpaces).mockReturnValue([]);
+        vi.mocked(SDKContextClass.instance.spaceStore.getNotificationState).mockReturnValue(
+            new SpaceNotificationState(),
+        );
+        try {
+            render(
+                <SpaceItem space={space} activeSpaces={[]} isPanelCollapsed />,
+                clientAndSDKContextRenderOptions(cli, SDKContextClass.instance),
+            );
+            fireEvent.contextMenu(screen.getByRole("button", { name: "Root Space" }));
+            expect(await screen.findByRole("menuitem", { name: "Leave server" })).toBeVisible();
+            expect(screen.getByRole("menu", { name: "Root Space" })).toBeVisible();
+            // Element's space menu stays out of the way.
+            expect(screen.queryByText("Server home")).not.toBeInTheDocument();
+        } finally {
+            settings.mockRestore();
+        }
+    });
+
+    it("keeps Element's space menu outside the desktop shell", async () => {
+        vi.mocked(SDKContextClass.instance.spaceStore.getChildSpaces).mockReturnValue([]);
+        render(
+            <SpaceItem space={space} activeSpaces={[]} isPanelCollapsed />,
+            clientAndSDKContextRenderOptions(cli, SDKContextClass.instance),
+        );
+        fireEvent.contextMenu(screen.getByRole("button", { name: "Root Space" }));
+        expect(await screen.findByText("Server home")).toBeVisible();
+        expect(screen.queryByRole("menuitem", { name: "Leave server" })).not.toBeInTheDocument();
     });
 });

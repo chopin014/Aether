@@ -555,6 +555,7 @@ export class RoomListViewModel
             viewModel = new RoomListItemViewModel({
                 room,
                 client: this.props.client,
+                isServerChannel: isDesktopChannelList(this.roomsResult.spaceId),
             });
 
             this.roomItemViewModels.set(roomId, viewModel);

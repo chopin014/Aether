@@ -134,7 +134,11 @@
         "notification_options": "Alterar notificações",
         "primary_filters": "Filtros da lista de salas",
         "room": {
-            "more_options": "Mais opções"
+            "more_options": "Mais opções",
+            "member_count": {
+                "one": "%(count)s membro",
+                "other": "%(count)s membros"
+            }
         },
         "room_options": "Opções da sala",
         "section_created": "Seção criada",
@@ -1297,7 +1301,19 @@
             "notification_settings": "Configurações de notificação",
             "notify_all": "Todas as mensagens",
             "notify_mentions": "Somente @menções",
-            "unmute": "Reativar servidor"
+            "unmute": "Reativar servidor",
+            "devtools": "Ver linha do tempo (devtools)",
+            "leave": "Sair do servidor",
+            "settings": "Configurações do servidor"
+        },
+        "unread_conversations": {
+            "label": "Conversas não lidas",
+            "mark_read": "Marcar como lida",
+            "mute": "Silenciar conversa",
+            "unread": {
+                "one": "%(name)s, %(count)s mensagem não lida",
+                "other": "%(name)s, %(count)s mensagens não lidas"
+            }
         }
     },
     "threads": {

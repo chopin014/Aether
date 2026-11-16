@@ -2014,4 +2014,67 @@ describe("SpaceStore", () => {
             holdWhileApplying.mockRestore();
         });
     });
+
+    describe("Home in the desktop shell", () => {
+        let getValue: MockInstance<typeof SettingsStore.getValue>;
+        let showAllRooms = false;
+        // Read while the tests are collected: an earlier test may leave the store's getter mocked.
+        const original = SettingsStore.getValue.bind(SettingsStore);
+        beforeEach(() => {
+            showAllRooms = false;
+            getValue = vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                if (name === "feature_desktop_shell") return true;
+                if (name === "Spaces.allRoomsInHome") return showAllRooms;
+                return original(name, ...args);
+            });
+        });
+        afterEach(() => getValue.mockRestore());
+
+        it("leaves an invitation to a server's channel in that server", async () => {
+            mkSpace(space1, [invite1]);
+            mkRoom(invite1).getMyMembership.mockReturnValue(KnownMembership.Invite);
+            mkRoom(invite2).getMyMembership.mockReturnValue(KnownMembership.Invite);
+            await run();
+
+            expect(store.isRoomInSpace(space1, invite1)).toBeTruthy();
+            expect(store.isRoomInSpace(MetaSpace.Home, invite1)).toBeFalsy();
+            // An invitation to a conversation outside any server is for Home.
+            expect(store.isRoomInSpace(MetaSpace.Home, invite2)).toBeTruthy();
+        });
+
+        it("leaves a room that names a joined server as its parent to that server", async () => {
+            mkSpace(space1);
+            mkRoom(room1);
+            vi.mocked(client.getRoom(room1)!.currentState).getStateEvents.mockImplementation(
+                testUtils.mockStateEventImplementation([
+                    mkEvent({
+                        event: true,
+                        type: EventType.SpaceParent,
+                        room: room1,
+                        user: client.getUserId()!,
+                        skey: space1,
+                        content: { via: [], canonical: true },
+                        ts: Date.now(),
+                    }),
+                ]),
+            );
+            vi.mocked(client.getRoom(space1)!.currentState).maySendStateEvent.mockReturnValue(true);
+            await run();
+
+            expect(store.isRoomInSpace(space1, room1)).toBeTruthy();
+            expect(store.isRoomInSpace(MetaSpace.Home, room1)).toBeFalsy();
+        });
+
+        it("never shows every room in Home", async () => {
+            showAllRooms = true;
+            mkSpace(space1, [room1]);
+            mkRoom(room1);
+            mkRoom(orphan1);
+            await run();
+
+            expect(store.allRoomsInHome).toBe(false);
+            expect(store.isRoomInSpace(MetaSpace.Home, room1)).toBeFalsy();
+            expect(store.isRoomInSpace(MetaSpace.Home, orphan1)).toBeTruthy();
+        });
+    });
 });

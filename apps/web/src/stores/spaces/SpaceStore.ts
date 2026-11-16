@@ -94,6 +94,14 @@ type SpaceStoreActions =
     | SwitchSpacePayload
     | AfterLeaveRoomPayload;
 
+/**
+ * Whether Home shows every room. The desktop shell keeps Home to direct messages and conversations outside any
+ * server, as Discord does, so a server's channels only ever show in that server.
+ */
+function readAllRoomsInHome(): boolean {
+    return SettingsStore.getValue("Spaces.allRoomsInHome") && !SettingsStore.getValue("feature_desktop_shell");
+}
+
 export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The spaces representing the roots of the various tree-like hierarchies
     private rootSpaces: Room[] = [];
@@ -819,6 +827,19 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                 this.parentMap.getOrCreate(child.roomId, new Set()).add(space.roomId);
             });
         });
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            // A server also lists the rooms that name it as their parent, so in the desktop shell those are its
+            // channels too, and Home leaves them to it.
+            const joinedSpaceIds = new Set(joinedSpaces.map((space) => space.roomId));
+            for (const room of this.matrixClient.getVisibleRooms(this._msc3946ProcessDynamicPredecessor)) {
+                if (room.isSpaceRoom()) continue;
+                for (const parent of this.getParents(room.roomId)) {
+                    if (joinedSpaceIds.has(parent.roomId)) {
+                        this.parentMap.getOrCreate(room.roomId, new Set()).add(parent.roomId);
+                    }
+                }
+            }
+        }
 
         PosthogAnalytics.instance.setProperty("numSpaces", joinedSpaces.length);
     };
@@ -913,8 +934,10 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         return (
             !this.parentMap.get(room.roomId)?.size || // put all orphaned rooms in the Home Space
             !!DMRoomMap.shared().getUserIdForRoomId(room.roomId) || // put all DMs in the Home Space
-            room.getMyMembership() === KnownMembership.Invite
-        ); // put all invites in the Home Space
+            // put all invites in the Home Space, except in the desktop shell: there an invitation to a server's
+            // channel waits in that server, as Home only holds conversations outside servers
+            (room.getMyMembership() === KnownMembership.Invite && !SettingsStore.getValue("feature_desktop_shell"))
+        );
     };
 
     private static isInSpace(member?: RoomMember | null): boolean {
@@ -1369,7 +1392,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         const enabledMetaSpaces = SettingsStore.getValue("Spaces.enabledMetaSpaces");
         this._enabledMetaSpaces = metaSpaceOrder.filter((k) => enabledMetaSpaces[k]);
 
-        this._allRoomsInHome = SettingsStore.getValue("Spaces.allRoomsInHome");
+        this._allRoomsInHome = readAllRoomsInHome();
         this.sendUserProperties();
 
         this.rebuildSpaceHierarchy(); // trigger an initial update
@@ -1474,7 +1497,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             case Action.SettingUpdated: {
                 switch (payload.settingName) {
                     case "Spaces.allRoomsInHome": {
-                        const newValue = SettingsStore.getValue("Spaces.allRoomsInHome");
+                        const newValue = readAllRoomsInHome();
                         if (this.allRoomsInHome !== newValue) {
                             this._allRoomsInHome = newValue;
                             if (this.enabledMetaSpaces.includes(MetaSpace.Home)) {

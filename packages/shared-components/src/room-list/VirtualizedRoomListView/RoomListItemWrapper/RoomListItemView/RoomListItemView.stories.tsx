@@ -263,6 +263,14 @@ export const NoMessagePreview: Story = {
     },
 };
 
+/** A group conversation in Home, which says how many people are in it, as Discord's group messages do. */
+export const GroupConversation: Story = {
+    args: {
+        messagePreview: undefined,
+        memberCount: 5,
+    },
+};
+
 export const WithHoverMenu: Story = {
     args: {
         showMoreOptionsMenu: true,

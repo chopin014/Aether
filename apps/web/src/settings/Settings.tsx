@@ -1314,7 +1314,9 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
     },
     "RoomList.showPeopleSection": {
         supportedLevels: LEVELS_ACCOUNT_SETTINGS,
-        default: true,
+        // Aether lists direct and group conversations together, newest first, as Discord does; splitting people
+        // from rooms, as Element does, is a choice in the settings.
+        default: false,
         displayName: _td("settings|show_people_sections"),
         controller: [
             new AnalyticsController("WebRoomListPeopleSectionToggle"),
