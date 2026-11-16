@@ -116,6 +116,11 @@ export interface RoomListViewActions {
     /** Called to move a room before or after another room, into that room's section. */
     moveRoomBeside?: (roomId: string, targetRoomId: string, side: "before" | "after") => void;
     /**
+     * Called when a person in one voice channel's call is dropped on another voice channel, to move them there.
+     * People can only be dragged when the voice channel says the user may move them.
+     */
+    moveCallParticipant?: (fromRoomId: string, userId: string, toRoomId: string) => void;
+    /**
      * Called when a drag starts. Dragging a section collapses every section; so does dragging a room, except where
      * rooms can be dropped beside each other, which needs them in view.
      */

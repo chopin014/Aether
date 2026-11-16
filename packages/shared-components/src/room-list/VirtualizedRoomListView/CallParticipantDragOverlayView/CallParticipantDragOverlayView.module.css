@@ -1,0 +1,30 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.dragOverlay {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    box-sizing: border-box;
+    height: var(--cpd-space-8x);
+    max-width: 240px;
+    padding: 0 var(--cpd-space-2x) 0 var(--cpd-space-1x);
+    border-radius: var(--cpd-space-1x);
+    outline: 1px solid var(--cpd-color-border-interactive-hovered);
+    background-color: color-mix(in srgb, var(--cpd-color-bg-action-tertiary-hovered) 95%, transparent);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 24%);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-sm-medium);
+    cursor: grabbing;
+}
+
+.name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

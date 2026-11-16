@@ -4413,6 +4413,10 @@
             "notice_started": "%(name)s começou %(title)s",
             "notice_stopped": "%(name)s encerrou a atividade",
             "youtube_video": "Vídeo do YouTube"
+        },
+        "voice_move": {
+            "failed_title": "Não foi possível mover %(name)s",
+            "not_followed": "%(name)s não acompanhou a mudança. Só quem usa o Aether pode ser movido para outro canal."
         }
     },
     "create_section_dialog": {

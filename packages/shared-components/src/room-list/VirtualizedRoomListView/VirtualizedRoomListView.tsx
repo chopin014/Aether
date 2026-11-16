@@ -25,7 +25,15 @@ import { RoomListSectionHeaderView, RoomListStickySectionHeaderView } from "./Ro
 import { RoomListSectionHeaderDragOverlayView } from "./RoomListSectionHeaderDragOverlayView";
 import { RoomListItemWrapper } from "./RoomListItemWrapper";
 import { RoomListItemDragOverlayView } from "./RoomListItemDragOverlayView";
-import { dropSide, isRoomSlotData, isSectionDragData, type RoomListDragData } from "./dragAndDrop";
+import { CallParticipantDragOverlayView } from "./CallParticipantDragOverlayView";
+import {
+    dropSide,
+    isCallParticipantDragData,
+    isRoomSlotData,
+    isSectionDragData,
+    isVoiceChannelDropData,
+    type RoomListDragData,
+} from "./dragAndDrop";
 import { useRoomListAccessibilityPlugin } from "./RoomListAccessibilityPlugin";
 import styles from "./VirtualizedRoomListView.module.css";
 import { useI18n } from "../../core/i18n/i18nContext";
@@ -624,11 +632,19 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
     return (
         <DragDropProvider<RoomListDragData>
             onDragStart={(event) => {
+                // A person dragged to another voice channel leaves the sections as they are: the channels must stay in view.
+                if (isCallParticipantDragData(event.operation.source?.data)) return;
                 // Changing the state of sections (collapsed/expanded) while dragging a section header or a room causes a double readback for the a11y announcement.
                 vm.onSectionOrRoomDragStart(isSectionDragData(event.operation.source?.data));
             }}
             onDragEnd={(event) => {
                 const { source, target } = event.operation;
+                if (isCallParticipantDragData(source?.data)) {
+                    if (!event.canceled && isVoiceChannelDropData(target?.data)) {
+                        vm.moveCallParticipant?.(source.data.roomId, source.data.userId, target.data.roomId);
+                    }
+                    return;
+                }
                 vm.onSectionOrRoomDragEnd();
 
                 if (event.canceled || !source || !target) return;
@@ -712,6 +728,11 @@ interface DragOverlayContentProps {
 function DragOverlayContent({ vm, renderAvatar }: DragOverlayContentProps): JSX.Element | null {
     const { source } = useDragOperation<RoomListDragData>();
     if (!source) return null;
+
+    if (isCallParticipantDragData(source.data)) {
+        const { userId, name, avatarUrl } = source.data;
+        return <CallParticipantDragOverlayView userId={userId} name={name} avatarUrl={avatarUrl} />;
+    }
 
     if (isSectionDragData(source.data)) {
         const sectionHeaderVM = vm.getSectionHeaderViewModel(String(source.id));

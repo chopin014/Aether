@@ -57,6 +57,7 @@ import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDial
 import { prepareCallInBackground, prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
 import { VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
+import { VOICE_MOVE_EVENT_TYPE } from "../../utils/call/voiceMove";
 
 vi.mock("../../components/views/voip/prepareElementCall", () => ({
     prepareCallSoon: vi.fn(),
@@ -324,6 +325,32 @@ describe("RoomListItemViewModel", () => {
                 isPrivateChannel: false,
             });
         });
+    });
+
+    it("lets the people in a voice channel's call be dragged only by those who may move them", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        let mayMove = false;
+        const maySend = vi
+            .spyOn(room.currentState, "maySendStateEvent")
+            .mockImplementation((type) => type === VOICE_MOVE_EVENT_TYPE && mayMove);
+
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
+        expect(viewModel.getSnapshot().canMoveCallParticipants).toBe(false);
+
+        // Promoted: the power level change reaches the row.
+        mayMove = true;
+        room.emit(
+            RoomStateEvent.Events,
+            new MatrixEvent({ type: EventType.RoomPowerLevels, state_key: "" }),
+            room.currentState,
+            null,
+        );
+        expect(viewModel.getSnapshot().canMoveCallParticipants).toBe(true);
+        expect(maySend).toHaveBeenCalledWith(VOICE_MOVE_EVENT_TYPE, matrixClient.getSafeUserId());
     });
 
     it("dates an occupied voice channel from its oldest call membership", () => {
