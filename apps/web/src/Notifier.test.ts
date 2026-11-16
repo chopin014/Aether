@@ -182,6 +182,7 @@ describe("Notifier", () => {
             displayNotification: vi.fn().mockReturnValue({ close: vi.fn() }),
             loudNotification: vi.fn(),
             requestNotificationPermission: vi.fn(),
+            isSystemDoNotDisturb: vi.fn().mockResolvedValue(false),
         });
 
         notifier = new Notifier(dis, context);
@@ -705,6 +706,20 @@ describe("Notifier", () => {
             customPlaySpy.mockRestore();
         });
 
+        it("stays quiet while the system is in Do Not Disturb, without arming the throttle", async () => {
+            MockPlatform.isSystemDoNotDisturb.mockResolvedValue(true);
+
+            await notifier.playAudioNotification(testEvent, testRoom);
+            await notifier.playAudioNotification(testEvent, testRoom);
+            expect(playSpy).not.toHaveBeenCalled();
+            expect(MockPlatform.isSystemDoNotDisturb).toHaveBeenCalled();
+
+            // Once Do Not Disturb ends, the next notification sounds at once.
+            MockPlatform.isSystemDoNotDisturb.mockResolvedValue(false);
+            await notifier.playAudioNotification(testEvent, testRoom);
+            expect(playSpy).toHaveBeenCalledTimes(1);
+        });
+
         it("does not play, and does not arm the throttle, when notifications are silenced", async () => {
             await mockClient.setAccountData(accountDataEventKey, { is_silenced: true });
 
@@ -805,6 +820,15 @@ describe("Notifier", () => {
                     bodyClassName: "mx_IncomingCallToast",
                     props: { notificationEvent },
                 }),
+            );
+        });
+
+        it("still rings for a call while the system is in Do Not Disturb", () => {
+            MockPlatform.isSystemDoNotDisturb.mockResolvedValue(true);
+            emitCallNotificationEvent();
+
+            expect(ToastStore.sharedInstance().addOrReplaceToast).toHaveBeenCalledWith(
+                expect.objectContaining({ component: IncomingCallToast }),
             );
         });
 

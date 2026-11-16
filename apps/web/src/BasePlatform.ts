@@ -338,6 +338,14 @@ export default abstract class BasePlatform {
         return null;
     }
 
+    /**
+     * Whether the operating system is in Do Not Disturb, which hides notification banners but not the sounds the
+     * app plays itself. False where the platform cannot tell, which keeps those sounds as they are.
+     */
+    public async isSystemDoNotDisturb(): Promise<boolean> {
+        return false;
+    }
+
     public setLanguage(preferredLangs: string[]): void | Promise<void> {}
 
     public setSpellCheckEnabled(enabled: boolean): void {}

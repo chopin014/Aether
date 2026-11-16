@@ -526,6 +526,17 @@ export default class ElectronPlatform extends BasePlatform {
         }
     }
 
+    /** Reads the system's Do Not Disturb state from the desktop host, where the desktop exposes it. */
+    public async isSystemDoNotDisturb(): Promise<boolean> {
+        try {
+            // The host answers null when it cannot read the state on this system.
+            return (await this.ipc.call("getSystemDoNotDisturb")) === true;
+        } catch {
+            // A desktop host from before this call existed answers with an error.
+            return false;
+        }
+    }
+
     public async setLanguage(preferredLangs: string[]): Promise<any> {
         return this.ipc.call("setLanguage", preferredLangs);
     }
