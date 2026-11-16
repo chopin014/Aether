@@ -9,7 +9,7 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach, afterEach, type Mocked } from "vitest";
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { KnownMembership, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { sleep } from "matrix-js-sdk/src/utils";
 import { mkRoom, resetAsyncStoreWithClient, setupAsyncStoreWithClient, stubClient } from "test-utils/test-utils";
 
@@ -17,7 +17,8 @@ import { MatrixClientPeg } from "../MatrixClientPeg";
 import defaultDispatcher from "../dispatcher/dispatcher";
 import { type ViewRoomPayload } from "../dispatcher/payloads/ViewRoomPayload";
 import { Action } from "../dispatcher/actions";
-import { leaveRoomBehaviour } from "./leave-behaviour";
+import { leaveRoomBehaviour, leaveSpace } from "./leave-behaviour";
+import Modal from "../Modal";
 import { SDKContextClass } from "../contexts/SDKContextClass";
 import DMRoomMap from "../utils/DMRoomMap";
 import { MetaSpace } from "../stores/spaces";
@@ -172,6 +173,60 @@ describe("leaveRoomBehaviour", () => {
             action: Action.ViewRoom,
             room_id: space.roomId,
             metricsTrigger: undefined,
+        });
+    });
+
+    it("shows a room as left as soon as the server lets the user leave it", async () => {
+        await leaveRoomBehaviour(client, room.roomId);
+        expect(room.updateMyMembership).toHaveBeenCalledWith(KnownMembership.Leave);
+    });
+
+    it("keeps a room the user could not leave", async () => {
+        client.leaveRoomChain.mockResolvedValue({ [room.roomId]: new Error("nope") });
+        await leaveRoomBehaviour(client, room.roomId);
+        expect(room.updateMyMembership).not.toHaveBeenCalled();
+    });
+
+    describe("leaveSpace", () => {
+        it("hides the space at once and leaves its rooms, then the space, without a spinner", async () => {
+            const spaceStore = SDKContextClass.instance.spaceStore;
+            const showSpace = vi.fn();
+            const hide = vi.spyOn(spaceStore, "hideLeavingSpace").mockReturnValue(showSpace);
+            vi.mocked(Modal.createDialog).mockReturnValue({
+                finished: Promise.resolve([true, [room]]),
+                close: vi.fn(),
+            });
+            const roomLeft = Promise.withResolvers<{ [roomId: string]: null }>();
+            client.leaveRoomChain.mockImplementation((roomId) =>
+                roomId === room.roomId ? roomLeft.promise : Promise.resolve({ [roomId]: null }),
+            );
+
+            leaveSpace(space);
+            await sleep(0);
+
+            // The leave dialog only: no spinner while the rooms are left.
+            expect(Modal.createDialog).toHaveBeenCalledTimes(1);
+            expect(hide).toHaveBeenCalledWith(space.roomId);
+            expect(client.leaveRoomChain.mock.calls.map(([roomId]) => roomId)).toEqual([room.roomId]);
+            expect(showSpace).not.toHaveBeenCalled();
+
+            roomLeft.resolve({ [room.roomId]: null });
+            await sleep(0);
+            expect(client.leaveRoomChain.mock.calls.map(([roomId]) => roomId)).toEqual([room.roomId, space.roomId]);
+            expect(space.updateMyMembership).toHaveBeenCalledWith(KnownMembership.Leave);
+            // The space was left, so showing it again leaves it hidden.
+            expect(showSpace).toHaveBeenCalled();
+        });
+
+        it("hides nothing when the user does not confirm", async () => {
+            const hide = vi.spyOn(SDKContextClass.instance.spaceStore, "hideLeavingSpace");
+            vi.mocked(Modal.createDialog).mockReturnValue({ finished: Promise.resolve([false]), close: vi.fn() });
+
+            leaveSpace(space);
+            await sleep(0);
+
+            expect(hide).not.toHaveBeenCalled();
+            expect(client.leaveRoomChain).not.toHaveBeenCalled();
         });
     });
 
