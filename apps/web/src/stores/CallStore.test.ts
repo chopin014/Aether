@@ -72,7 +72,7 @@ describe("CallStore", () => {
             name === "feature_desktop_shell" ? true : original(name, ...args),
         );
         await setupAsyncStoreWithClient(CallStore.instance, client);
-        const [followerClient, isInCall, follow] = vi.mocked(VoiceMoveFollower).mock.lastCall!;
+        const [followerClient, isInCall, follow, disconnect] = vi.mocked(VoiceMoveFollower).mock.lastCall!;
         expect(followerClient).toBe(client);
 
         expect(isInCall(room.roomId)).toBe(false);
@@ -83,6 +83,9 @@ describe("CallStore", () => {
             expect(isInCall(room.roomId)).toBe(true);
             call.handleJoined();
             expect(isInCall(room.roomId)).toBe(true);
+            const leave = vi.spyOn(call, "disconnect").mockResolvedValue();
+            await disconnect(room);
+            expect(leave).toHaveBeenCalledOnce();
         } finally {
             call.destroy();
         }

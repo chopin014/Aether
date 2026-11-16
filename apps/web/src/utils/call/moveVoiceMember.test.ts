@@ -14,14 +14,18 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { MatrixRTCSessionEvent, type CallMembership, type MatrixRTCSession } from "matrix-js-sdk/src/matrixrtc";
 import { stubClient } from "test-utils";
 
-import { moveVoiceMember, VOICE_MOVE_FOLLOW_TIMEOUT_MS } from "./moveVoiceMember";
+import { disconnectVoiceMember, moveVoiceMember, VOICE_MOVE_FOLLOW_TIMEOUT_MS } from "./moveVoiceMember";
 import { VOICE_MOVE_EVENT_TYPE } from "./voiceMove";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import Modal from "../../Modal";
 import ErrorDialog from "../../components/views/dialogs/ErrorDialog";
+import QuestionDialog from "../../components/views/dialogs/QuestionDialog";
+import { CallStore } from "../../stores/CallStore";
+import { type Call } from "../../models/Call";
 
 vi.mock("../../Modal");
+vi.mock("../../stores/CallStore", () => ({ CallStore: { instance: { getCall: vi.fn() } } }));
 
 const MOD = "@mod:example.org";
 const BOB = "@bob:example.org";
@@ -33,7 +37,7 @@ describe("moveVoiceMember", () => {
     let rooms: Map<string, Room>;
     let sessions: Map<string, MatrixRTCSession>;
 
-    const makeRoom = (roomId: string, type: string, modLevel = 50): Room => {
+    const makeRoom = (roomId: string, type: string, modLevel = 50, kick = 50): Room => {
         const room = new Room(roomId, client, MOD);
         const state = (eventType: string, content: object, stateKey = ""): MatrixEvent =>
             new MatrixEvent({ type: eventType, state_key: stateKey, room_id: roomId, sender: MOD, content });
@@ -41,7 +45,7 @@ describe("moveVoiceMember", () => {
             state(EventType.RoomCreate, { creator: MOD, room_version: "10", type }),
             state(EventType.RoomMember, { membership: KnownMembership.Join, displayname: "Mod" }, MOD),
             state(EventType.RoomMember, { membership: KnownMembership.Join, displayname: "Bob" }, BOB),
-            state(EventType.RoomPowerLevels, { users: { [MOD]: modLevel }, users_default: 0, state_default: 50 }),
+            state(EventType.RoomPowerLevels, { users: { [MOD]: modLevel }, users_default: 0, state_default: 50, kick }),
         ]);
         room.updateMyMembership(KnownMembership.Join);
         rooms.set(roomId, room);
@@ -144,5 +148,67 @@ describe("moveVoiceMember", () => {
         makeRoom("!lonely:example.org", RoomType.UnstableCall);
         await moveVoiceMember(client, GERAL1, BOB, "!lonely:example.org");
         expect(client.sendStateEvent).not.toHaveBeenCalled();
+    });
+
+    describe("disconnectVoiceMember", () => {
+        it("asks the person's app to leave, and is quiet once they have", async () => {
+            const leaving = disconnectVoiceMember(client, GERAL1, BOB);
+            await vi.waitFor(() => expect(client.sendStateEvent).toHaveBeenCalled());
+            expect(client.sendStateEvent).toHaveBeenCalledWith(
+                GERAL1,
+                VOICE_MOVE_EVENT_TYPE,
+                { id: expect.any(String) },
+                `u:${BOB}`,
+            );
+            inCall(GERAL1, MOD);
+            await leaving;
+            expect(Modal.createDialog).not.toHaveBeenCalled();
+        });
+
+        it("offers to remove someone whose app stays, and does on confirmation", async () => {
+            vi.useFakeTimers();
+            vi.mocked(Modal.createDialog).mockReturnValue({
+                finished: Promise.resolve([true]),
+                close: vi.fn(),
+            } as never);
+            const leaving = disconnectVoiceMember(client, GERAL1, BOB);
+            await vi.advanceTimersByTimeAsync(VOICE_MOVE_FOLLOW_TIMEOUT_MS);
+            await leaving;
+            expect(Modal.createDialog).toHaveBeenCalledWith(
+                QuestionDialog,
+                expect.objectContaining({ title: "Remove Bob from the channel?", button: "Remove from channel" }),
+            );
+            expect(client.kick).toHaveBeenCalledWith(GERAL1, BOB);
+        });
+
+        it("only explains it to someone who may not remove people", async () => {
+            makeRoom(GERAL1, RoomType.UnstableCall, 50, 100);
+            inCall(GERAL1, BOB, MOD);
+            vi.useFakeTimers();
+            const leaving = disconnectVoiceMember(client, GERAL1, BOB);
+            await vi.advanceTimersByTimeAsync(VOICE_MOVE_FOLLOW_TIMEOUT_MS);
+            await leaving;
+            expect(Modal.createDialog).toHaveBeenCalledWith(ErrorDialog, {
+                title: "Couldn't disconnect Bob",
+                description: "Bob's app didn't leave the call. Only people using Aether can be disconnected.",
+            });
+            expect(client.kick).not.toHaveBeenCalled();
+        });
+
+        it("leaves the user's own call directly", async () => {
+            const call = { disconnect: vi.fn().mockResolvedValue(undefined) } as unknown as Call;
+            vi.mocked(CallStore.instance.getCall).mockReturnValue(call);
+            await disconnectVoiceMember(client, GERAL1, MOD);
+            expect(call.disconnect).toHaveBeenCalledOnce();
+            expect(client.sendStateEvent).not.toHaveBeenCalled();
+        });
+
+        it("does nothing without the power to move people, or for someone not in the call", async () => {
+            await disconnectVoiceMember(client, GERAL1, "@carol:example.org");
+            makeRoom(GERAL1, RoomType.UnstableCall, 0);
+            inCall(GERAL1, BOB, MOD);
+            await disconnectVoiceMember(client, GERAL1, BOB);
+            expect(client.sendStateEvent).not.toHaveBeenCalled();
+        });
     });
 });
