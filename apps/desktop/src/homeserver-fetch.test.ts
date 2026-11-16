@@ -13,6 +13,7 @@ import {
     HOMESERVER_FETCH,
     HOMESERVER_FETCH_ABORT,
     NETWORK_CHANGE_RETRIES,
+    NETWORK_CHANGE_SEPARATE_MS,
     PREFLIGHT_POLICY_MS,
     setupHomeserverFetch,
 } from "./homeserver-fetch.js";
@@ -216,6 +217,23 @@ describe("homeserver fetch", () => {
             handle(event, request({ method: "POST", url: "https://matrix.example.org/_matrix/client/v3/createRoom" })),
         ).rejects.toThrow("ERR_NETWORK_CHANGED");
         expect(methods().filter((method) => method !== "OPTIONS")).toEqual(["POST"]);
+    });
+
+    it("keeps sending a long poll again across separate network changes", async () => {
+        vi.useFakeTimers();
+        // Two containers restarting during one poll: each adds and then removes an interface.
+        const failAfterMs = [5000, 400, NETWORK_CHANGE_SEPARATE_MS, 600];
+        const answer = sessionFetch.getMockImplementation() as (url: string, init: RequestInit) => Promise<Response>;
+        sessionFetch.mockImplementation(async (url: string, init: RequestInit) => {
+            const ms = init.method === "OPTIONS" ? undefined : failAfterMs.shift();
+            if (ms === undefined) return answer(url, init);
+            await new Promise((resolve) => setTimeout(resolve, ms));
+            throw new Error("net::ERR_NETWORK_CHANGED");
+        });
+        const pending = handle(event, request());
+        await vi.runAllTimersAsync();
+        await expect(pending).resolves.toMatchObject({ status: 200 });
+        expect(methods().filter((method) => method !== "OPTIONS")).toHaveLength(5);
     });
 
     it("gives up after a few network changes, and on other failures at once", async () => {

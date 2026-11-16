@@ -54,6 +54,12 @@ const MAX_BODY_LENGTH = 64 * 1024 * 1024;
  */
 export const NETWORK_CHANGE_RETRIES = 2;
 export const NETWORK_CHANGE_RETRY_DELAY_MS = 250;
+/**
+ * An attempt that stays in flight this long before the network changes under it met a separate change, so the retry
+ * count starts again. A container that restarts in a loop changes the network twice per restart, and a sync poll can
+ * stay open for 20 seconds, long enough to meet more changes than {@link NETWORK_CHANGE_RETRIES}.
+ */
+export const NETWORK_CHANGE_SEPARATE_MS = 1000;
 
 /** Whether a request can be sent twice without doing something twice: it reads, names its own result, or is a sync. */
 function isRepeatable(method: string, url: URL): boolean {
@@ -85,12 +91,17 @@ async function fetchAcrossNetworkChanges(
     url: URL,
     init: RequestInit & { signal: AbortSignal; method: string },
 ): Promise<Response> {
-    for (let attempt = 0; ; attempt++) {
+    // Only failures soon after the previous attempt started count towards giving up, so a network that keeps changing
+    // stops the request while separate changes over a long poll do not.
+    let quickFailures = 0;
+    for (;;) {
+        const started = Date.now();
         try {
             return await session.fetch(url.href, init);
         } catch (error) {
+            if (Date.now() - started >= NETWORK_CHANGE_SEPARATE_MS) quickFailures = 0;
             const retry =
-                attempt < NETWORK_CHANGE_RETRIES &&
+                quickFailures++ < NETWORK_CHANGE_RETRIES &&
                 !init.signal.aborted &&
                 networkChanged(error) &&
                 isRepeatable(init.method, url);
