@@ -128,6 +128,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The remembered channel opened before it arrived, and what stops following it.
     private followedChannel?: string;
     private stopFollowingRememberedChannel?: () => void;
+    // Spaces hidden while the user leaves them.
+    private leavingSpaces = new Set<string>();
     private _suggestedRooms: ISuggestedRoom[] = [];
     private _invitedSpaces = new Set<Room>();
     private spaceOrderLocalEchoMap = new Map<string, string | undefined>();
@@ -416,6 +418,21 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
      */
     public noteLeavingRoom(roomId: string): void {
         if (roomId === this.followedChannel) this.stopFollowingRememberedChannel?.();
+    }
+
+    /**
+     * Hide a space the user chose to leave while it and its rooms are being left, moving to the first space if it
+     * was open.
+     * @param spaceId - The space being left.
+     * @returns Shows the space again, once leaving has finished: it then stays hidden only if it was left.
+     */
+    public hideLeavingSpace(spaceId: string): () => void {
+        this.leavingSpaces.add(spaceId);
+        this.rebuildSpaceHierarchy();
+        if (this._activeSpace === spaceId) this.goToFirstSpace(true);
+        return () => {
+            if (this.leavingSpaces.delete(spaceId)) this.rebuildSpaceHierarchy();
+        };
     }
 
     /**
@@ -781,7 +798,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         if (!this.matrixClient) return;
         const visibleSpaces = this.matrixClient
             .getVisibleRooms(this._msc3946ProcessDynamicPredecessor)
-            .filter((r) => r.isSpaceRoom());
+            .filter((r) => r.isSpaceRoom() && !this.leavingSpaces.has(r.roomId));
         const [joinedSpaces, invitedSpaces] = visibleSpaces.reduce(
             ([joined, invited], s) => {
                 switch (getEffectiveMembership(s.getMyMembership())) {

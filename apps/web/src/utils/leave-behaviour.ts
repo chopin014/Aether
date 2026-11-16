@@ -29,7 +29,6 @@ import { Action } from "../dispatcher/actions";
 import { type ViewHomePagePayload } from "../dispatcher/payloads/ViewHomePagePayload";
 import LeaveSpaceDialog from "../components/views/dialogs/LeaveSpaceDialog";
 import { type AfterLeaveRoomPayload } from "../dispatcher/payloads/AfterLeaveRoomPayload";
-import { bulkSpaceBehaviour } from "./space";
 import { SDKContextClass } from "../contexts/SDKContextClass";
 import SettingsStore from "../settings/SettingsStore";
 import { CallStore } from "../stores/CallStore";
@@ -220,7 +219,15 @@ export const leaveSpace = (space: Room): void => {
     );
     void finished.then(async ([leave, rooms]) => {
         if (!leave) return;
-        await bulkSpaceBehaviour(space, rooms!, (room) => leaveRoomBehaviour(space.client, room.roomId));
+        // The space disappears as soon as the user confirms, and its rooms are left in the background. It comes back
+        // only if leaving it failed, which the error dialog explains.
+        const showSpace = SDKContextClass.instance.spaceStore.hideLeavingSpace(space.roomId);
+        try {
+            for (const room of rooms!) await leaveRoomBehaviour(space.client, room.roomId, true, false);
+            await leaveRoomBehaviour(space.client, space.roomId, true, false);
+        } finally {
+            showSpace();
+        }
 
         dis.dispatch<AfterLeaveRoomPayload>({
             action: Action.AfterLeaveRoom,
