@@ -950,6 +950,25 @@
         },
         "voice_user_menu": {
             "invite_failed_title": "Could not invite them to the server"
+        },
+        "watch_together": {
+            "error_add": "Couldn't add this link. Try again.",
+            "error_not_a_link": "That isn't a YouTube or media file link.",
+            "error_not_connected": "Join the call to share a link.",
+            "error_not_embeddable": "The owner of this video doesn't allow playing it outside YouTube.",
+            "error_not_found": "This video or file couldn't be found. It may be private or removed.",
+            "error_queue_full": "The queue is full. Remove something first.",
+            "error_unplayable": "This can't be played here.",
+            "notice_now_playing": "Now playing %(title)s",
+            "notice_paused": "%(name)s paused",
+            "notice_queued": "%(name)s added %(title)s",
+            "notice_rate": "%(name)s set the speed to %(rate)s",
+            "notice_resumed": "%(name)s resumed",
+            "notice_seeked": "%(name)s jumped to another moment",
+            "notice_skipped": "%(name)s skipped to %(title)s",
+            "notice_started": "%(name)s started %(title)s",
+            "notice_stopped": "%(name)s ended the activity",
+            "youtube_video": "YouTube video"
         }
     },
     "desktop_default_device_name": "%(brand)s Desktop: %(platformName)s",

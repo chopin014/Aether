@@ -12,6 +12,7 @@ Please see LICENSE in the repository root for full details.
 import { EventEmitter } from "events";
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type { MatrixClient } from "matrix-js-sdk/src/matrix";
+import { WATCH_TOGETHER_TILE_ID } from "@element-hq/web-shared-components";
 
 import { DesktopCallStageViewModel } from "./DesktopCallStageViewModel";
 import type {
@@ -49,6 +50,28 @@ vi.mock("./VoiceUserMenuViewModel", () => ({
 
 vi.mock("./SoundboardViewModel", () => ({
     SoundboardViewModel: { acquire: vi.fn(() => ({ vm: undefined, release: vi.fn() })) },
+}));
+
+/** A shared player whose activity a test can start and end. */
+const watchTogether = vi.hoisted(() => {
+    let active = false;
+    const listeners = new Set<() => void>();
+    return {
+        vm: {
+            getSnapshot: () => ({ active }),
+            subscribe: (listener: () => void) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+        },
+        setActive(value: boolean): void {
+            active = value;
+            listeners.forEach((listener) => listener());
+        },
+    };
+});
+vi.mock("./WatchTogetherViewModel", () => ({
+    WatchTogetherViewModel: { acquire: vi.fn(() => ({ vm: watchTogether.vm, release: vi.fn() })) },
 }));
 
 function createVolumeController(initialVolume = 1, initialMuted = false): AetherMediaVolumeController {
@@ -1058,5 +1081,64 @@ describe("DesktopCallStageViewModel", () => {
         expect(exit).toHaveBeenCalledOnce();
         vm.dispose();
         Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+    });
+
+    it("tucks the strip of other tiles away on request and while fullscreen, and restores it after", () => {
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge: createBridge() });
+        expect(vm.getSnapshot().participantsOpen).toBe(true);
+        vm.setParticipantsOpen(false);
+        expect(vm.getSnapshot().participantsOpen).toBe(false);
+        vm.setParticipantsOpen(true);
+        const stage = document.createElement("div");
+        Object.defineProperty(document, "fullscreenElement", { configurable: true, value: stage });
+        document.dispatchEvent(new Event("fullscreenchange"));
+        expect(vm.getSnapshot()).toMatchObject({ isFullscreen: true, participantsOpen: false });
+        // Showing the strip in fullscreen is the user's choice to make.
+        vm.setParticipantsOpen(true);
+        expect(vm.getSnapshot().participantsOpen).toBe(true);
+        Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+        document.dispatchEvent(new Event("fullscreenchange"));
+        expect(vm.getSnapshot()).toMatchObject({ isFullscreen: false, participantsOpen: true });
+        vm.dispose();
+    });
+
+    describe("watch together", () => {
+        beforeEach(() => watchTogether.setActive(false));
+
+        it("focuses the shared player when something starts, and keeps it focused as the call changes", () => {
+            const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge: createBridge() });
+            expect(vm.getSnapshot()).toMatchObject({ layoutMode: "grid", watchTogetherActive: false });
+            watchTogether.setActive(true);
+            expect(vm.getSnapshot()).toMatchObject({
+                layoutMode: "spotlight",
+                spotlightTileId: WATCH_TOGETHER_TILE_ID,
+                watchTogetherActive: true,
+            });
+            vm.setBridge(createBridge({ participantCount: 3 }));
+            expect(vm.getSnapshot().spotlightTileId).toBe(WATCH_TOGETHER_TILE_ID);
+            vm.dispose();
+        });
+
+        it("hands the spotlight back when the activity ends", () => {
+            const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge: createBridge() });
+            watchTogether.setActive(true);
+            watchTogether.setActive(false);
+            expect(vm.getSnapshot()).toMatchObject({
+                layoutMode: "grid",
+                spotlightTileId: null,
+                watchTogetherActive: false,
+            });
+            vm.dispose();
+        });
+
+        it("opens on the shared player when joining a call where something is already playing", () => {
+            watchTogether.setActive(true);
+            const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge: createBridge() });
+            expect(vm.getSnapshot()).toMatchObject({
+                layoutMode: "spotlight",
+                spotlightTileId: WATCH_TOGETHER_TILE_ID,
+            });
+            vm.dispose();
+        });
     });
 });

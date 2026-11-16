@@ -7,6 +7,8 @@ Please see LICENSE files in the repository root for full details.
 
 import { type BrowserWindow, ipcMain, session } from "electron";
 
+import { withEmbedReferrer } from "./embed-referrer.js";
+
 /**
  * Check for feature support from the server.
  * This requires asking the renderer process for supported versions.
@@ -75,7 +77,10 @@ export function setupMediaAuth(window: BrowserWindow): void {
         }
     });
 
+    // Electron keeps one listener per event, so headers for other requests are added here too.
     session.defaultSession.webRequest.onBeforeSendHeaders(async (req, callback) => {
+        const embedHeaders = withEmbedReferrer(req.url, req.requestHeaders);
+        if (embedHeaders) return callback({ requestHeaders: embedHeaders });
         try {
             const url = new URL(req.url);
             if (!url.pathname.startsWith("/_matrix/client/v1/media")) {
