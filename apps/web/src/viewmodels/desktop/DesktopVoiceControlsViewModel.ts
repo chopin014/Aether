@@ -66,6 +66,8 @@ export class DesktopVoiceControlsViewModel
 {
     private releaseSoundboard?: () => void;
     private call?: ElementCall;
+    /** The call the saved deafen preference has been applied to, once it connected. */
+    private deafenAppliedTo?: ElementCall;
     private wasVideoEnabled = false;
     private wasSharingScreen = false;
     /** Other people currently in the call. */
@@ -567,14 +569,18 @@ export class DesktopVoiceControlsViewModel
             call?.on(CallEvent.SpeakingUsers, this.refresh);
             call?.on(CallEvent.SoundboardUsers, this.refresh);
             call?.on(CallEvent.ConnectionStats, this.refresh);
-            if (call) {
-                void this.perform(async () => {
-                    if (this.call !== call || this.isDisposed) return;
-                    const deafened = SettingsStore.getValue("desktopDeafened");
-                    if (deafened) await call.setDeviceMute({ audio_enabled: false });
-                    if (this.call === call && !this.isDisposed) call.setAudioOutputEnabled(!deafened);
-                });
-            }
+            this.deafenAppliedTo = undefined;
+        }
+        // Element Call takes device and playback changes only once it has joined, not while the call is being
+        // joined, so the saved deafen is applied when the call connects.
+        if (call && this.deafenAppliedTo !== call && this.props.callStore.connectedCalls.has(call)) {
+            this.deafenAppliedTo = call;
+            void this.perform(async () => {
+                if (this.call !== call || this.isDisposed) return;
+                const deafened = SettingsStore.getValue("desktopDeafened");
+                if (deafened) await call.setDeviceMute({ audio_enabled: false });
+                if (this.call === call && !this.isDisposed) call.setAudioOutputEnabled(!deafened);
+            });
         }
         this.refresh();
     };
