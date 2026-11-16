@@ -47,6 +47,7 @@ import { NotificationLevel } from "../../../stores/notifications/NotificationLev
 import { getKeyBindingsManager } from "../../../KeyBindingsManager";
 import { type NotificationState } from "../../../stores/notifications/NotificationState";
 import SpaceContextMenu from "../context_menus/SpaceContextMenu";
+import { DesktopServerContextMenu } from "./DesktopServerContextMenu";
 import { useRovingTabIndex } from "../../../accessibility/RovingTabIndex";
 import { KeyBindingAction } from "../../../accessibility/KeyboardShortcuts";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
@@ -184,7 +185,8 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
                 ) : undefined
             }
             onClick={onClick}
-            onContextMenu={openMenu}
+            // Without a menu of its own, a wrapping menu such as the desktop server menu handles right-clicks.
+            onContextMenu={ContextMenuComponent ? openMenu : props.onContextMenu}
             ref={ref}
             tabIndex={tabIndex}
             onFocus={onFocus}
@@ -397,6 +399,27 @@ export class SpaceItem extends React.PureComponent<IItemProps, IItemState> {
 
         const { tabIndex, ...restDragHandleProps } = dragHandleProps || {};
         const selected = activeSpaces.includes(space.roomId);
+        const isJoined = this.props.space.getMyMembership() === KnownMembership.Join;
+        // The desktop rail's servers open a Discord-style menu; elsewhere, Element's space menu.
+        const desktopServerMenu = isJoined && !isNested && SettingsStore.getValue("feature_desktop_shell");
+
+        const button = (
+            <SpaceButton
+                {...restDragHandleProps}
+                space={space}
+                className={isInvite ? "mx_SpaceButton_invite" : undefined}
+                selected={selected}
+                label={this.state.name}
+                contextMenuTooltip={_t("space|context_menu|options")}
+                notificationState={notificationState}
+                isNarrow={isPanelCollapsed}
+                size={isNested ? "24px" : "32px"}
+                onKeyDown={this.onKeyDown}
+                ContextMenuComponent={isJoined && !desktopServerMenu ? SpaceContextMenu : undefined}
+            >
+                {toggleCollapseButton}
+            </SpaceButton>
+        );
 
         return (
             <li
@@ -407,23 +430,11 @@ export class SpaceItem extends React.PureComponent<IItemProps, IItemState> {
                 aria-selected={selected}
                 role="treeitem"
             >
-                <SpaceButton
-                    {...restDragHandleProps}
-                    space={space}
-                    className={isInvite ? "mx_SpaceButton_invite" : undefined}
-                    selected={selected}
-                    label={this.state.name}
-                    contextMenuTooltip={_t("space|context_menu|options")}
-                    notificationState={notificationState}
-                    isNarrow={isPanelCollapsed}
-                    size={isNested ? "24px" : "32px"}
-                    onKeyDown={this.onKeyDown}
-                    ContextMenuComponent={
-                        this.props.space.getMyMembership() === KnownMembership.Join ? SpaceContextMenu : undefined
-                    }
-                >
-                    {toggleCollapseButton}
-                </SpaceButton>
+                {desktopServerMenu ? (
+                    <DesktopServerContextMenu space={space}>{button}</DesktopServerContextMenu>
+                ) : (
+                    button
+                )}
 
                 {childItems}
             </li>

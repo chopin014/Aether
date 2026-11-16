@@ -65,6 +65,7 @@ describe("Aether distribution identity", () => {
                 expect(launch().stdout).toBe("old version\naether://example/room with spaces\n");
                 const desktopEntry = readFileSync(path.join(home, ".local/share/applications/aether.desktop"), "utf8");
                 expect(desktopEntry).toContain(`Exec="${launcher}" %U`);
+                expect(desktopEntry).toContain("MimeType=x-scheme-handler/aether;x-scheme-handler/matrix;\n");
                 expect(desktopEntry).not.toContain("0.1.6");
 
                 const update = path.join(home, "Aether-0.1.7-linux-x86_64.AppImage");
@@ -140,7 +141,7 @@ describe("Aether distribution identity", () => {
             desktopName: "aether.desktop",
             electron_protocol: "aether",
         });
-        expect(config.protocols.schemes).toEqual(["aether"]);
+        expect(config.protocols.schemes).toEqual(["aether", "matrix"]);
         expect(config.linux.executableName).toBe("aether");
         expect(config.deb.recommends).toEqual([]);
     });

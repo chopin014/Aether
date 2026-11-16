@@ -12,7 +12,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const initialize = vi.hoisted(() => vi.fn());
 const setServiceUrl = vi.hoisted(() => vi.fn());
 const setOpenIdTokens = vi.hoisted(() => vi.fn());
+const prefetchTransport = vi.hoisted(() => vi.fn());
 vi.mock("@element-hq/element-call-component", () => ({
+    prefetchElementCallTransport: prefetchTransport,
     initializeElementCall: initialize,
     setElementCallServiceUrl: setServiceUrl,
     setElementCallOpenIdTokens: setOpenIdTokens,
@@ -28,6 +30,7 @@ describe("loadElementCallComponent", () => {
         initialize.mockReset().mockResolvedValue(undefined);
         setServiceUrl.mockReset();
         setOpenIdTokens.mockReset();
+        prefetchTransport.mockReset().mockResolvedValue(undefined);
     });
 
     it("shares one initialization between preparation and simultaneous joins", async () => {
@@ -63,5 +66,20 @@ describe("loadElementCallComponent", () => {
         await expect(loadElementCallComponent()).rejects.toThrow("offline");
         await expect(loadElementCallComponent()).resolves.toEqual({ default: "call" });
         expect(initialize).toHaveBeenCalledTimes(2);
+    });
+
+    it("fetches a room's call token through the initialized component", async () => {
+        const { prefetchElementCallTransport } = await import("./ElementCallLoader");
+        const client = { id: "client" } as never;
+        await prefetchElementCallTransport(client, "!room:example.org");
+        expect(prefetchTransport).toHaveBeenCalledExactlyOnceWith(client, "!room:example.org");
+        expect(initialize.mock.invocationCallOrder[0]).toBeLessThan(prefetchTransport.mock.invocationCallOrder[0]);
+    });
+
+    it("hands out the component directly once it has loaded, so calls need not suspend", async () => {
+        const { getLoadedElementCallComponent, loadElementCallComponent } = await import("./ElementCallLoader");
+        expect(getLoadedElementCallComponent()).toBeUndefined();
+        await loadElementCallComponent();
+        expect(getLoadedElementCallComponent()).toBe("call");
     });
 });

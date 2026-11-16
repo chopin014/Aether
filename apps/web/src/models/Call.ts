@@ -68,6 +68,8 @@ import {
 } from "@element-hq/element-call-component/api";
 
 import { playDesktopVoiceSound } from "../audio/DesktopVoiceSounds";
+import { joinElementCallEarly } from "../components/views/voip/ElementCallLoader";
+import { afterNextPaint } from "../utils/afterNextPaint";
 import { VoiceStatePublisher } from "./VoiceStatePublisher";
 import type { SoundboardTransport } from "../audio/soundboard/SoundboardTransport";
 
@@ -123,6 +125,7 @@ export enum CallEvent {
     ConnectionStats = "connection_stats",
     ComponentRestart = "component_restart",
     SoundboardTransport = "soundboard_transport",
+    JoinRequested = "join_requested",
 }
 
 interface CallEventHandlerMap {
@@ -142,6 +145,7 @@ interface CallEventHandlerMap {
     [CallEvent.ConnectionStats]: (stats: CallConnectionStats) => void;
     [CallEvent.ComponentRestart]: () => void;
     [CallEvent.SoundboardTransport]: () => void;
+    [CallEvent.JoinRequested]: (requested: boolean) => void;
 }
 
 const NO_VOICE_STATES: ReadonlyMap<string, VoiceState> = new Map();
@@ -797,7 +801,10 @@ export class ElementCall extends Call {
     }
     private stopFollowingVoiceSettings?: () => void;
     private _connectionStats = emptyCallConnectionStats("disconnected");
-    /** The join cue is held until media is really connected, so the sound matches when people can hear each other. */
+    /**
+     * The join cue is held until our media connection is up, as Discord's is. Our audio is encrypted from the join on
+     * and others decrypt it once our membership reaches them, which on a distant homeserver can be a moment later.
+     */
     private joinCuePending = false;
     /**
      * Whether media has connected since the call was last joined. Until it has, the component's "disconnected"
@@ -949,6 +956,11 @@ export class ElementCall extends Call {
             noiseSuppression: SettingsStore.getValue("webrtc_audio_noiseSuppression"),
         };
         if (returnToLobby !== undefined) config.returnToLobby = returnToLobby;
+        // Joining a voice channel announces nothing, as on Discord: Element Call would otherwise post a notification
+        // mentioning the whole room each time someone starts its call. Conversations still ring.
+        if (SettingsStore.getValue("feature_desktop_shell") && client.getRoom(roomId)?.isCallRoom()) {
+            config.sendNotificationType = undefined;
+        }
         // The room's rule (e.g. video rooms never skip the lobby) wins over what the caller asked for.
         const effectiveSkipLobby = skipLobby ?? opts.skipLobby;
         if (typeof effectiveSkipLobby === "boolean") config.skipLobby = effectiveSkipLobby;
@@ -1203,6 +1215,54 @@ export class ElementCall extends Call {
 
     private desktopDisconnect?: Promise<void>;
     private localLeavePending = false;
+    private _joinRequested = false;
+    /** Whether the leave cue has already been played for the current leave. */
+    private leaveCuePlayed = false;
+
+    /**
+     * Whether the user has asked to be in this call: from the click that joins it until they leave it. The
+     * sidebar, the voice channel and the stage show the call from that moment, as joining, rather than waiting
+     * for Element Call to report that it joined, which takes at least a round trip to the call service.
+     */
+    public get joinRequested(): boolean {
+        return this._joinRequested;
+    }
+
+    /** Marks the call as asked for, or no longer, and tells listeners; see {@link joinRequested}. */
+    public setJoinRequested(requested: boolean): void {
+        if (this._joinRequested === requested) return;
+        this._joinRequested = requested;
+        // Joining again is no longer leaving: the last leave would otherwise hide the call until it reports joined.
+        if (requested) this.setLocalLeavePending(false);
+        this.emit(CallEvent.JoinRequested, requested);
+        if (requested) this.joinSessionEarly();
+    }
+
+    /**
+     * A join that skips the lobby sends the user's call membership at once, rather than once Element Call has mounted
+     * and fetched the call service's token: others see the user that much sooner, and Element Call's own join then
+     * finds the session joined. It starts once the join is on screen: joining makes and encrypts our media key, work
+     * that would otherwise hold up that frame. The mock component has no call session to join.
+     */
+    private joinSessionEarly(): void {
+        if (!ElementCall.usesReactComponent || SettingsStore.getValue("Developer.elementCallMockComponent")) return;
+        const { intent, config } = this.componentOptions;
+        const stillWanted = (): boolean => this.joinRequested && !this.destroyed;
+        afterNextPaint(() => {
+            if (!stillWanted()) return;
+            joinElementCallEarly(this.client, this.roomId, { intent, config, stillWanted }).catch((error) =>
+                logger.warn("Could not join the call session early", error),
+            );
+        });
+    }
+
+    /** Leaves the call session if it is still joined, as one joined early is when Element Call never took it over. */
+    private leaveSession(): void {
+        const room = this.client.getRoom(this.roomId);
+        const session = room && this.client.matrixRTC?.getRoomSession(room);
+        if (!session?.isJoined()) return;
+        Promise.resolve(session.leave(1000)).catch((error) => logger.warn("Could not leave the call session", error));
+    }
 
     /** Whether the desktop UI should already show this device as having left. */
     public get locallyLeaving(): boolean {
@@ -1222,7 +1282,10 @@ export class ElementCall extends Call {
             return super.disconnect();
         }
         if (this.desktopDisconnect) return this.desktopDisconnect;
+        // Leaving is local: the cue answers the click, before the rest of the app and the engine catch up.
+        this.playLeaveCue();
         this.setLocalLeavePending(true);
+        this.setJoinRequested(false);
         this.desktopDisconnect = (async () => {
             try {
                 if (this.connected) {
@@ -1233,6 +1296,8 @@ export class ElementCall extends Call {
                 // Release the retained call even when its engine can no longer acknowledge leaving.
                 logger.warn("Closing an unresponsive desktop call", error);
             } finally {
+                // Element Call leaves the session it ran; one joined early without it is left here.
+                this.leaveSession();
                 this.setDisconnected();
                 this.close();
                 ActiveWidgetStore.instance.destroyPersistentWidget(this.widget.id, this.widget.roomId);
@@ -1251,6 +1316,10 @@ export class ElementCall extends Call {
         this.widgetGenerationParameters = { ...this.widgetGenerationParameters, ...widgetGenerationParameters };
 
         if (ElementCall.usesReactComponent) {
+            // Starting without a lobby joins straight away: show the call as joining from now on.
+            if (SettingsStore.getValue("feature_desktop_shell") && this.componentOptions.config.skipLobby === true) {
+                this.setJoinRequested(true);
+            }
             if (this.componentNeedsRestart && this.componentHandle) {
                 this.componentNeedsRestart = false;
                 this.frozenComponentOptions = null;
@@ -1377,6 +1446,7 @@ export class ElementCall extends Call {
         if (this.destroyed) return;
         this.handleSoundboardTransport(null);
         this.setConnectionStats(emptyCallConnectionStats("disconnected"));
+        this.setJoinRequested(false);
         this.destroyed = true;
 
         this.componentHandle = null;
@@ -1463,15 +1533,24 @@ export class ElementCall extends Call {
 
     protected override setDisconnected(): void {
         const wasConnected = this.connected;
-        // Leaving before media ever connected played no join cue, so it gets no leave cue either.
-        const heardJoin = !this.joinCuePending;
+        if (wasConnected) this.playLeaveCue();
         this.joinCuePending = false;
+        this.leaveCuePlayed = false;
         this.mediaConnectedSinceJoin = false;
+        this.setJoinRequested(false);
         this.setConnectionStats(emptyCallConnectionStats("disconnected"));
         super.setDisconnected();
-        if (wasConnected && heardJoin && SettingsStore.getValue("feature_desktop_shell")) {
-            void playDesktopVoiceSound("leave");
-        }
+    }
+
+    /**
+     * Plays the leave cue once per leave, and only for a call whose join cue was heard: leaving before media
+     * ever connected played no join cue, so it gets no leave cue either.
+     */
+    private playLeaveCue(): void {
+        if (this.leaveCuePlayed || !this.connected || this.joinCuePending) return;
+        if (!SettingsStore.getValue("feature_desktop_shell")) return;
+        this.leaveCuePlayed = true;
+        void playDesktopVoiceSound("leave");
     }
 
     /** The user has hung up (`HostBridge.notifyHungUp` / `im.vector.hangup`). */

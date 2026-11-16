@@ -8,6 +8,8 @@ Please see LICENSE in the repository root for full details.
 import { access, constants, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { MATRIX_SCHEME } from "./matrix-uri.js";
+
 /** Key marking desktop entries that Aether wrote for itself and may rewrite. */
 const MANAGED_KEY = "X-Aether-AppImage";
 
@@ -21,7 +23,7 @@ export interface AppImageDesktopEntryOptions {
     dataHome: string;
     /** Desktop entry file name, such as `aether.desktop`. It also names the window's app id. */
     desktopName: string;
-    /** URL scheme the app handles, such as `aether`. */
+    /** The app's own URL scheme, such as `aether`. Matrix links are handled as well. */
     protocol: string;
 }
 
@@ -82,7 +84,7 @@ async function writeIfChanged(file: string, content: Buffer): Promise<void> {
 
 /**
  * Registers a running AppImage with the desktop: a launcher in the application menu, the taskbar icon and the
- * handler for sign-in links. An AppImage registers nothing when downloaded, and updates can rename the file, so
+ * handler for sign-in and Matrix links. An AppImage registers nothing when downloaded, and updates can rename the file, so
  * this runs on every launch and rewrites the entry whenever the AppImage path changes.
  * @returns whether the entry now points at this AppImage. False when a working launcher from elsewhere was kept.
  */
@@ -106,7 +108,7 @@ export async function registerAppImageDesktopEntry(options: AppImageDesktopEntry
         `Icon=${desktopValue(iconPath)}`,
         "Terminal=false",
         "Categories=Network;InstantMessaging;Chat;",
-        `MimeType=x-scheme-handler/${options.protocol};`,
+        `MimeType=x-scheme-handler/${options.protocol};x-scheme-handler/${MATRIX_SCHEME};`,
         "StartupNotify=true",
         // Matches the window's app id, which is how the taskbar finds this entry's icon.
         `StartupWMClass=${appId}`,

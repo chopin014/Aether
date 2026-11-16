@@ -1,0 +1,23 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/* Inviting stands out, as Discord colours it and as the server's header menu does. */
+.invite > :is(span, svg) {
+    color: var(--cpd-color-text-decorative-4);
+}
+
+.invite > span {
+    font-weight: var(--cpd-font-weight-semibold);
+}
+
+/* The current notification level, as a second line under the entry that changes it. */
+.withValue [data-value]::after {
+    content: attr(data-value);
+    display: block;
+    font: var(--cpd-font-body-sm-regular);
+    color: var(--cpd-color-text-secondary);
+}

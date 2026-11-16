@@ -179,4 +179,22 @@ describe("RootCallTileViewModel", () => {
         latestRtcNotificationEventStore.emit(LatestRtcNotificationEventUpdate, "!my-room:m.org", "new-event");
         expect(vm.getSnapshot().tileType).toStrictEqual("ongoing-call-room");
     });
+
+    it("stops showing a call as ongoing once a newer one is the room's latest", () => {
+        const { callStore, cli, mxEvent, latestRtcNotificationEventStore } = getMocked(["@alice:m.org", "@bob:m.org"]);
+        latestRtcNotificationEventStore.getLatestEventId = () => "new-event";
+        const vm = new RootCallTileViewModel({
+            latestRtcNotificationEventStore,
+            callStore,
+            cli,
+            mxEvent,
+            legacyCallHandler,
+        });
+        expect(vm.getSnapshot().tileType).toStrictEqual("ongoing-call-dm");
+
+        // The call was started again in the same conversation; only the newer row is the ongoing call.
+        latestRtcNotificationEventStore.getLatestEventId = () => "newer-event";
+        latestRtcNotificationEventStore.emit(LatestRtcNotificationEventUpdate, "!my-room:m.org", "newer-event");
+        expect(vm.getSnapshot().tileType).toStrictEqual("tombstone-call-dm");
+    });
 });

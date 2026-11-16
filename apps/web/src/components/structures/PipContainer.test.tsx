@@ -10,7 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeEach, afterEach, type Mocked } from "vitest";
 import React from "react";
-import { screen, render, act, cleanup } from "test-utils-rtl";
+import { screen, render, act, cleanup, waitFor } from "test-utils-rtl";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import {
     type MatrixClient,
@@ -48,6 +48,8 @@ import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload"
 import { RoomViewStore } from "../../stores/RoomViewStore";
 import { WidgetLayoutStore } from "../../stores/widgets/WidgetLayoutStore";
 import WidgetStore from "../../stores/WidgetStore";
+import WidgetUtils from "../../utils/WidgetUtils";
+import PersistedElement, { getPersistKey } from "../views/elements/PersistedElement";
 import { WidgetType } from "../../widgets/WidgetType";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { type WidgetMessaging } from "../../stores/widgets/WidgetMessaging";
@@ -232,6 +234,22 @@ describe("PipContainer", () => {
                 call.emit(CallEvent.ScreenShare, NO_SCREEN_SHARE);
             });
             screen.getByRole("complementary");
+        });
+    });
+
+    it("mounts a call that does not float once, hidden, so it can run while its room is not open", async () => {
+        renderPip();
+
+        await withCall(async (call) => {
+            vi.spyOn(call, "floatsOffScreen", "get").mockReturnValue(false);
+            const persistKey = getPersistKey(WidgetUtils.getWidgetUid(call.widget));
+            PersistedElement.destroyElement(persistKey);
+            act(() => {
+                call.emit(CallEvent.ScreenShare, NO_SCREEN_SHARE);
+            });
+            // Nothing floats, but the call now has the root it keeps running in, off screen.
+            expect(screen.queryByRole("complementary")).toBeNull();
+            await waitFor(() => expect(PersistedElement.isMounted(persistKey)).toBe(true));
         });
     });
 

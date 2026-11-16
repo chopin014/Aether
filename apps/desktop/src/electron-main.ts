@@ -35,6 +35,7 @@ import { _t, AppLocalization } from "./language-helper.js";
 import { setDisplayMediaCallback } from "./displayMediaCallback.js";
 import { setupMacosTitleBar } from "./macos-titlebar.js";
 import { setupMediaAuth } from "./media-auth.js";
+import { setupHomeserverFetch } from "./homeserver-fetch.js";
 import { setupSiteView } from "./site-view.js";
 import { handleWindowClose, revealMainWindow } from "./window-close.js";
 import { type RendererRecovery, setupRendererRecovery } from "./renderer-recovery.js";
@@ -445,6 +446,7 @@ app.on("ready", async () => {
     ); // Use Mac OS 15+ native picker
 
     setupMediaAuth(global.mainWindow);
+    setupHomeserverFetch();
     setupSiteView(global.mainWindow);
 });
 

@@ -102,6 +102,11 @@ export interface RoomListItemViewSnapshot {
     isDm: boolean;
     /** Desktop channel symbol; direct messages retain their profile avatars. */
     channelKind?: "text" | "voice";
+    /**
+     * How many people joined a group conversation, shown under its name when there is no message preview, as
+     * Discord does for group messages. Absent for direct messages and channels.
+     */
+    memberCount?: number;
     /** The real Matrix thread currently open beneath this channel. */
     activeThread?: { id: string; title: string };
     /** Whether the desktop channel is private: people join it by invitation rather than through its server. */
@@ -128,6 +133,8 @@ export interface RoomListItemViewSnapshot {
         isDeafened?: boolean;
         /** Whether this user muted the participant for themselves only. */
         isLocallyMuted?: boolean;
+        /** Whether this is the user, still connecting to the call: shown dimmed until their media is up. */
+        isConnecting?: boolean;
     }[];
     /** When people started gathering in an occupied voice channel, in milliseconds since the epoch. */
     callStartedAt?: number;
@@ -429,6 +436,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                         // region, so screen readers only hear it when the participant is focused.
                         aria-label={participantLabel(participant)}
                         data-speaking={participant.isSpeaking || undefined}
+                        data-connecting={participant.isConnecting || undefined}
                         data-soundboard={participant.isSoundboardPlaying || undefined}
                     >
                         <span

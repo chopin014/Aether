@@ -41,7 +41,8 @@ const config = {
         repository: { type: "git", url: "https://github.com/chopin014/Aether" },
     },
     extraResources: [{ from: "aether", to: "build", filter: ["icon.*"] }, "webapp.asar"],
-    protocols: { name: "Aether", schemes: ["aether"] },
+    // matrix: links are what matrix.to hands to installed apps; aether: carries sign-in callbacks.
+    protocols: { name: "Aether", schemes: ["aether", "matrix"] },
     linux: {
         ...base.linux,
         extraResources: [{ from: "native-dist", to: "native/nvenc" }],

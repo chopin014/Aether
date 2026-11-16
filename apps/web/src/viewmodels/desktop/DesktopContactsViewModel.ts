@@ -33,9 +33,17 @@ import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload"
 import { type ViewUserPayload } from "../../dispatcher/payloads/ViewUserPayload";
 import { mediaFromMxc } from "../../customisations/Media";
 import { _t } from "../../languageHandler";
+import { inviterOf, isConversationInvite } from "../../utils/conversationInvites";
+import type SpaceStore from "../../stores/spaces/SpaceStore";
+import { MetaSpace } from "../../stores/spaces";
 
 interface Props {
     client: MatrixClient;
+    /**
+     * Where rooms belong. When given, pending invitations are only those to conversations in Home, as Discord's
+     * friend requests; invitations to servers and their channels wait in the server rail instead.
+     */
+    spaceStore?: SpaceStore;
 }
 
 /** Projects real Matrix direct conversations, incoming invitations and ignored users into the contacts view. */
@@ -62,6 +70,8 @@ export class DesktopContactsViewModel
             this.disposables.trackListener(props.client, event, this.queueRefresh);
         }
         this.disposables.trackListener(props.client, ClientEvent.Event, this.onPresenceEvent);
+        // An invitation moves in or out of Home when a server adds or drops it, without anything else changing.
+        if (props.spaceStore) this.disposables.trackListener(props.spaceStore, MetaSpace.Home, this.queueRefresh);
         this.refresh();
     }
 
@@ -104,7 +114,8 @@ export class DesktopContactsViewModel
         for (const room of rooms) {
             const partner = map.getUserIdForRoomId(room.roomId);
             if (room.getMyMembership() === KnownMembership.Invite) {
-                const inviter = partner ?? room.getMember(client.getSafeUserId())?.events.member?.getSender();
+                if (this.props.spaceStore && !isConversationInvite(room, this.props.spaceStore)) continue;
+                const inviter = partner ?? inviterOf(client, room);
                 if (inviter && !blocked.has(inviter))
                     pending.push({
                         ...this.contactFor(inviter, room),

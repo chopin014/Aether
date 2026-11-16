@@ -51,7 +51,7 @@ import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import type { ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
 import PosthogTrackers from "../../PosthogTrackers";
-import { type Call, CallEvent } from "../../models/Call";
+import { type Call, CallEvent, ElementCall } from "../../models/Call";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import { getCustomSectionData, isDefaultSectionTag } from "../../stores/room-list-v3/section";
 import { _t } from "../../languageHandler";
@@ -65,7 +65,8 @@ import { type ShowThreadPayload } from "../../dispatcher/payloads/ShowThreadPayl
 import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
-import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { SDKContextClass } from "../../contexts/SDKContextClass";
+import { prepareCallInBackground, prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 import { SlidingSyncManager } from "../../SlidingSyncManager";
 import { getCallSessionStart } from "../../utils/call/callSessionStart";
 import { getPublishedVoiceState, VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
@@ -80,6 +81,11 @@ type Sections = Array<Omit<Section, "isSelected">>;
 interface RoomItemProps {
     room: Room;
     client: MatrixClient;
+    /**
+     * Whether the room is listed as one of a server's channels. In the desktop shell, a server's rooms show as
+     * channels, while Home shows every conversation, direct or group, as a person row, as Discord does.
+     */
+    isServerChannel?: boolean;
 }
 
 /**
@@ -121,6 +127,7 @@ export class RoomListItemViewModel
             props.client,
             notifState,
             availableSections,
+            !!props.isServerChannel,
         );
         super(props, initialItem);
 
@@ -170,6 +177,8 @@ export class RoomListItemViewModel
         this.disposables.track(() => this.callDisposables.dispose());
         // If there is an active call for this room, listen to participant changes
         this.listenToCallParticipants();
+        // A voice channel in view is a likely next click: have its call token ready when the app is idle.
+        if (initialItem.channelKind === "voice") prepareCallInBackground(props.room);
 
         // Subscribe to room-specific events
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
@@ -228,6 +237,24 @@ export class RoomListItemViewModel
     /**
      * Refresh voice participants on every membership change. Other rooms only refresh when call presence changes.
      */
+    /** The user's own place in this voice channel: listed while joining, dimmed until connected. */
+    private ownCallPresence?: string;
+
+    private onOwnCallPresenceChanged = (): void => {
+        if (this.snapshot.current.channelKind !== "voice") return;
+        const call = this.currentCall;
+        const presence =
+            call instanceof ElementCall && !call.locallyLeaving && (call.joinRequested || call.connected)
+                ? call.connectionStats.state === "connected"
+                    ? "connected"
+                    : "connecting"
+                : "out";
+        // Connection statistics arrive every second; only a change in where the user stands redraws the row.
+        if (presence === this.ownCallPresence) return;
+        this.ownCallPresence = presence;
+        this.updateItem();
+    };
+
     private onCallParticipantsChanged = (): void => {
         if (this.snapshot.current.channelKind === "voice") {
             this.updateItem();
@@ -314,6 +341,10 @@ export class RoomListItemViewModel
                 this.callDisposables.trackListener(call, CallEvent.SpeakingUsers, this.onVoiceActivityChanged);
                 this.callDisposables.trackListener(call, CallEvent.SoundboardUsers, this.onVoiceActivityChanged);
                 this.callDisposables.trackListener(call, CallEvent.VoiceStates, this.onVoiceActivityChanged);
+                // The user is listed while joining, dimmed until their media connects.
+                this.callDisposables.trackListener(call, CallEvent.JoinRequested, this.onOwnCallPresenceChanged);
+                this.callDisposables.trackListener(call, CallEvent.ConnectionState, this.onOwnCallPresenceChanged);
+                this.callDisposables.trackListener(call, CallEvent.ConnectionStats, this.onOwnCallPresenceChanged);
             }
         }
         this.currentCall = call;
@@ -337,6 +368,9 @@ export class RoomListItemViewModel
     private readonly onParticipantProfileChanged = (): void => {
         if (this.snapshot.current.channelKind === "voice") {
             this.updateItem();
+        } else if (this.snapshot.current.memberCount !== undefined) {
+            // A group conversation in Home says how many people are in it.
+            this.snapshot.merge({ memberCount: this.props.room.getJoinedMemberCount() });
         }
     };
 
@@ -454,6 +488,7 @@ export class RoomListItemViewModel
             this.props.client,
             this.notifState,
             this.availableSections,
+            !!this.props.isServerChannel,
         );
         this.snapshot.merge({
             ...newItem,
@@ -522,11 +557,45 @@ export class RoomListItemViewModel
      * Generate a complete RoomListItem with all synchronous data.
      * Message preview is loaded separately to avoid blocking initial render.
      */
+    /**
+     * Who is in a voice channel. The user is listed from the moment they ask to join, dimmed until their media is
+     * connected, as Discord does, rather than once the call service has answered.
+     */
+    private static voiceParticipantsOf(
+        room: Room,
+        client: MatrixClient,
+        call: Call | null,
+    ): NonNullable<RoomListItemViewSnapshot["callParticipants"]> {
+        const me = client.getUserId();
+        const members = new Map(call?.participants ?? []);
+        const joining = call instanceof ElementCall && (call.joinRequested || call.connected) && !call.locallyLeaving;
+        const meMember = me ? room.getMember(me) : null;
+        if (joining && meMember && ![...members.keys()].some((member) => member.userId === me)) {
+            members.set(meMember, new Set([client.getDeviceId() ?? ""]));
+        }
+        const connecting = joining && call.connectionStats.state !== "connected";
+        return [...members]
+            .map(([member, devices]) => {
+                const mxc = member.getMxcAvatarUrl();
+                return {
+                    userId: member.userId,
+                    name: member.name,
+                    ...RoomListItemViewModel.voiceActivityOf(room, call, member.userId, devices),
+                    avatarUrl: mxc
+                        ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
+                        : undefined,
+                    ...(connecting && member.userId === me ? { isConnecting: true } : {}),
+                };
+            })
+            .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId));
+    }
+
     private static generateItemSync(
         room: Room,
         client: MatrixClient,
         notifState: RoomNotificationState,
         availableSections: Sections,
+        isServerChannel: boolean,
     ): RoomListItemViewSnapshot {
         // Get room tags for menu state
         const roomTags = room.tags;
@@ -589,28 +658,17 @@ export class RoomListItemViewModel
         // A room with a pending invitation always sits in the Invites section, so it can't be moved
         // to another one, by dragging it or through the menu entries that assign a section.
         const canChangeSection = room.getMyMembership() !== KnownMembership.Invite;
+        const desktopShell = SettingsStore.getValue("feature_desktop_shell");
         const channelKind =
-            SettingsStore.getValue("feature_desktop_shell") && !isDm
+            desktopShell && isServerChannel && !isDm
                 ? room.isCallRoom() || room.isElementVideoRoom()
                     ? "voice"
                     : "text"
                 : undefined;
+        // A group conversation in Home says how many people are in it, as Discord's group messages do.
+        const memberCount = desktopShell && !isServerChannel && !isDm ? room.getJoinedMemberCount() : undefined;
         const callParticipants =
-            channelKind === "voice"
-                ? [...(call?.participants ?? [])]
-                      .map(([member, devices]) => {
-                          const mxc = member.getMxcAvatarUrl();
-                          return {
-                              userId: member.userId,
-                              name: member.name,
-                              ...RoomListItemViewModel.voiceActivityOf(room, call, member.userId, devices),
-                              avatarUrl: mxc
-                                  ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
-                                  : undefined,
-                          };
-                      })
-                      .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId))
-                : undefined;
+            channelKind === "voice" ? RoomListItemViewModel.voiceParticipantsOf(room, client, call) : undefined;
         // A channel's Matrix room avatar is its custom icon.
         const channelAvatarMxc = channelKind ? room.getMxcAvatarUrl() : null;
         const channelIconUrl = channelAvatarMxc
@@ -652,6 +710,7 @@ export class RoomListItemViewModel
             isLowPriority,
             isDm,
             channelKind,
+            memberCount,
             channelIconUrl,
             canEditChannel,
             isPrivateChannel,
@@ -677,10 +736,12 @@ export class RoomListItemViewModel
      */
     public onIntentToOpen = (): void => {
         SlidingSyncManager.instance.prefetchRoom(this.props.room.roomId);
-        if (this.snapshot.current.channelKind === "voice") prepareCallSoon();
+        if (this.snapshot.current.channelKind === "voice") prepareCallSoon(this.props.room);
     };
 
     public onOpenRoom = (): void => {
+        // A voice channel the user is not in is joined where they are, without opening it.
+        if (SDKContextClass.instance.roomViewStore.joinVoiceChannel(this.props.room)) return;
         // At once, so that the room opens in the click's own task, before the browser paints the click, rather than a
         // frame later; but not during a dispatch, nor while anything dispatched earlier waits, such as a room asked
         // for with the keyboard or a draft to clear, which must come first. The click's own user activity, which only

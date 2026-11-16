@@ -727,7 +727,7 @@ describe("DesktopCallStageView", () => {
         render(<DesktopCallStageView vm={vm} />);
         const callee = screen.getByRole("img", { name: "Calling Bob" });
         expect(callee).toBeVisible();
-        expect(getComputedStyle(callee.querySelector("span")!.parentElement!).opacity).toBe("0.45");
+        expect(getComputedStyle(callee.querySelector("span")!.parentElement!).opacity).toBe("0.8");
         expect(screen.getByText("Calling…")).toBeVisible();
 
         act(() =>

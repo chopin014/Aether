@@ -1434,18 +1434,40 @@ Please see LICENSE in the repository root for full details.
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: var(--cpd-space-5x);
+    /* Close together, as in Discord, with just enough room for avatar decorations that reach past the avatar. */
+    gap: max(var(--cpd-space-3x), calc(var(--conversation-avatar-size, 64px) / 5));
     flex-wrap: wrap;
 }
 
+/*
+ * A conversation call shows each person as an avatar on the call's background, everyone at the same size, whether they
+ * are in the call or being called. There is no card for a profile effect to fill, so effects stay on cards (their
+ * avatar decoration stays), and nothing is written under an avatar while its media connects.
+ */
+.stage[data-presentation="conversation"][data-audio-only="true"] {
+    /* Discord's size: about 62px across a stage 1,700px wide. */
+    --conversation-avatar-size: clamp(56px, 3.6cqw, 80px);
+}
+
 .stage[data-presentation="conversation"][data-audio-only="true"] .tile {
-    width: 88px;
-    height: 100px;
+    width: var(--conversation-avatar-size);
+    height: var(--conversation-avatar-size);
     aspect-ratio: auto;
     background: transparent;
     border: 0;
     box-shadow: none;
     overflow: visible;
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .decoratedAvatar,
+.stage[data-presentation="conversation"][data-audio-only="true"] .calleeAvatar > .avatarCircle {
+    width: var(--conversation-avatar-size);
+    height: var(--conversation-avatar-size);
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .avatarFallback > [data-effect],
+.stage[data-presentation="conversation"][data-audio-only="true"] .waitingLabel {
+    display: none;
 }
 
 /*
@@ -1515,7 +1537,7 @@ Please see LICENSE in the repository root for full details.
     }
 
     > .avatarCircle {
-        opacity: 0.45;
+        opacity: 0.8;
         animation: callee-breathe 1.8s ease-in-out infinite;
     }
 }

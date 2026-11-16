@@ -14,6 +14,7 @@ import {
     Room,
     RoomMemberEvent,
     RoomMember,
+    TypedEventEmitter,
     User,
     UserEvent,
     type MatrixClient,
@@ -24,6 +25,7 @@ import { DesktopContactsViewModel } from "./DesktopContactsViewModel";
 import SdkConfig from "../../SdkConfig";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
+import { MetaSpace } from "../../stores/spaces";
 
 /** Wait for queued refreshes, which run once the current batch of changes is done. */
 function nextTask(): Promise<void> {
@@ -125,6 +127,33 @@ describe("DesktopContactsViewModel", () => {
         expect(client.leave).toHaveBeenCalledWith(room.roomId);
         await vm.acceptInvitation("!unknown:example.org");
         expect(client.joinRoom).toHaveBeenCalledTimes(1);
+    });
+    it("counts only invitations to conversations in Home as pending, given where rooms belong", async () => {
+        const channelInvite = new Room("!channel:example.org", client, client.getSafeUserId());
+        vi.spyOn(channelInvite, "getMyMembership").mockReturnValue("invite");
+        vi.spyOn(channelInvite, "getDMInviter").mockReturnValue("@carol:example.org");
+        const serverInvite = new Room("!server:example.org", client, client.getSafeUserId());
+        vi.spyOn(serverInvite, "getMyMembership").mockReturnValue("invite");
+        vi.spyOn(serverInvite, "isSpaceRoom").mockReturnValue(true);
+        vi.spyOn(serverInvite, "getDMInviter").mockReturnValue("@carol:example.org");
+        vi.mocked(room.getMyMembership).mockReturnValue("invite");
+        vi.mocked(client.getRooms).mockReturnValue([room, channelInvite, serverInvite]);
+        const inServer = new Set([channelInvite.roomId]);
+        const spaceStore = Object.assign(new TypedEventEmitter<string, Record<string, () => void>>(), {
+            isRoomInSpace: vi.fn((_space: string, id: string) => !inServer.has(id)),
+        });
+
+        vm.dispose();
+        vm = new DesktopContactsViewModel({ client, spaceStore: spaceStore as never });
+        expect(vm.getSnapshot().pendingCount).toBe(1);
+        vm.setTab("pending");
+        expect(vm.getSnapshot().contacts.map((contact) => contact.roomId)).toEqual([room.roomId]);
+
+        // A server adopting the conversation is the only change, and it leaves Pending.
+        inServer.add(room.roomId);
+        spaceStore.emit(MetaSpace.Home);
+        await nextTask();
+        expect(vm.getSnapshot().pendingCount).toBe(0);
     });
     it("preserves failed invitations and allows retry after network errors", async () => {
         vi.mocked(room.getMyMembership).mockReturnValue("invite");

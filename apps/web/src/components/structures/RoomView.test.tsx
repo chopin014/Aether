@@ -1307,6 +1307,24 @@ describe("RoomView", () => {
             expect(stores.rightPanelStore.currentCard.phase).toEqual(RightPanelPhases.Timeline);
         });
 
+        it("opens a voice channel on its call alone in the desktop shell, even with unread messages", async () => {
+            vi.spyOn(NotificationState.prototype, "isUnread", "get").mockReturnValue(true);
+            const isCallRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+            const getValue = SettingsStore.getValue;
+            const desktopShell = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue.call(SettingsStore, name, ...args),
+                );
+            try {
+                await mountRoomView();
+                expect(stores.rightPanelStore.isOpen).toEqual(false);
+            } finally {
+                desktopShell.mockRestore();
+                isCallRoom.mockRestore();
+            }
+        });
+
         it("should render joined video room view", async () => {
             // With no unread messages, as the spy of an earlier test would otherwise say there are.
             vi.spyOn(NotificationState.prototype, "isUnread", "get").mockReturnValue(false);
@@ -1386,7 +1404,7 @@ describe("RoomView", () => {
             fireEvent.keyDown(separator, { key: "Home" });
             expect(callArea.style.height).toBe("248px");
             fireEvent.doubleClick(separator);
-            expect(callArea.style.height).toBe("40vh");
+            expect(callArea.style.height).toBe("33vh");
         });
 
         it("makes a call that fills the room the page's one main landmark", async () => {

@@ -16,6 +16,16 @@ import { type DenoiserStatus } from "./denoiser/DenoiserStatus";
 import { PreparedMicrophoneGraph } from "./PreparedMicrophoneGraph";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 import { keepRealtimeClock } from "./keepRealtimeClock";
+import { lingerCapture } from "./lingerCapture";
+
+/** How long after a call's microphone is released before the next call's graph is prepared, if it left none. */
+export const REPREPARE_AFTER_LEAVE_MS = 3000;
+/**
+ * How long the audio context of a call that ended is kept for the next one. Opening or closing a low-latency context
+ * opens or closes an output stream, and on PipeWire that reconfigures the sound server and breaks up whatever is
+ * playing, such as the leave cue or a quick rejoin's join cue. Reusing it changes nothing on the device.
+ */
+export const SPARE_CONTEXT_MS = 5 * 60_000;
 
 /** What LiveKit gives a track processor when it starts or restarts. */
 interface ProcessorOptions {
@@ -56,9 +66,17 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     }
 
     private context?: AudioContext;
+    /** Lets go of the captured microphone, see {@link lingerCapture}. */
+    private releaseCapture?: () => void;
     private source?: MediaStreamAudioSourceNode;
     private processor?: AudioWorkletNode;
     private destination?: MediaStreamAudioDestinationNode;
+    /** Whether this graph's processor was given the noise suppression model. */
+    private hasDenoiser = false;
+    /** What this graph's processor last reported about noise suppression. */
+    private denoiserStatus?: DenoiserStatus;
+    /** Whether this graph's processor broke, so that no other call is given it. */
+    private crashed = false;
     private pushToTalkActive = false;
     private shortcutMuted = false;
     private generation = 0;
@@ -72,8 +90,10 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     /** Prepare one disconnected graph; it expires instead of retaining an idle audio engine indefinitely. */
     public prepare(): void {
         this.preparationEnabled = true;
-        if (this.prepared || this.children.size) return;
-        const graph = new PreparedMicrophoneGraph();
+        // Right after a call, the graph is prepared once the leave cue has played (see prepareAfterLeave): pointing at
+        // a voice channel to rejoin must not build it sooner, which broke up the leave cue.
+        if (this.prepared || this.children.size || this.reprepareTimer) return;
+        const graph = new PreparedMicrophoneGraph(this.claimSpareContext());
         const prepared = { graph, ready: graph.initialize(this.state), denoiser: this.wantsDenoiser(this.config) };
         this.prepared = prepared;
         void prepared.ready.catch(() => {
@@ -82,11 +102,77 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         this.preparationTimer = setTimeout(() => this.discardPrepared(), 60000);
     }
 
+    private reprepareTimer?: ReturnType<typeof setTimeout>;
+
+    /**
+     * Prepare the next call's graph once the leave cue has played, if the call that just ended left none (its graph
+     * broke, or no longer fits the settings). Building a graph while a microphone is open holds up every sound the
+     * page plays, which is heard as the leave cue crackling.
+     */
+    private prepareAfterLeave(): void {
+        clearTimeout(this.reprepareTimer);
+        this.reprepareTimer = setTimeout(() => {
+            this.reprepareTimer = undefined;
+            if (this.preparationEnabled) this.prepare();
+        }, REPREPARE_AFTER_LEAVE_MS);
+    }
+
     /** Stop preparing and release an unused graph when leaving the account. */
     public clearPrepared(): void {
         this.preparationEnabled = false;
+        clearTimeout(this.reprepareTimer);
+        this.reprepareTimer = undefined;
         this.discardPrepared();
+        void this.claimSpareContext()
+            ?.close()
+            .catch((error) => logger.debug("Could not close microphone processing", error));
     }
+
+    private spare?: { context: AudioContext; timer: ReturnType<typeof setTimeout> };
+
+    /** Root: keeps the context of a call that ended for the next call, while calls are being prepared for. */
+    private readonly keepSpareContext = (context: AudioContext): void => {
+        if (!this.preparationEnabled || this.spare || context.state === "closed") {
+            void context.close().catch((error) => logger.debug("Could not close microphone processing", error));
+            return;
+        }
+        const timer = setTimeout(() => {
+            if (this.spare?.context !== context) return;
+            this.spare = undefined;
+            void context.close().catch((error) => logger.debug("Could not close microphone processing", error));
+        }, SPARE_CONTEXT_MS);
+        this.spare = { context, timer };
+    };
+
+    /** Root: the kept context, for the next graph to be built in. */
+    private readonly claimSpareContext = (): AudioContext | undefined => {
+        const spare = this.spare;
+        this.spare = undefined;
+        if (!spare) return undefined;
+        clearTimeout(spare.timer);
+        return spare.context.state === "closed" ? undefined : spare.context;
+    };
+
+    /**
+     * Root: keeps the graph of a call that ended as the next call's prepared graph, for as long as it would keep the
+     * context alone. A graph that does not fit the current settings gives up only its context.
+     */
+    private readonly keepCallGraph = (graph: PreparedMicrophoneGraph, denoiser: boolean): void => {
+        if (!this.preparationEnabled || this.prepared || denoiser !== this.wantsDenoiser(this.config)) {
+            this.keepSpareContext(graph.release());
+            return;
+        }
+        this.prepared = { graph, ready: Promise.resolve(), denoiser };
+        clearTimeout(this.preparationTimer);
+        this.preparationTimer = setTimeout(() => this.discardPrepared(), SPARE_CONTEXT_MS);
+    };
+
+    /** Children: hand a call's graph back to the root for the next call. */
+    private returnGraph?: (graph: PreparedMicrophoneGraph, denoiser: boolean) => void;
+    /** Children: hand a call's context back to the root, or close it. */
+    private returnContext?: (context: AudioContext) => void;
+    /** Children: take the root's kept context. */
+    private takeSpareContext?: () => AudioContext | undefined;
 
     private discardPrepared(): void {
         clearTimeout(this.preparationTimer);
@@ -110,9 +196,12 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     public createProcessor = (): MicrophoneProcessor => {
         const child = new MicrophoneProcessor(this.config, () => {
             this.children.delete(child);
-            if (this.preparationEnabled) this.prepare();
+            if (this.preparationEnabled) this.prepareAfterLeave();
         });
         child.takePrepared = this.claimPrepared;
+        child.returnGraph = this.keepCallGraph;
+        child.returnContext = this.keepSpareContext;
+        child.takeSpareContext = this.claimSpareContext;
         child.onDenoiserStatus = (status): void => this.onDenoiserStatus?.(status);
         child.setPushToTalkActive(this.pushToTalkActive);
         child.setShortcutMuted(this.shortcutMuted);
@@ -169,7 +258,10 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
 
     private async sendDenoiser(generation: number): Promise<void> {
         const denoiserModule = await this.compileDenoiser();
-        if (denoiserModule && generation === this.generation) this.processor?.port.postMessage({ denoiserModule });
+        if (denoiserModule && generation === this.generation && this.processor) {
+            this.processor.port.postMessage({ denoiserModule });
+            this.hasDenoiser = true;
+        }
     }
 
     /**
@@ -178,7 +270,9 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
      */
     public async init({ track }: ProcessorOptions): Promise<void> {
         const generation = ++this.generation;
-        this.closeGraph();
+        // A restarted microphone, as after switching devices, takes back its own graph below.
+        this.closeGraph(true);
+        this.releaseCapture = lingerCapture(track);
         let prepared = this.takePrepared?.() ?? this.claimPrepared();
         if (prepared && prepared.denoiser !== this.wantsDenoiser(this.config)) {
             prepared.graph.close();
@@ -192,7 +286,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             // has the wrong model (or none), and setConfig could not fix it because the node was not ours yet.
             const stillMatches = prepared.denoiser === this.wantsDenoiser(this.config);
             if (!stillMatches) prepared.graph.close();
-            if (!stillMatches || !prepared.graph.processor || prepared.graph.context.state === "closed") {
+            if (!stillMatches || !prepared.graph.usable) {
                 prepared = undefined;
             }
         }
@@ -200,8 +294,10 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             prepared?.graph.close();
             throw new Error("Microphone processing was cancelled");
         }
+        // A quick rejoin finds no prepared graph yet, but the last call's context: building in it opens no new stream.
         const context =
             prepared?.graph.context ??
+            this.takeSpareContext?.() ??
             new AudioContext({ sampleRate: DENOISER_SAMPLE_RATE, latencyHint: "interactive" });
         this.context = context;
         const [denoiserModule] = await Promise.all([
@@ -228,6 +324,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
                 | { level: number; open: boolean; threshold: number | null }
                 | { denoiser: DenoiserStatus }
                 | { ready: true };
+            this.hasDenoiser = prepared ? prepared.denoiser : denoiserModule !== undefined;
             this.processor.port.onmessage = (event: MessageEvent<Report>): void => {
                 if (generation !== this.generation) return;
                 if ("denoiser" in event.data) this.reportDenoiser(event.data.denoiser);
@@ -244,6 +341,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             const output = this.processedTrack;
             this.processor.onprocessorerror = (): void => {
                 // A crashed worklet must never cause LiveKit to resume the unprocessed microphone.
+                this.crashed = true;
                 output.enabled = false;
                 track.enabled = false;
                 logger.error("Microphone processing stopped; the microphone has been silenced");
@@ -263,6 +361,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     }
 
     private reportDenoiser(status: DenoiserStatus): void {
+        this.denoiserStatus = status;
         if (status === "failed") logger.warn("Noise suppression stopped working; the microphone is sent without it");
         if (status === "overloaded") logger.warn("Noise suppression could not keep up and was turned off");
         this.onDenoiserStatus?.(status);
@@ -272,25 +371,44 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         await this.init(options);
     }
 
-    private closeGraph(): void {
-        if (this.processor) {
-            this.processor.port.onmessage = null;
-            this.processor.onprocessorerror = null;
-            this.processor.port.postMessage({ stop: true });
-            this.processor.port.close();
+    /**
+     * Takes this microphone's graph apart.
+     *
+     * @param keep - Whether the call is done with a working graph, which then goes back to the root for the next call
+     *     (see {@link PreparedMicrophoneGraph.fromCall}). Otherwise only its context goes back (see SPARE_CONTEXT_MS).
+     */
+    private closeGraph(keep = false): void {
+        this.releaseCapture?.();
+        this.releaseCapture = undefined;
+        const { context, processor } = this;
+        const kept = keep && !this.crashed && context && processor && context.state !== "closed" && this.returnGraph;
+        if (processor) {
+            processor.port.onmessage = null;
+            processor.onprocessorerror = null;
+            if (!kept) {
+                processor.port.postMessage({ stop: true });
+                processor.port.close();
+            }
         }
         this.source?.disconnect();
-        this.processor?.disconnect();
+        processor?.disconnect();
         this.processedTrack?.stop();
-        this.context?.close().catch((error) => logger.debug("Could not close microphone processing", error));
+        if (kept) {
+            // Silent until the next call claims it and sends its own state.
+            processor.port.postMessage({ ...this.state, shortcutMuted: true });
+            kept(PreparedMicrophoneGraph.fromCall(context, processor, this.denoiserStatus), this.hasDenoiser);
+        } else if (context && this.returnContext) this.returnContext(context);
+        else context?.close().catch((error) => logger.debug("Could not close microphone processing", error));
         this.context = this.source = this.processor = this.destination = this.processedTrack = undefined;
+        this.hasDenoiser = this.crashed = false;
+        this.denoiserStatus = undefined;
     }
 
     public async destroy(): Promise<void> {
         ++this.generation;
         this.clearPrepared();
         this.preparingGraph?.close();
-        this.closeGraph();
+        this.closeGraph(true);
         for (const child of this.children) await child.destroy();
         this.children.clear();
         this.onDestroyed?.();

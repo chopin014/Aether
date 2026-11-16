@@ -71,6 +71,11 @@
         );
 }
 
+.callParticipant[data-connecting] {
+    /* The user, while their media connects. */
+    opacity: 0.6;
+}
+
 .callParticipant {
     display: flex;
     align-items: center;

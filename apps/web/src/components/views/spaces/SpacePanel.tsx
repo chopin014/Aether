@@ -23,7 +23,7 @@ import React, {
 } from "react";
 import { DragDropContext, Draggable, Droppable, type DroppableProvidedProps } from "react-beautiful-dnd";
 import classNames from "classnames";
-import { type Room } from "matrix-js-sdk/src/matrix";
+import { type Room, RoomEvent } from "matrix-js-sdk/src/matrix";
 import {
     HomeSolidIcon,
     RoomIcon,
@@ -32,6 +32,7 @@ import {
     ChevronRightIcon,
     ExploreIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { UnreadConversationsView, useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { useContextMenu } from "../../structures/ContextMenu";
@@ -67,6 +68,9 @@ import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { type ActionPayload } from "../../../dispatcher/payloads";
 import { Action } from "../../../dispatcher/actions";
 import { type NotificationState } from "../../../stores/notifications/NotificationState";
+import { StaticNotificationState } from "../../../stores/notifications/StaticNotificationState";
+import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
+import { countConversationInvites } from "../../../utils/conversationInvites";
 import { KeyBindingAction } from "../../../accessibility/KeyboardShortcuts";
 import { getKeyBindingsManager } from "../../../KeyBindingsManager";
 import { shouldShowComponent } from "../../../customisations/helpers/UIComponents";
@@ -82,8 +86,10 @@ import { RoomListCollapsedContext } from "../../../contexts/RoomListCollapsedCon
 import { PageTypeContext } from "../../../contexts/PageTypeContext";
 import PageType from "../../../PageTypes";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
+import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
 import { type SDKContextClass } from "../../../contexts/SDKContextClass.ts";
 import AetherSymbolIcon from "../../../../res/img/aether/symbol-mono.svg?react";
+import { UnreadConversationsViewModel } from "../../../viewmodels/desktop/UnreadConversationsViewModel";
 
 const useSpaces = (): [Room[], MetaSpace[], Room[], SpaceKey] => {
     const sdkContext = useContext(SDKContext);
@@ -153,7 +159,13 @@ const MetaSpaceButton: React.FC<IMetaSpaceButtonProps> = ({ selected, isPanelCol
     );
 };
 
-const getHomeNotificationState = (sdkContext: SDKContextClass): NotificationState => {
+const getHomeNotificationState = (sdkContext: SDKContextClass): NotificationState | undefined => {
+    if (SettingsStore.getValue("feature_desktop_shell")) {
+        // As Discord counts friend requests on Home, the desktop shell counts invitations to conversations there.
+        // Unread conversations show beneath Home instead, each with its own count.
+        const invites = sdkContext.client ? countConversationInvites(sdkContext.client, sdkContext.spaceStore) : 0;
+        return invites > 0 ? StaticNotificationState.forCount(invites, NotificationLevel.Highlight) : undefined;
+    }
     return sdkContext.spaceStore.allRoomsInHome
         ? sdkContext.roomNotificationStateStore.globalState
         : sdkContext.spaceStore.getNotificationState(MetaSpace.Home);
@@ -170,6 +182,9 @@ const HomeButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed
     }, [sdkContext]);
     useEffect(updateNotificationState, [updateNotificationState, allRoomsInHome]);
     useEventEmitter(sdkContext.roomNotificationStateStore, UPDATE_STATUS_INDICATOR, updateNotificationState);
+    // Invitations arriving, answered or moving between Home and a server.
+    useEventEmitter(sdkContext.spaceStore, MetaSpace.Home, updateNotificationState);
+    useEventEmitter(sdkContext.client, RoomEvent.MyMembership, updateNotificationState);
     // In the desktop shell, Home is where friends and direct messages live, so it carries the Aether mark
     const desktopShellEnabled = useSettingValue("feature_desktop_shell");
 
@@ -180,7 +195,8 @@ const HomeButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed
             isPanelCollapsed={isPanelCollapsed}
             label={getMetaSpaceName(MetaSpace.Home, allRoomsInHome)}
             notificationState={notificationState}
-            ContextMenuComponent={HomeButtonContextMenu}
+            // In the desktop shell, Home holds only conversations outside servers, so it has no "all rooms" choice.
+            ContextMenuComponent={desktopShellEnabled ? undefined : HomeButtonContextMenu}
             contextMenuTooltip={_t("common|options")}
             size="32px"
             icon={
@@ -192,6 +208,16 @@ const HomeButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed
             }
         />
     );
+};
+
+/** The conversations outside any server waiting to be read, under Home on the desktop rail, as in Discord. */
+const UnreadConversations: React.FC = () => {
+    const sdkContext = useContext(SDKContext);
+    const client = useMatrixClientContext();
+    const vm = useCreateAutoDisposedViewModel(
+        () => new UnreadConversationsViewModel({ client, spaceStore: sdkContext.spaceStore }),
+    );
+    return <UnreadConversationsView vm={vm} className="mx_DesktopShell_unreadConversations" />;
 };
 
 const OrphansButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed }) => {
@@ -327,9 +353,15 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
 
         const metaSpacesSection = metaSpaces
             .filter((key) => !(key === MetaSpace.VideoRooms && !SettingsStore.getValue("feature_video_rooms")))
-            .map((key) => {
+            .flatMap((key) => {
                 const Component = metaSpaceComponentMap[key];
-                return <Component key={key} selected={activeSpace === key} isPanelCollapsed={isPanelCollapsed} />;
+                const button = (
+                    <Component key={key} selected={activeSpace === key} isPanelCollapsed={isPanelCollapsed} />
+                );
+                // The desktop rail lists unread conversations right under Home, as Discord does.
+                return key === MetaSpace.Home && desktopShellEnabled
+                    ? [button, <UnreadConversations key="unread-conversations" />]
+                    : [button];
             });
 
         return (
