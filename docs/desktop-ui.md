@@ -213,6 +213,23 @@ taken by others. Each device announces its deafen both as a LiveKit attribute an
 every 10 seconds while deafened, because the attribute needs a JWT service that lets participants update their own
 metadata (`lk-jwt-service` since July 2026). The local user's own row follows this device directly.
 
+## Moving people between voice channels
+
+As in Discord, someone with the power to move people can drag a person in a voice channel's call onto another voice
+channel of the same server, or pick the channel from "Move to" in the person's menu. Without that power, nobody in the
+call can be dragged and the entry is not shown.
+
+The power is the room's power level for the `io.aether.voice.move` state event, which falls back to `state_default`
+(moderators by default). Moving someone sends that event in the channel they are in, with the state key `u:` plus their
+user ID (a state key starting with `@` can only be sent by that user) and the content `{ "to": <room ID>, "id": <random> }`.
+The homeserver refuses it from anyone below the level.
+
+The moved person's Aether (`VoiceMoveFollower`) follows a request when it is about them, less than a minute old, sent
+after their device joined the call, from someone who still has the power, and names a voice channel of a server holding
+both channels. It then leaves the call without asking and joins the new one, joining the room first when needed.
+Someone watching the old call watches the new one. Other Matrix clients ignore the event, so the mover is told when the
+person has not turned up in the new call within 20 seconds.
+
 ## Channel menu and topic
 
 Clicking a channel's name in the header opens an anchored menu beneath it, and right-clicking a channel in the room
