@@ -30,6 +30,7 @@ const actions: VoiceUserMenuViewActions = {
     toggleIgnore: fn(),
     setRole: fn(),
     moveTo: fn(),
+    disconnect: fn(),
 };
 
 function MenuStory(snapshot: VoiceUserMenuViewSnapshot): JSX.Element {
@@ -69,6 +70,7 @@ const meta = {
             { level: 0, label: "Default", selected: true },
         ],
         moveDestinations: [],
+        canDisconnect: false,
     },
     parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof MenuStory>;
@@ -87,6 +89,7 @@ export const Moderator: Story = {
             { id: "!geral2:example.org", name: "Geral#2" },
             { id: "!afk:example.org", name: "AFK" },
         ],
+        canDisconnect: true,
     },
 };
 /** The user's own menu offers their microphone and deafen instead of a volume. */

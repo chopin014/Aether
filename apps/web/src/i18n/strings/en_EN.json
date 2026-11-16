@@ -917,8 +917,13 @@
         },
         "voice_channels": "Voice Channels",
         "voice_move": {
+            "disconnect_failed_title": "Couldn't disconnect %(name)s",
             "failed_title": "Couldn't move %(name)s",
-            "not_followed": "%(name)s didn't follow the move. Only people using Aether can be moved to another channel."
+            "not_disconnected": "%(name)s's app didn't leave the call. Only people using Aether can be disconnected.",
+            "not_followed": "%(name)s didn't follow the move. Only people using Aether can be moved to another channel.",
+            "remove_button": "Remove from channel",
+            "remove_description": "%(name)s's app didn't leave the call: it may not be Aether. Removing them from the channel ends their call on any app. They can join the channel again.",
+            "remove_title": "Remove %(name)s from the channel?"
         },
         "voice_settings": {
             "call_moved_description": "You joined a call on another Aether device. Voice is now connected there.",

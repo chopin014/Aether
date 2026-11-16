@@ -83,6 +83,8 @@ export interface VoiceUserMenuViewSnapshot {
      * there are none, as it is for anyone without the power to move people.
      */
     readonly moveDestinations: readonly VoiceUserMenuChannel[];
+    /** Whether the user may disconnect the person from the call they are in, as anyone who may move them can. */
+    readonly canDisconnect: boolean;
 }
 
 /** What choosing an entry in the voice user menu does. */
@@ -105,6 +107,8 @@ export interface VoiceUserMenuViewActions {
     setRole(level: number): void;
     /** Moves the person to another voice channel. */
     moveTo(roomId: string): void;
+    /** Disconnects the person from the call they are in. */
+    disconnect(): void;
 }
 
 /** The view model behind the voice user menu. */
@@ -593,6 +597,18 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                             </button>
                         ))}
                     </SubMenu>
+                </>
+            )}
+            {s.canDisconnect && (
+                <>
+                    {s.roles.length === 0 && s.moveDestinations.length === 0 && <Separator />}
+                    <Item
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|disconnect")}
+                        critical
+                        onSelect={select(vm.disconnect)}
+                        testId="voice-user-menu-disconnect"
+                    />
                 </>
             )}
         </div>
