@@ -341,6 +341,7 @@
             "warning": "Os apelidos são visíveis para todos neste servidor. Não os altere a não ser que você tenha regras de nomes ou esteja removendo um apelido ruim."
         },
         "profile": {
+            "change_nickname": "Alterar apelido",
             "copy_link": "Copiar link",
             "ignore": "Ignorar",
             "unignore": "Deixar de ignorar",
@@ -1270,6 +1271,7 @@
             "your_server": "Seu servidor"
         },
         "voice_user_menu": {
+            "change_nickname": "Alterar apelido",
             "copy_user_id": "Copiar ID do usuário",
             "deafen": "Desativar áudio",
             "disable_video": "Desativar vídeo",
@@ -1305,6 +1307,7 @@
             "until": "Até %(time)s"
         },
         "server_menu": {
+            "change_nickname": "Alterar apelido",
             "mark_read": "Marcar como lida",
             "mute": "Silenciar servidor",
             "notification_settings": "Configurações de notificação",

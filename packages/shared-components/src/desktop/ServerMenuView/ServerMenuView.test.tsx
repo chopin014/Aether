@@ -36,6 +36,7 @@ function makeVm(snapshot: Partial<ServerMenuViewSnapshot> = {}) {
             setNotificationLevel: vi.fn(),
             toggleHideMutedChannels: vi.fn(),
             openSettings: vi.fn(),
+            changeNickname: vi.fn(),
             createChannel: vi.fn(),
             createCategory: vi.fn(),
             leave: vi.fn(),
@@ -63,6 +64,7 @@ describe("ServerMenuView", () => {
             "Notification settings",
             "Hide muted channels",
             "Server settings",
+            "Change nickname",
             "Create channel",
             "Create category",
             "Leave server",
@@ -84,6 +86,8 @@ describe("ServerMenuView", () => {
             expect(screen.queryByRole("menuitem", { name })).not.toBeInTheDocument();
         }
         expect(screen.getByRole("menuitem", { name: "Leave server" })).toBeVisible();
+        // Anyone may change their own nickname.
+        expect(screen.getByRole("menuitem", { name: "Change nickname" })).toBeVisible();
     });
 
     it("acts through the view model", async () => {
@@ -94,6 +98,9 @@ describe("ServerMenuView", () => {
         renderMenu(vm);
         await userEvent.click(screen.getByRole("menuitemcheckbox", { name: "Hide muted channels" }));
         expect(vm.toggleHideMutedChannels).toHaveBeenCalled();
+        renderMenu(vm);
+        await userEvent.click(screen.getByRole("menuitem", { name: "Change nickname" }));
+        expect(vm.changeNickname).toHaveBeenCalled();
         renderMenu(vm);
         await userEvent.click(screen.getByRole("menuitem", { name: "Create channel" }));
         await userEvent.click(screen.getByRole("menuitem", { name: "View timeline (devtools)" }));

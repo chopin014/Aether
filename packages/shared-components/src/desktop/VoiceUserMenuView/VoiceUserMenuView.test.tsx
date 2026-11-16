@@ -33,6 +33,7 @@ const base: VoiceUserMenuViewSnapshot = {
         { level: 50, label: "Moderator", selected: true },
         { level: 0, label: "Default", selected: false },
     ],
+    canChangeNickname: false,
 };
 
 function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
@@ -53,6 +54,7 @@ function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
         copyUserId: vi.fn(),
         toggleIgnore: vi.fn(),
         setRole: vi.fn(),
+        changeNickname: vi.fn(),
     });
 }
 
@@ -145,6 +147,16 @@ describe("VoiceUserMenuView", () => {
         expect(vm.setRole).toHaveBeenCalledWith(100);
     });
 
+    it("offers changing the person's nickname when the user may", () => {
+        const vm = makeVm({ canChangeNickname: true });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names()).toContain("Change nickname");
+        fireEvent.click(screen.getByTestId("voice-user-menu-change-nickname"));
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(vm.changeNickname).toHaveBeenCalledOnce();
+    });
+
     it("moves between entries with the arrow keys and closes on Escape, returning focus", () => {
         const trigger = document.createElement("button");
         document.body.append(trigger);
@@ -185,6 +197,7 @@ describe("VoiceUserMenuView", () => {
         expect(names()).not.toContain("Verify");
         expect(names()).not.toContain("Invite to server");
         expect(names()).not.toContain("Roles");
+        expect(names()).not.toContain("Change nickname");
         expect(names()).toContain("Stop ignoring");
     });
 });

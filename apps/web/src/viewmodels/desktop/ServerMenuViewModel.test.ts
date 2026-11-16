@@ -24,6 +24,9 @@ import * as roomListUtils from "../room-list/utils";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import SettingsStore from "../../settings/SettingsStore";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
+
+vi.mock("../../components/views/desktop/DesktopServerNicknameDialog", () => ({ showServerNicknameDialog: vi.fn() }));
 
 const SPACE_ID = "!server:example.org";
 
@@ -123,6 +126,11 @@ describe("ServerMenuViewModel", () => {
             new Room("!other:example.org", client, client.getSafeUserId()),
         );
         expect(vm.getSnapshot().notificationLevel).toBe("mentions");
+    });
+
+    it("opens the user's own nickname in the server", () => {
+        create().changeNickname();
+        expect(showServerNicknameDialog).toHaveBeenCalledWith(client, server, client.getSafeUserId());
     });
 
     it("acts on the server", async () => {

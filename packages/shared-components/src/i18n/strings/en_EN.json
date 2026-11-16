@@ -468,6 +468,7 @@
         "profile": {
             "activity": "Activity",
             "board": "Board",
+            "change_nickname": "Change nickname",
             "copy_link": "Copy link",
             "edit_profile": "Edit profile",
             "ignore": "Ignore",
@@ -780,6 +781,7 @@
             }
         },
         "server_menu": {
+            "change_nickname": "Change nickname",
             "devtools": "View timeline (devtools)",
             "leave": "Leave server",
             "mark_read": "Mark as read",
@@ -958,6 +960,7 @@
             "voice_settings": "Voice settings"
         },
         "voice_user_menu": {
+            "change_nickname": "Change nickname",
             "copy_user_id": "Copy user ID",
             "deafen": "Deafen",
             "disable_video": "Disable video",
