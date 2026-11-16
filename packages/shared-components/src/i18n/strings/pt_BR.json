@@ -333,6 +333,13 @@
             "start": "Iniciar tópico",
             "open": "Abrir tópico %(title)s"
         },
+        "nickname_dialog": {
+            "label": "Apelido",
+            "reset": "Redefinir apelido",
+            "set_by_moderator": "Um moderador definiu seu apelido neste servidor. Ele substitui o que você escolher aqui até que seja redefinido.",
+            "title": "Alterar apelido",
+            "warning": "Os apelidos são visíveis para todos neste servidor. Não os altere a não ser que você tenha regras de nomes ou esteja removendo um apelido ruim."
+        },
         "profile": {
             "copy_link": "Copiar link",
             "ignore": "Ignorar",

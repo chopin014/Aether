@@ -150,6 +150,7 @@ export * from "./desktop/ChannelMenuView";
 export * from "./desktop/VoiceUserMenuView";
 export * from "./desktop/TopicDialogView";
 export * from "./desktop/CategoryDialogView";
+export * from "./desktop/ServerNicknameDialogView";
 export * from "./desktop/MuteMenu";
 export * from "./desktop/UnreadConversationsView";
 export * from "./desktop/ServerMenuView";

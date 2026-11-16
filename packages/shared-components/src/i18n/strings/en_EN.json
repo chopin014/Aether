@@ -458,6 +458,13 @@
             "minutes_15": "For 15 minutes",
             "until": "Until %(time)s"
         },
+        "nickname_dialog": {
+            "label": "Nickname",
+            "reset": "Reset nickname",
+            "set_by_moderator": "A moderator set your nickname in this server. It replaces the one you choose here until they reset it.",
+            "title": "Change nickname",
+            "warning": "Nicknames are visible to everyone in this server. Don't change them unless you are enforcing a naming system or clearing a bad nickname."
+        },
         "profile": {
             "activity": "Activity",
             "board": "Board",
