@@ -46,6 +46,7 @@ import { VOICE_STATE_EVENT_TYPE } from "./utils/call/publishedVoiceState";
 import DMRoomMap from "./utils/DMRoomMap";
 import { PreferredRoomVersions } from "./utils/PreferredRoomVersions";
 import SdkConfig from "./SdkConfig";
+import { SDKContextClass } from "./contexts/SDKContextClass";
 
 /**
  * This should be the same as
@@ -343,6 +344,35 @@ describe("createRoom", () => {
         it("keeps a private room outside any server for invited members", async () => {
             await createRoom(client, { encryption: true, createOpts: { preset: Preset.PrivateChat } });
             expect(historyVisibilitySent()).toBe(HistoryVisibility.Invited);
+        });
+
+        describe("telling the server's members whether they can join the new channel", () => {
+            beforeEach(() => {
+                vi.spyOn(SDKContextClass.instance.spaceStore, "addRoomToSpace").mockResolvedValue({ event_id: "$c" });
+            });
+            afterEach(() => vi.mocked(SDKContextClass.instance.spaceStore.addRoomToSpace).mockRestore());
+
+            const joinableSent = (): boolean | undefined =>
+                vi.mocked(SDKContextClass.instance.spaceStore.addRoomToSpace).mock.calls[0][4];
+
+            const joinable = new Set(paths.filter(([, opts]) => opts.joinRule === JoinRule.Restricted).map(([p]) => p));
+            it.each(paths)("for %s", async (path, opts) => {
+                await createRoom(client, { ...structuredClone(opts), parentSpace });
+                expect(joinableSent()).toBe(joinable.has(path));
+            });
+
+            it("for a public channel", async () => {
+                await createRoom(client, { parentSpace, createOpts: { preset: Preset.PublicChat } });
+                expect(joinableSent()).toBe(true);
+                vi.mocked(SDKContextClass.instance.spaceStore.addRoomToSpace).mockClear();
+                await createRoom(client, { parentSpace, joinRule: JoinRule.Public, createOpts: {} });
+                expect(joinableSent()).toBe(true);
+            });
+
+            it("for a nested server, which its members join on their own", async () => {
+                await createRoom(client, { parentSpace, roomType: RoomType.Space, joinRule: JoinRule.Restricted });
+                expect(joinableSent()).toBe(false);
+            });
         });
     });
 

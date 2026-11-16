@@ -86,6 +86,16 @@ export interface IOpts {
 }
 
 /**
+ * Whether every member of the parent Space can join the room being created without an invite: a room that admits
+ * the Space's members or anyone, and that is not itself a Space.
+ */
+function isJoinableBySpaceMembers(opts: IOpts, createOpts: ICreateRoomOpts): boolean {
+    if (opts.roomType === RoomType.Space) return false;
+    if (opts.joinRule) return opts.joinRule === JoinRule.Restricted || opts.joinRule === JoinRule.Public;
+    return createOpts.preset === Preset.PublicChat;
+}
+
+/**
  * The power levels set by synapse as of 30.06.2026.
  * If power_level_content_override is used, these values should be used
  * as a starting point to ensure the expected room power levels.
@@ -404,6 +414,7 @@ export default async function createRoom(client: MatrixClient, opts: IOpts): Pro
                     roomId,
                     [client.getDomain()!],
                     opts.suggested,
+                    isJoinableBySpaceMembers(opts, createOpts),
                 );
             }
         })

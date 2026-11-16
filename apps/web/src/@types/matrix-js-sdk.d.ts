@@ -20,6 +20,13 @@ import type { StoredSound } from "../audio/soundboard/Soundboard";
 import type { PublishedVoiceStateContent } from "../utils/call/publishedVoiceState";
 
 // Extend Matrix JS SDK types via Typescript declaration merging to support unspecced event fields and types
+declare module "matrix-js-sdk/src/@types/state_events" {
+    export interface SpaceChildEventContent {
+        // Whether the Space's members can join the child at once, see stores/spaces/joinableChild.ts
+        "io.aether.joinable"?: boolean;
+    }
+}
+
 declare module "matrix-js-sdk/src/types" {
     export interface FileInfo {
         /**
