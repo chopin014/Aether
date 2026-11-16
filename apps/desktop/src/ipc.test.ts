@@ -66,6 +66,8 @@ vi.mock("./config.js");
 vi.mock("./updater.js", () => ({
     desktopUpdater: { getState: getUpdaterState, getFeedUrl: getUpdaterFeedUrl },
 }));
+const isDoNotDisturbActive = vi.fn<() => Promise<boolean | undefined>>();
+vi.mock("./system-do-not-disturb.js", () => ({ systemDoNotDisturb: { isActive: isDoNotDisturbActive } }));
 
 await import("./ipc.js");
 
@@ -384,6 +386,20 @@ describe("system language IPC", () => {
         await callIpc("getSystemLanguages");
         expect(app.getPreferredSystemLanguages).toHaveBeenCalled();
         expect(send).toHaveBeenCalledWith("ipcReply", { id: 1, reply: ["pt-BR", "en-US"] });
+    });
+});
+
+describe("system Do Not Disturb IPC", () => {
+    it.each([
+        [true, true],
+        [false, false],
+        [undefined, null],
+    ])("answers %s from the system as %s", async (state, reply) => {
+        global.mainWindow = { webContents: { send } } as unknown as Electron.BrowserWindow;
+        isDoNotDisturbActive.mockResolvedValue(state);
+        send.mockClear();
+        await callIpc("getSystemDoNotDisturb");
+        expect(send).toHaveBeenCalledWith("ipcReply", { id: 1, reply });
     });
 });
 

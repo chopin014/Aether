@@ -31,7 +31,6 @@ import { leaveSpace } from "../../../utils/leave-behaviour";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import { type ButtonEvent } from "../elements/AccessibleButton";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
-import { BetaPill } from "../beta/BetaCard";
 import SettingsStore from "../../../settings/SettingsStore";
 import { useFeatureEnabled } from "../../../hooks/useSettings";
 import { Action } from "../../../dispatcher/actions";
@@ -200,9 +199,7 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
                         icon={<PlusIcon />}
                         label={desktopShellEnabled ? _t("common|voice_room") : _t("common|video_room")}
                         onClick={onNewVideoRoomClick}
-                    >
-                        <BetaPill />
-                    </IconizedContextMenuOption>
+                    />
                 )}
                 {canAddSubSpaces && (
                     <IconizedContextMenuOption
@@ -210,9 +207,7 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
                         icon={<PlusIcon />}
                         label={_t("common|space")}
                         onClick={onNewSubspaceClick}
-                    >
-                        <BetaPill />
-                    </IconizedContextMenuOption>
+                    />
                 )}
             </>
         );

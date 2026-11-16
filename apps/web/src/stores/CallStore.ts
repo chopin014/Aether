@@ -16,7 +16,7 @@ import { AsyncStoreWithClient } from "./AsyncStoreWithClient";
 import WidgetStore from "./WidgetStore";
 import SettingsStore from "../settings/SettingsStore";
 import { SettingLevel } from "../settings/SettingLevel";
-import { Call, CallEvent, ConnectionState } from "../models/Call";
+import { Call, CallEvent, ConnectionState, ElementCall } from "../models/Call";
 import SdkConfig from "../SdkConfig.ts";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { DesktopCallHandoff } from "../models/DesktopCallHandoff";
@@ -32,6 +32,8 @@ export enum CallStoreEvent {
     // - Set<Call> The set of calls the user is currently connected to
     // - Set<Call> The set of calls the user was connected to before this event
     ConnectedCalls = "connected_calls",
+    // Signals a change in the calls the user has asked to join and that have not connected yet.
+    JoiningCalls = "joining_calls",
     // Signals a change in the configured RTC transports.
     TransportsUpdated = "transports_updated",
 }
@@ -190,6 +192,9 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
                         this.connectedCalls = new Set([...this.connectedCalls].filter((c) => c !== call));
                     }
                 };
+                const onJoinRequested = (): void => {
+                    this.emit(CallStoreEvent.JoiningCalls);
+                };
                 const onDestroy = (): void => {
                     this.calls.delete(room.roomId);
                     for (const [event, listener] of this.callListeners.get(call)!) call.off(event, listener);
@@ -197,6 +202,7 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
                 };
 
                 call.on(CallEvent.ConnectionState, onConnectionState);
+                call.on(CallEvent.JoinRequested, onJoinRequested);
                 call.on(CallEvent.Destroy, onDestroy);
 
                 this.calls.set(room.roomId, call);
@@ -204,6 +210,7 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
                     call,
                     new Map<CallEvent, (...args: any[]) => unknown>([
                         [CallEvent.ConnectionState, onConnectionState],
+                        [CallEvent.JoinRequested, onJoinRequested],
                         [CallEvent.Destroy, onDestroy],
                     ]),
                 );
@@ -221,6 +228,18 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
      */
     public getCall(roomId: string): Call | null {
         return this.calls.get(roomId) ?? null;
+    }
+
+    /**
+     * The calls the user has asked to join that have not connected yet (see `ElementCall.joinRequested`). They are
+     * shown as joining from the click, while Element Call still loads and authorises.
+     */
+    public get joiningCalls(): Set<Call> {
+        return new Set(
+            [...this.calls.values()].filter(
+                (call) => call instanceof ElementCall && call.joinRequested && !this._connectedCalls.has(call),
+            ),
+        );
     }
 
     /**

@@ -19,6 +19,7 @@ import { RoomListItemHoverMenu } from "./RoomListItemHoverMenu";
 import { type Room, type RoomListItemViewModel } from "./RoomListItemView";
 import styles from "./RoomListItemView.module.css";
 import { VoiceChannelDuration } from "./VoiceChannelDuration";
+import { _t } from "../../../../core/i18n/i18n";
 
 /**
  * Props for {@link RoomListItemContent}.
@@ -114,6 +115,11 @@ export const RoomListItemContent = memo(function RoomListItemContent({
                     {item.messagePreview && !isChannel && (
                         <Text as="div" size="sm" className={styles.ellipsis} title={item.messagePreview}>
                             {item.messagePreview}
+                        </Text>
+                    )}
+                    {!item.messagePreview && !isChannel && item.memberCount !== undefined && (
+                        <Text as="div" size="sm" className={styles.ellipsis}>
+                            {_t("room_list|room|member_count", { count: item.memberCount })}
                         </Text>
                     )}
                 </div>

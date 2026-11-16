@@ -47,6 +47,7 @@ import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { SeshatIndexManager } from "./SeshatIndexManager";
 import { IPCManager } from "./IPCManager";
 import { watchWindowControlsTheme } from "./watchWindowControlsTheme";
+import { openMatrixLink } from "./openMatrixLink";
 import { _t } from "../../languageHandler";
 import { BadgeOverlayRenderer } from "../../favicon";
 import { GenericToast } from "@element-hq/web-shared-components";
@@ -161,6 +162,9 @@ export default class ElectronPlatform extends BasePlatform {
         this.electron.on("preferences", () => {
             dis.fire(Action.ViewUserSettings);
         });
+
+        // A matrix: link opened while the app runs; the desktop host has already checked it.
+        this.electron.on("openMatrixLink", (ev, hash) => openMatrixLink(hash));
 
         this.electron.on("userDownloadCompleted", (ev, { id, name }) => {
             const key = `DOWNLOAD_TOAST_${id}`;
@@ -519,6 +523,17 @@ export default class ElectronPlatform extends BasePlatform {
         } catch {
             // A desktop host from before this call existed answers with an error.
             return null;
+        }
+    }
+
+    /** Reads the system's Do Not Disturb state from the desktop host, where the desktop exposes it. */
+    public async isSystemDoNotDisturb(): Promise<boolean> {
+        try {
+            // The host answers null when it cannot read the state on this system.
+            return (await this.ipc.call("getSystemDoNotDisturb")) === true;
+        } catch {
+            // A desktop host from before this call existed answers with an error.
+            return false;
         }
     }
 

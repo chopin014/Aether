@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { expect, describe, it, beforeEach, vi } from "vitest";
+import { expect, describe, it, beforeEach, vi, type Mock } from "vitest";
 import { fs as memfs, vol } from "memfs";
 import EventEmitter from "node:events";
 import { app } from "electron";
@@ -26,6 +26,7 @@ vi.mock("electron", () => {
             getPath: vi.fn().mockReturnValue("/Users/name/Library/Application Support/Element"),
             getAppPath: vi.fn().mockReturnValue("/bin/element-desktop"),
             setAsDefaultProtocolClient: vi.fn(),
+            getApplicationNameForProtocol: vi.fn().mockReturnValue(""),
             on: emitter.on.bind(emitter),
             emit: emitter.emit.bind(emitter),
             removeAllListeners: emitter.removeAllListeners.bind(emitter),
@@ -133,9 +134,156 @@ describe("ProtocolHandler", () => {
         expect(global.mainWindow!.loadURL).not.toHaveBeenCalled();
     });
 
+    describe("matrix: links", () => {
+        const ROOM_LINK = "matrix:r/aether:example.org?via=example.org&action=join";
+        const ROOM_HASH = "#/room/%23aether%3Aexample.org?via=example.org";
+
+        /**
+         * @param appLoading - whether the app's own page is still loading.
+         * @param frameLoading - whether anything in the window is loading, such as a frame the running app embeds.
+         */
+        function stubWindow(
+            appLoading = false,
+            frameLoading = appLoading,
+        ): { loadURL: Mock; webContents: { isLoading: Mock; isLoadingMainFrame: Mock; send: Mock } } {
+            const window = {
+                loadURL: vi.fn(),
+                webContents: {
+                    isLoading: vi.fn().mockReturnValue(frameLoading),
+                    isLoadingMainFrame: vi.fn().mockReturnValue(appLoading),
+                    send: vi.fn(),
+                },
+            };
+            vi.stubGlobal("mainWindow", window);
+            return window;
+        }
+
+        it.each(["linux", "win32"] as const)(
+            "tells the running app on %s where to go, without reloading it",
+            (platform) => {
+                vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+                const window = stubWindow();
+                new ProtocolHandler(TEST_PROTOCOL);
+
+                app.emit("second-instance", new Event("test"), ["/opt/Aether/aether", "--no-sandbox", ROOM_LINK]);
+
+                expect(window.webContents.send).toHaveBeenCalledWith("openMatrixLink", ROOM_HASH);
+                expect(window.loadURL).not.toHaveBeenCalled();
+            },
+        );
+
+        it("routes a user and an event link", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+            const window = stubWindow();
+            new ProtocolHandler(TEST_PROTOCOL);
+
+            app.emit("second-instance", new Event("test"), ["/opt/Aether/aether", "matrix:u/alice:example.org"]);
+            app.emit("second-instance", new Event("test"), ["aether", "matrix:roomid/abc:example.org/e/ev%2F1"]);
+
+            expect(window.webContents.send.mock.calls).toEqual([
+                ["openMatrixLink", "#/user/%40alice%3Aexample.org"],
+                ["openMatrixLink", "#/room/!abc%3Aexample.org/%24ev%2F1"],
+            ]);
+        });
+
+        it("loads the app at the link while it is still starting", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+            const window = stubWindow(true);
+            new ProtocolHandler(TEST_PROTOCOL);
+
+            app.emit("second-instance", new Event("test"), ["/opt/Aether/aether", ROOM_LINK]);
+
+            expect(window.loadURL).toHaveBeenCalledWith(`vector://vector/webapp/${ROOM_HASH}`);
+            expect(window.webContents.send).not.toHaveBeenCalled();
+        });
+
+        it("does not reload the running app while a frame it embeds is loading", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+            const window = stubWindow(false, true);
+            new ProtocolHandler(TEST_PROTOCOL);
+
+            app.emit("second-instance", new Event("test"), ["/opt/Aether/aether", ROOM_LINK]);
+
+            expect(window.webContents.send).toHaveBeenCalledWith("openMatrixLink", ROOM_HASH);
+            expect(window.loadURL).not.toHaveBeenCalled();
+        });
+
+        it("opens a link on macOS", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+            const window = stubWindow();
+            new ProtocolHandler(TEST_PROTOCOL);
+
+            app.emit("open-url", new Event("test"), ROOM_LINK);
+
+            expect(window.webContents.send).toHaveBeenCalledWith("openMatrixLink", ROOM_HASH);
+        });
+
+        it.each([
+            "matrix:r/aether",
+            "matrix://evil.example/r/a:b.org",
+            "matrix:u/a%0A:b.org",
+            "matrix:r/a:b.org/e/%3Cscript%3E",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+        ])("ignores %s", (uri) => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+            const window = stubWindow();
+            new ProtocolHandler(TEST_PROTOCOL);
+
+            app.emit("second-instance", new Event("test"), ["/opt/Aether/aether", uri]);
+
+            expect(window.webContents.send).not.toHaveBeenCalled();
+            expect(window.loadURL).not.toHaveBeenCalled();
+        });
+
+        it("ignores a second instance started with no link", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+            const window = stubWindow();
+            new ProtocolHandler(TEST_PROTOCOL);
+
+            app.emit("second-instance", new Event("test"), ["/opt/Aether/aether"]);
+
+            expect(window.webContents.send).not.toHaveBeenCalled();
+        });
+
+        it("loads the app at a link it was started with", () => {
+            const window = stubWindow();
+            const handler = new ProtocolHandler(TEST_PROTOCOL);
+
+            const hasDeeplink = handler.initialise({
+                userDataPath: "/data",
+                devtools: false,
+                update: false,
+                hidden: false,
+                positional: ["/opt/Aether/aether", "matrix:u/alice:example.org"],
+            });
+
+            expect(hasDeeplink).toBe(true);
+            expect(window.loadURL).toHaveBeenCalledWith("vector://vector/webapp/#/user/%40alice%3Aexample.org");
+        });
+
+        it("starts normally when the start link is malformed", () => {
+            const window = stubWindow();
+            const handler = new ProtocolHandler(TEST_PROTOCOL);
+
+            const hasDeeplink = handler.initialise({
+                userDataPath: "/data",
+                devtools: false,
+                update: false,
+                hidden: false,
+                positional: ["/opt/Aether/aether", "matrix:u/alice"],
+            });
+
+            expect(hasDeeplink).toBe(false);
+            expect(window.loadURL).not.toHaveBeenCalled();
+        });
+    });
+
     describe("initialise", () => {
         beforeEach(() => {
             vi.spyOn(process, "execPath", "get").mockReturnValue("/bin/element-desktop");
+            vi.mocked(app.setAsDefaultProtocolClient).mockClear();
+            vi.mocked(app.getApplicationNameForProtocol).mockReturnValue("");
         });
 
         it("should set as default protocol client", () => {
@@ -151,6 +299,57 @@ describe("ProtocolHandler", () => {
             const args = ["--no-update"];
             expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith(TEST_PROTOCOL, "/bin/element-desktop", args);
             expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("element", "/bin/element-desktop", args);
+            expect(app.getApplicationNameForProtocol).toHaveBeenCalledWith("matrix:");
+            expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("matrix", "/bin/element-desktop", args);
+        });
+
+        it("leaves matrix: links to another app that already opens them", () => {
+            vi.mocked(app.getApplicationNameForProtocol).mockReturnValue("Element");
+            const handler = new ProtocolHandler(TEST_PROTOCOL);
+            handler.initialise({
+                userDataPath: USER_DATA_DIR,
+                devtools: false,
+                update: false,
+                hidden: false,
+                positional: ["/bin/element-desktop"],
+            });
+
+            expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith(TEST_PROTOCOL, "/bin/element-desktop", [
+                "--no-update",
+            ]);
+            expect(app.setAsDefaultProtocolClient).not.toHaveBeenCalledWith(
+                "matrix",
+                expect.anything(),
+                expect.anything(),
+            );
+        });
+
+        it("never registers a development build for matrix: links", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+            (app as { isPackaged: boolean }).isPackaged = false;
+            try {
+                const handler = new ProtocolHandler(TEST_PROTOCOL);
+                handler.initialise({
+                    userDataPath: USER_DATA_DIR,
+                    devtools: false,
+                    update: false,
+                    hidden: false,
+                    positional: ["/bin/element-desktop"],
+                });
+            } finally {
+                (app as { isPackaged: boolean }).isPackaged = true;
+            }
+
+            expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith(
+                TEST_PROTOCOL,
+                "/bin/element-desktop",
+                expect.anything(),
+            );
+            expect(app.setAsDefaultProtocolClient).not.toHaveBeenCalledWith(
+                "matrix",
+                expect.anything(),
+                expect.anything(),
+            );
         });
 
         it("should handle deeplink", () => {

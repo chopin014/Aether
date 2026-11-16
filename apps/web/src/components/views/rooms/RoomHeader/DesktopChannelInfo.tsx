@@ -58,7 +58,10 @@ function DirectMessageName({ heading, member }: { heading: ReactNode; member: Ro
 function ChannelInfo({ room, heading, topic }: Omit<Props, "dmMember">): JSX.Element {
     const client = useMatrixClientContext();
     const [open, setOpen] = useState(false);
-    const item = useCreateAutoDisposedViewModel(() => new RoomListItemViewModel({ room, client }));
+    // The header's menu is the full channel menu, wherever the room is listed.
+    const item = useCreateAutoDisposedViewModel(
+        () => new RoomListItemViewModel({ room, client, isServerChannel: true }),
+    );
     // The item owns its menu, so StrictMode recreates both together.
     const menu = item.getChannelMenu();
     useDispatcher(defaultDispatcher, (payload) => {

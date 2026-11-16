@@ -84,22 +84,60 @@ export async function setDesktopVoiceSoundEnabled(
 
 let activeCue: { sound: DesktopVoiceSound; audio: HTMLAudioElement } | undefined;
 
-/** Loaded cues, kept so that playing one later does not wait for its file to be read and decoded. */
+/**
+ * Loaded cues, one element each, kept and replayed so that a cue never waits for its file to be read, decoded or
+ * routed to the output device.
+ */
 const preloaded = new Map<DesktopVoiceSound, HTMLAudioElement>();
 
-/** Load the cues a call is about to need, so the join sound starts the moment the call connects. */
+/** Each cue's routing to an output device, so that preloading and playing share one request. */
+const routing = new WeakMap<HTMLAudioElement, { output: string; done: Promise<void> }>();
+
+/** Whether a cue already plays through the given output device. */
+const isRouted = (audio: HTMLAudioElement, output: string): boolean => !audio.setSinkId || audio.sinkId === output;
+
+/** Routes a cue to the selected output device; an empty ID is the system default. */
+function routeCue(audio: HTMLAudioElement, output: string): Promise<void> {
+    const current = routing.get(audio);
+    if (current?.output === output) return current.done;
+    const done = (async (): Promise<void> => {
+        if (isRouted(audio, output)) return;
+        try {
+            await audio.setSinkId(output);
+        } catch (error) {
+            logger.debug("Could not route desktop voice cue; using default output", error);
+        }
+    })();
+    routing.set(audio, { output, done });
+    return done;
+}
+
+/** The output device cues play through: the user's choice, or the system default. */
+const cueOutput = (): string => MediaDeviceHandler.getAudioOutput() ?? "";
+
+/**
+ * Load the cues a call is about to need, already routed to the output device, so a cue starts in the same task as
+ * the click or state change it answers, ahead of whatever work that click goes on to do.
+ */
 export function preloadDesktopVoiceSounds(cues: DesktopVoiceSound[] = ["join", "leave", "mute", "unmute"]): void {
     for (const sound of cues) {
         if (preloaded.has(sound)) continue;
         try {
-            const audio = new Audio(sounds[sound]);
-            audio.preload = "auto";
-            audio.load();
-            preloaded.set(sound, audio);
+            loadCue(sound);
         } catch (error) {
             logger.debug("Could not preload desktop voice cue", error);
         }
     }
+}
+
+/** Loads a cue, starts routing it to the output device, and keeps it for every later play. */
+function loadCue(sound: DesktopVoiceSound): HTMLAudioElement {
+    const audio = new Audio(sounds[sound]);
+    audio.preload = "auto";
+    audio.load();
+    void routeCue(audio, cueOutput());
+    preloaded.set(sound, audio);
+    return audio;
 }
 
 function interruptCue(): void {
@@ -127,9 +165,9 @@ export async function playDesktopVoiceSound(sound: DesktopVoiceSound, { preview 
     interruptCue();
     const started = performance.now();
     try {
-        // A preloaded cue is used once, so it is already read and decoded; preparation loads another.
-        const audio = preloaded.get(sound) ?? new Audio(sounds[sound]);
-        preloaded.delete(sound);
+        // A loaded cue is replayed from the start: it is already read, decoded and routed.
+        const audio = preloaded.get(sound) ?? loadCue(sound);
+        audio.currentTime = 0;
         const cue = { sound, audio };
         activeCue = cue;
         audio.volume = 0.5;
@@ -137,19 +175,20 @@ export async function playDesktopVoiceSound(sound: DesktopVoiceSound, { preview 
             if (activeCue === cue) activeCue = undefined;
         };
         audio.onended = release;
-        audio.onerror = release;
-        const output = MediaDeviceHandler.getAudioOutput();
-        if (output && audio.setSinkId) {
-            try {
-                await audio.setSinkId(output);
-            } catch (error) {
-                logger.debug("Could not route desktop voice cue; using default output", error);
-            }
-        }
-        // Device selection can resolve after another action, or long after the state it describes.
-        if (activeCue !== cue || performance.now() - started > 1000) {
+        audio.onerror = (): void => {
+            // A cue that failed to load is loaded afresh next time.
+            if (preloaded.get(sound) === audio) preloaded.delete(sound);
             release();
-            return;
+        };
+        // A routed cue starts without waiting, in the same task as what it answers; another one is routed first.
+        const output = cueOutput();
+        if (!isRouted(audio, output)) {
+            await routeCue(audio, output);
+            // Device selection can resolve after another action, or long after the state it describes.
+            if (activeCue !== cue || performance.now() - started > 1000) {
+                release();
+                return;
+            }
         }
         try {
             await audio.play();

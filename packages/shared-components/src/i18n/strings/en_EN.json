@@ -773,11 +773,14 @@
             }
         },
         "server_menu": {
+            "devtools": "View timeline (devtools)",
+            "leave": "Leave server",
             "mark_read": "Mark as read",
             "mute": "Mute server",
             "notification_settings": "Notification settings",
             "notify_all": "All messages",
             "notify_mentions": "Only @mentions",
+            "settings": "Server settings",
             "unmute": "Unmute server"
         },
         "server_voice_activity": {
@@ -858,6 +861,15 @@
         "topic_dialog": {
             "edit": "Edit topic",
             "label": "Topic"
+        },
+        "unread_conversations": {
+            "label": "Unread conversations",
+            "mark_read": "Mark as read",
+            "mute": "Mute conversation",
+            "unread": {
+                "one": "%(name)s, %(count)s unread message",
+                "other": "%(name)s, %(count)s unread messages"
+            }
         },
         "updates": {
             "background_description": "Aether checks for new versions automatically and downloads them in the background.",
@@ -1312,6 +1324,10 @@
         "open_space_menu": "Open server menu",
         "primary_filters": "Room list filters",
         "room": {
+            "member_count": {
+                "one": "%(count)s member",
+                "other": "%(count)s members"
+            },
             "more_options": "More Options"
         },
         "room_options": "Room Options",

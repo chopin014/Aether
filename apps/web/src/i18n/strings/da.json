@@ -2989,7 +2989,7 @@
             "one": "Set af %(count)s person",
             "other": "Set af %(count)s personer"
         },
-        "read_receipts_label": "Kvitteringer​•​for​•​læsning",
+        "read_receipts_label": "Kvitteringer for læsning",
         "redacted": {
             "tooltip": "Besked slettet d. %(date)s"
         },

@@ -141,14 +141,12 @@ export class RootCallTileViewModel extends BaseViewModel<RootCallTileViewSnapsho
             this.onCallStoreEvent as (...args: unknown[]) => void,
         );
 
-        // Recompute the state when the latest rtc notification event in this room changes
+        // Recompute the state when the latest rtc notification event in this room changes: this tile may have become
+        // the latest, or stopped being it, in which case a call started again in the room is no longer this one.
         this.disposables.trackListener(this.props.latestRtcNotificationEventStore, LatestRtcNotificationEventUpdate, ((
             roomId: string,
-            eventId: string,
         ) => {
-            if (roomId === this.props.mxEvent.getRoomId() && eventId === this.props.mxEvent.getId()) {
-                this.recomputeSnapshot();
-            }
+            if (roomId === this.props.mxEvent.getRoomId()) this.recomputeSnapshot();
         }) as (...args: unknown[]) => void);
     }
 

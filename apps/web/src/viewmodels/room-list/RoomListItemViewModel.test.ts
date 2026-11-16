@@ -36,7 +36,8 @@ import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
-import { CallEvent, type Call } from "../../models/Call";
+import { CallEvent, ConnectionState, ElementCall, type Call } from "../../models/Call";
+import { emptyCallConnectionStats } from "../../models/CallConnectionStats";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
 import * as RoomNotifs from "../../RoomNotifs";
 import { RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
@@ -53,10 +54,14 @@ import RightPanelStore from "../../stores/right-panel/RightPanelStore";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
-import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { prepareCallInBackground, prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { type RoomViewStore } from "../../stores/RoomViewStore";
 import { VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
 
-vi.mock("../../components/views/voip/prepareElementCall", () => ({ prepareCallSoon: vi.fn() }));
+vi.mock("../../components/views/voip/prepareElementCall", () => ({
+    prepareCallSoon: vi.fn(),
+    prepareCallInBackground: vi.fn(),
+}));
 vi.mock("../desktop/VoiceUserMenuViewModel", () => ({
     VoiceUserMenuViewModel: class {
         public constructor(private readonly props: { userId: string }) {}
@@ -152,7 +157,7 @@ describe("RoomListItemViewModel", () => {
             });
             const open = vi.spyOn(store, "isOpen", "get").mockReturnValue(true);
             const dispatch = vi.spyOn(dispatcher, "dispatch");
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().activeThread).toMatchObject({ id: "$thread", title: "Release planning" });
             viewModel.onOpenActiveThread();
             expect(dispatch).toHaveBeenCalledWith({ action: Action.ShowThread, rootEvent: root });
@@ -180,9 +185,24 @@ describe("RoomListItemViewModel", () => {
             expect(root.listenerCount(MatrixEventEvent.Replaced)).toBe(0);
         });
 
+        it("shows a room outside a server as a conversation, with how many people are in it", () => {
+            vi.spyOn(room, "getJoinedMemberCount").mockReturnValue(5);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot()).toMatchObject({ channelKind: undefined, memberCount: 5 });
+
+            vi.mocked(room.getJoinedMemberCount).mockReturnValue(6);
+            room.emit(RoomStateEvent.Members, new MatrixEvent(), room.currentState, null as never);
+            expect(viewModel.getSnapshot().memberCount).toBe(6);
+        });
+
+        it("gives a server's channels and direct messages no member count", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
+            expect(viewModel.getSnapshot()).toMatchObject({ channelKind: "text", memberCount: undefined });
+        });
+
         it("uses the room avatar as the channel icon and follows its changes", () => {
             const avatar = vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue(null);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().channelIconUrl).toBeUndefined();
 
             avatar.mockReturnValue("mxc://example.org/icon");
@@ -199,7 +219,7 @@ describe("RoomListItemViewModel", () => {
 
         it("offers channel editing only to those who may rename the room", () => {
             const maySend = vi.spyOn(room.currentState, "maySendStateEvent").mockReturnValue(false);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().canEditChannel).toBe(false);
 
             maySend.mockReturnValue(true);
@@ -221,7 +241,7 @@ describe("RoomListItemViewModel", () => {
             [JoinRule.Public, false],
         ])("marks a channel with the %s join rule as private: %s", (joinRule, isPrivate) => {
             vi.spyOn(room, "getJoinRule").mockReturnValue(joinRule);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().isPrivateChannel).toBe(isPrivate);
         });
 
@@ -229,7 +249,7 @@ describe("RoomListItemViewModel", () => {
             vi.spyOn(notificationState, "isMention", "get").mockReturnValue(true);
             vi.spyOn(notificationState, "count", "get").mockReturnValue(12);
             const unread = vi.spyOn(RoomNotifs, "getUnreadNotificationCount").mockReturnValue(2);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().mentionCount).toBe(2);
             expect(unread).toHaveBeenCalledWith(room, NotificationCountType.Highlight, true);
 
@@ -240,7 +260,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("follows the room's notification level when it changes elsewhere", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             const echo = EchoChamber.forRoom(room);
             vi.spyOn(echo, "notificationVolume", "get").mockReturnValue(ElementRoomNotifState.Mute);
             echo.emit(PROPERTY_UPDATED);
@@ -250,20 +270,20 @@ describe("RoomListItemViewModel", () => {
         it("follows a channel's mention count when only that count changes", () => {
             vi.spyOn(notificationState, "isMention", "get").mockReturnValue(true);
             const unread = vi.spyOn(RoomNotifs, "getUnreadNotificationCount").mockReturnValue(1);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             unread.mockReturnValue(2);
             room.emit(RoomEvent.UnreadNotifications);
             expect(viewModel.getSnapshot().mentionCount).toBe(2);
         });
 
         it("has no mention count without a mention", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().mentionCount).toBeUndefined();
         });
 
         it("follows a channel's join rule as it changes", () => {
             const joinRule = vi.spyOn(room, "getJoinRule").mockReturnValue(JoinRule.Restricted);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().isPrivateChannel).toBe(false);
 
             joinRule.mockReturnValue(JoinRule.Invite);
@@ -278,7 +298,7 @@ describe("RoomListItemViewModel", () => {
 
         it("opens the channel's general settings to edit it", () => {
             const dispatch = vi.spyOn(dispatcher, "dispatch");
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             viewModel.onEditChannel();
             expect(dispatch).toHaveBeenCalledWith({
                 action: "open_room_settings",
@@ -288,7 +308,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("shares one channel menu per item, built on this item's actions", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             const menu = viewModel.getChannelMenu();
             expect(viewModel.getChannelMenu()).toBe(menu);
             expect(menu.getSnapshot()).toMatchObject({ name: room.name, kind: "text" });
@@ -297,7 +317,7 @@ describe("RoomListItemViewModel", () => {
         it("leaves direct messages without a channel icon or edit entry", () => {
             vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue("@alice:server");
             vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue("mxc://example.org/alice");
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot()).toMatchObject({
                 channelIconUrl: undefined,
                 canEditChannel: false,
@@ -326,7 +346,7 @@ describe("RoomListItemViewModel", () => {
             memberships,
         } as unknown as ReturnType<MatrixClient["matrixRTC"]["getRoomSession"]>);
 
-        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
         expect(viewModel.getSnapshot().callStartedAt).toBe(1_000);
 
         call.participants.clear();
@@ -366,7 +386,7 @@ describe("RoomListItemViewModel", () => {
             memberships: [{ createdTs: () => 3_000 }],
         } as unknown as ReturnType<MatrixClient["matrixRTC"]["getRoomSession"]>);
 
-        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
         expect(viewModel.getSnapshot().callStartedAt).toBe(1_000);
     });
 
@@ -386,7 +406,7 @@ describe("RoomListItemViewModel", () => {
             voiceStates: new Map<string, VoiceState>(),
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
-        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
         expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({ isMuted: false, isDeafened: false });
 
         const published = new MatrixEvent({
@@ -420,7 +440,7 @@ describe("RoomListItemViewModel", () => {
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
         const preferences = VoiceUserPreferences.instance;
         const get = vi.spyOn(preferences, "get");
-        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
         expect(viewModel.getSnapshot().callParticipants?.[0].isLocallyMuted).toBe(false);
 
         get.mockReturnValue({ volume: 1, muted: true, soundboardMuted: false, videoDisabled: false });
@@ -439,6 +459,48 @@ describe("RoomListItemViewModel", () => {
         viewModel.openCallParticipantMenu(alice.userId);
         viewModel.dispose();
         expect(preferences.listenerCount(VoiceUserPreferencesEvent.Changed)).toBe(0);
+    });
+
+    it("lists the user, dimmed, from the moment they ask to join until their media connects", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const me = new RoomMember(room.roomId, matrixClient.getUserId()!);
+        me.name = "Me";
+        vi.spyOn(room, "getMember").mockImplementation((userId) => (userId === me.userId ? me : null));
+        // A call as the store sees it, with Element Call's own state getters and nothing behind them.
+        const call = Object.defineProperties(Object.create(ElementCall.prototype), {
+            participants: { value: new Map(), writable: true },
+            callType: { value: CallType.Voice },
+            speakingUserIds: { value: new Set<string>() },
+            soundboardUserIds: { value: new Set<string>() },
+            voiceStates: { value: new Map<string, VoiceState>() },
+            localLeavePending: { value: false, writable: true },
+            _joinRequested: { value: false, writable: true },
+            _connectionState: { value: ConnectionState.Disconnected, writable: true },
+            _connectionStats: { value: emptyCallConnectionStats("disconnected"), writable: true },
+        });
+        // The fixture's private state, which Element Call itself updates in the app.
+        const state = call as { _joinRequested: boolean; _connectionStats: unknown };
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as ElementCall);
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
+        expect(viewModel.getSnapshot().callParticipants).toEqual([]);
+
+        state._joinRequested = true;
+        call.emit(CallEvent.JoinRequested, true);
+        expect(viewModel.getSnapshot().callParticipants).toEqual([
+            expect.objectContaining({ userId: me.userId, name: "Me", isConnecting: true }),
+        ]);
+
+        state._connectionStats = emptyCallConnectionStats("connected");
+        call.emit(CallEvent.ConnectionStats, state._connectionStats);
+        expect(viewModel.getSnapshot().callParticipants?.[0].isConnecting).toBeUndefined();
+
+        state._joinRequested = false;
+        call.emit(CallEvent.JoinRequested, false);
+        expect(viewModel.getSnapshot().callParticipants).toEqual([]);
     });
 
     it("shows distinct call members before joining and updates every join and leave", () => {
@@ -461,7 +523,7 @@ describe("RoomListItemViewModel", () => {
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
         const profileListeners = room.listeners(RoomStateEvent.Members);
-        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
         expect(viewModel.getSnapshot().callParticipants).toEqual([
             {
                 userId: alice.userId,
@@ -537,7 +599,7 @@ describe("RoomListItemViewModel", () => {
             });
         const firstCall = makeCall();
         vi.mocked(CallStore.instance.getCall).mockReturnValue(firstCall as unknown as Call);
-        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
         expect(viewModel.getSnapshot().callParticipants?.[0].isSpeaking).toBe(true);
         const secondCall = makeCall();
         vi.mocked(CallStore.instance.getCall).mockReturnValue(secondCall as unknown as Call);
@@ -566,7 +628,7 @@ describe("RoomListItemViewModel", () => {
             );
             vi.spyOn(room, "isCallRoom").mockReturnValue(isCall);
             vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue(isDm ? "@bob:server" : undefined);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().channelKind).toBe(kind);
         });
 
@@ -580,13 +642,18 @@ describe("RoomListItemViewModel", () => {
             );
             vi.spyOn(room, "isCallRoom").mockReturnValue(isCall);
             vi.mocked(prepareCallSoon).mockClear();
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            vi.mocked(prepareCallInBackground).mockClear();
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
+            // A voice channel in view gets its call token when idle, and at once when pointed at.
+            expect(prepareCallInBackground).toHaveBeenCalledTimes(preparations);
+            if (isCall) expect(prepareCallInBackground).toHaveBeenCalledWith(room);
             viewModel.onIntentToOpen();
             expect(prepareCallSoon).toHaveBeenCalledTimes(preparations);
+            if (isCall) expect(prepareCallSoon).toHaveBeenCalledWith(room);
         });
 
         it("should initialize with room data", async () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             // Wait for async initialization
             await flushPromises();
@@ -603,7 +670,7 @@ describe("RoomListItemViewModel", () => {
                 text: "Hello world!",
             } as MessagePreview);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             // Wait for async message preview load
             await flushPromises();
@@ -614,7 +681,7 @@ describe("RoomListItemViewModel", () => {
         it("should not load message preview when disabled", async () => {
             vi.spyOn(SettingsStore, "getValue").mockReturnValue(false);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -627,7 +694,7 @@ describe("RoomListItemViewModel", () => {
             vi.spyOn(notificationState, "hasAnyNotificationOrActivity", "get").mockReturnValue(true);
             vi.spyOn(notificationState, "count", "get").mockReturnValue(5);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -640,14 +707,14 @@ describe("RoomListItemViewModel", () => {
             vi.spyOn(notificationState, "count", "get").mockReturnValue(4);
             vi.spyOn(notificationState, "countIsLowerBound", "get").mockReturnValue(true);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             await flushPromises();
 
             expect(viewModel.getSnapshot().notification).toMatchObject({ count: 4, countIsLowerBound: true });
         });
 
         it("should update when notification state changes", async () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
             expect(viewModel.getSnapshot().notification.count).toBe(0);
@@ -662,7 +729,7 @@ describe("RoomListItemViewModel", () => {
         it("should show bold text when has notifications", async () => {
             vi.spyOn(notificationState, "hasAnyNotificationOrActivity", "get").mockReturnValue(true);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -672,7 +739,7 @@ describe("RoomListItemViewModel", () => {
         it("should show mention badge", async () => {
             vi.spyOn(notificationState, "isMention", "get").mockReturnValue(true);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -682,7 +749,7 @@ describe("RoomListItemViewModel", () => {
         it("should show invitation state", async () => {
             vi.spyOn(notificationState, "invited", "get").mockReturnValue(true);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -697,7 +764,7 @@ describe("RoomListItemViewModel", () => {
                 text: "Initial message",
             } as MessagePreview);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
             expect(viewModel.getSnapshot().messagePreview).toBe("Initial message");
@@ -726,7 +793,7 @@ describe("RoomListItemViewModel", () => {
                 text: "Test message",
             } as MessagePreview);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
             expect(viewModel.getSnapshot().messagePreview).toBeUndefined();
@@ -744,7 +811,7 @@ describe("RoomListItemViewModel", () => {
         it("should reflect favorite tag", async () => {
             room.tags = { [DefaultTagID.Favourite]: { order: 0 } };
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -754,7 +821,7 @@ describe("RoomListItemViewModel", () => {
         it("should reflect low priority tag", async () => {
             room.tags = { [DefaultTagID.LowPriority]: { order: 0 } };
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -763,7 +830,7 @@ describe("RoomListItemViewModel", () => {
 
         it("should update when room tags change", async () => {
             room.tags = {};
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
             expect(viewModel.getSnapshot().isFavourite).toBe(false);
@@ -790,7 +857,7 @@ describe("RoomListItemViewModel", () => {
 
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(mockCall);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -807,7 +874,7 @@ describe("RoomListItemViewModel", () => {
 
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(mockCall);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -824,7 +891,7 @@ describe("RoomListItemViewModel", () => {
 
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(mockCall);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -840,7 +907,7 @@ describe("RoomListItemViewModel", () => {
             };
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(mockCall as unknown as Call);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().notification.callType).toBeUndefined();
 
             // Get the callback registered for call state changes
@@ -867,7 +934,7 @@ describe("RoomListItemViewModel", () => {
             };
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(mockCall as unknown as Call);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             // Trigger onCallStateChanged so the call is tracked and the participant listener is registered
             const mockCalls = (CallStore.instance.on as Mock).mock.calls;
@@ -897,7 +964,7 @@ describe("RoomListItemViewModel", () => {
             };
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(mockCall as unknown as Call);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().notification.callType).toBeUndefined();
 
             // Simulate participant joining
@@ -925,7 +992,7 @@ describe("RoomListItemViewModel", () => {
             };
 
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(firstCall as unknown as Call);
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             // Trigger onCallStateChanged to register the first call
             const mockCalls = (CallStore.instance.on as Mock).mock.calls;
@@ -956,7 +1023,7 @@ describe("RoomListItemViewModel", () => {
             })() as unknown as Call;
             vi.spyOn(CallStore.instance, "getCall").mockReturnValue(mockCall);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             await flushPromises();
 
             expect(viewModel.getSnapshot().notification.callType).toBe("voice");
@@ -970,7 +1037,7 @@ describe("RoomListItemViewModel", () => {
 
     describe("Room name updates", () => {
         it("should update when room name changes", async () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
             expect(viewModel.getSnapshot().name).toBe("Test Room");
@@ -988,7 +1055,7 @@ describe("RoomListItemViewModel", () => {
             const dmRoomMap = DMRoomMap.shared();
             vi.spyOn(dmRoomMap, "getUserIdForRoomId").mockReturnValue("@user:server");
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -1001,7 +1068,7 @@ describe("RoomListItemViewModel", () => {
             const dmRoomMap = DMRoomMap.shared();
             vi.spyOn(dmRoomMap, "getUserIdForRoomId").mockReturnValue(undefined);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             await flushPromises();
 
@@ -1011,8 +1078,29 @@ describe("RoomListItemViewModel", () => {
     });
 
     describe("Actions", () => {
+        let joinVoiceChannel: Mock;
+        beforeEach(async () => {
+            // The real store would also answer the room views these tests dispatch, without a logged-in client.
+            const { SDKContextClass } = await import("../../contexts/SDKContextClass");
+            joinVoiceChannel = vi.fn().mockReturnValue(false);
+            vi.spyOn(SDKContextClass.instance, "roomViewStore", "get").mockReturnValue({
+                joinVoiceChannel,
+            } as unknown as RoomViewStore);
+        });
+
+        it("joins a voice channel the store takes on, without opening it", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
+            joinVoiceChannel.mockReturnValue(true);
+            const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+
+            viewModel.onOpenRoom();
+
+            expect(joinVoiceChannel).toHaveBeenCalledWith(room);
+            expect(dispatchSpy).not.toHaveBeenCalled();
+        });
+
         it("should dispatch view room action on openRoom at once", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
 
@@ -1029,7 +1117,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("should dispatch view room action on openRoom after one dispatched earlier that still waits", async () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             // As when the keyboard has asked for another room, which this one must replace.
             dispatcher.dispatch({ action: Action.ViewRoom, room_id: "!other:server" });
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
@@ -1042,7 +1130,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("should dispatch view room action on openRoom at once while only the click's user activity waits", async () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             dispatcher.dispatch({ action: Action.UserActivity });
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
 
@@ -1054,7 +1142,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("should dispatch view room action on openRoom after anything else dispatched earlier that still waits", async () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             // As when a room above or below was asked for with the keyboard, or a draft is still to be cleared.
             dispatcher.dispatch({ action: Action.UserActivity });
             dispatcher.dispatch({ action: Action.ViewRoomDelta, delta: 1, unread: false });
@@ -1068,7 +1156,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("should dispatch view room action on openRoom after a dispatch under way", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             vi.spyOn(dispatcher, "isDispatching").mockReturnValue(true);
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
 
@@ -1078,13 +1166,13 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("should return room object", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             expect(viewModel.getSnapshot().room).toBe(room);
         });
 
         it("should dispatch view_invite action when onInvite is called", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch");
 
             viewModel.onInvite();
@@ -1096,7 +1184,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("should dispatch copy_room action when onCopyRoomLink is called", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch");
 
             viewModel.onCopyRoomLink();
@@ -1109,7 +1197,7 @@ describe("RoomListItemViewModel", () => {
 
         it("should dispatch leave_room action when onLeaveRoom is called for normal room", () => {
             room.tags = {};
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch");
 
             viewModel.onLeaveRoom();
@@ -1123,7 +1211,7 @@ describe("RoomListItemViewModel", () => {
         it("should dispatch forget_room action when onLeaveRoom is called for archived room", () => {
             room.tags = { [DefaultTagID.Archived]: { order: 0 } };
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             const dispatchSpy = vi.spyOn(dispatcher, "dispatch");
 
             viewModel.onLeaveRoom();
@@ -1140,7 +1228,7 @@ describe("RoomListItemViewModel", () => {
                 .mockResolvedValue("element.io.section.work");
             const tagRoomSpy = vi.spyOn(tagRoomModule, "tagRoom").mockImplementation(() => {});
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             await viewModel.onCreateSection();
 
             expect(createSectionSpy).toHaveBeenCalledWith(room.roomId);
@@ -1150,7 +1238,7 @@ describe("RoomListItemViewModel", () => {
 
         it("should call tagRoom when onToggleSection is called", () => {
             const tagRoomSpy = vi.spyOn(tagRoomModule, "tagRoom").mockImplementation(() => {});
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             viewModel.onToggleSection(DefaultTagID.Favourite);
 
@@ -1171,7 +1259,7 @@ describe("RoomListItemViewModel", () => {
         });
 
         it("should include sections from orderedSectionTags excluding CHATS_TAG, favourite, and low priority", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             const sections = viewModel.getSnapshot().sections;
             expect(sections.map((s) => s.tag)).toEqual([customTag]);
@@ -1180,7 +1268,7 @@ describe("RoomListItemViewModel", () => {
         it("should mark the room current section as selected", () => {
             room.tags = { [customTag]: { order: 0 } };
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             const sections = viewModel.getSnapshot().sections;
             expect(sections.find((s) => s.tag === customTag)?.isSelected).toBe(true);
@@ -1192,7 +1280,7 @@ describe("RoomListItemViewModel", () => {
                     return { [customTag]: { name: "My Custom Section", tag: customTag } };
                 return false;
             });
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             const section = viewModel.getSnapshot().sections.find((s) => s.tag === customTag);
             expect(section?.name).toBe("My Custom Section");
@@ -1205,7 +1293,7 @@ describe("RoomListItemViewModel", () => {
                 return "watcher-id";
             });
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().sections).toHaveLength(1);
 
             // Simulate reordering: custom section removed
@@ -1225,7 +1313,7 @@ describe("RoomListItemViewModel", () => {
                 return false;
             });
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().areSectionsEnabled).toBe(true);
         });
 
@@ -1236,7 +1324,7 @@ describe("RoomListItemViewModel", () => {
                 return "watcher-id";
             });
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().areSectionsEnabled).toBe(false);
 
             // Enable sections
@@ -1255,14 +1343,14 @@ describe("RoomListItemViewModel", () => {
         ])("should set canChangeSection to $expected when membership is $membership", ({ membership, expected }) => {
             vi.spyOn(room, "getMyMembership").mockReturnValue(membership);
 
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
             expect(viewModel.getSnapshot().canChangeSection).toBe(expected);
         });
     });
 
     describe("Cleanup", () => {
         it("should unsubscribe from all events on dispose", () => {
-            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
 
             const offSpy = vi.spyOn(notificationState, "off");
 

@@ -27,6 +27,7 @@ const {
     Invitation,
     UnsentMessage,
     NoMessagePreview,
+    GroupConversation,
     WithHoverMenu,
     WithoutHoverMenu,
     DesktopVoiceParticipantSpeaking,
@@ -44,6 +45,14 @@ const {
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
+    it("says how many people are in a group conversation, unless a message preview shows", () => {
+        const { rerender } = render(<GroupConversation />);
+        expect(screen.getByText("5 members")).toBeVisible();
+        rerender(<GroupConversation messagePreview="Alice: see you" />);
+        expect(screen.queryByText("5 members")).not.toBeInTheDocument();
+        rerender(<GroupConversation memberCount={1} />);
+        expect(screen.getByText("1 member")).toBeVisible();
+    });
     it("focuses the active thread independently from opening its parent channel", async () => {
         const onOpen = vi.fn();
         const onRoom = vi.fn();
@@ -333,6 +342,20 @@ describe("<RoomListItemView />", () => {
         const participant = within(screen.getByRole("button", { name: label }));
         expect(!!participant.queryByTestId("participant-muted")).toBe(isMuted);
         expect(!!participant.queryByTestId("participant-deafened")).toBe(isDeafened);
+    });
+
+    it("marks the user as still connecting, and nobody else", () => {
+        render(
+            <Default
+                channelKind="voice"
+                callParticipants={[
+                    { userId: "@me:example.org", name: "Me", isConnecting: true },
+                    { userId: "@alice:example.org", name: "Alice" },
+                ]}
+            />,
+        );
+        expect(screen.getByRole("button", { name: "Me" })).toHaveAttribute("data-connecting", "true");
+        expect(screen.getByRole("button", { name: "Alice" })).not.toHaveAttribute("data-connecting");
     });
 
     it("shows no speaking indicator when everyone is silent", () => {

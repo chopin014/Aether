@@ -656,8 +656,12 @@ body.mx_DesktopShell [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-serve
             width: calc(var(--mx-desktop-rail-icon) + 2 * var(--mx-desktop-rail-inset));
         }
 
-        /* Discord's divider between Home and the servers. */
-        .mx_SpaceItem_meta:not(:has(~ .mx_SpaceItem_meta))::after {
+        /*
+         * Discord's divider between Home and the servers, below the unread conversations under Home when there are
+         * any.
+         */
+        .mx_SpaceItem_meta:not(:has(~ .mx_SpaceItem_meta)):not(:has(+ .mx_DesktopShell_unreadConversations))::after,
+        .mx_DesktopShell_unreadConversations::after {
             content: "";
             display: block;
             width: 32px;
@@ -1831,24 +1835,33 @@ body.mx_DesktopShell [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-serve
 body.mx_DesktopShell .mx_RoomView_conversationCallStage {
     flex: 0 0 auto;
     min-height: 0;
-    padding-bottom: 8px;
     box-sizing: border-box;
 }
 
+/* The call's lower edge is the handle: it straddles the edge, and its line is drawn on it. */
 body.mx_DesktopShell .mx_RoomView_callResizeHandle {
-    background: var(--cpd-color-bg-canvas-default);
+    z-index: 2;
 
     > [role="separator"] {
+        position: relative;
         width: 100%;
         height: 100%;
         cursor: row-resize;
         touch-action: none;
-        outline-offset: -2px;
+        outline: none;
     }
 
-    &:hover,
-    &:focus-within {
-        box-shadow: inset 0 -2px 0 var(--cpd-color-border-focused);
+    > [role="separator"]::after {
+        content: "";
+        position: absolute;
+        inset-inline: 0;
+        top: calc(50% - 1px);
+        height: 2px;
+    }
+
+    &:hover > [role="separator"]::after,
+    &:focus-within > [role="separator"]::after {
+        background: var(--cpd-color-border-focused);
     }
 }
 

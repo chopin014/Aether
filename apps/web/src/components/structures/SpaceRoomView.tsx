@@ -48,7 +48,6 @@ import {
     showSpaceSettings,
 } from "../../utils/space";
 import RoomAvatar from "../views/avatars/RoomAvatar";
-import { BetaPill } from "../views/beta/BetaCard";
 import IconizedContextMenu, {
     IconizedContextMenuOption,
     IconizedContextMenuOptionList,
@@ -162,9 +161,7 @@ const SpaceLandingAddButton: React.FC<{ space: Room }> = ({ space }) => {
                                             defaultDispatcher.fire(Action.UpdateSpaceHierarchy);
                                         }
                                     }}
-                                >
-                                    <BetaPill />
-                                </IconizedContextMenuOption>
+                                />
                             )}
                         </>
                     )}
@@ -188,9 +185,7 @@ const SpaceLandingAddButton: React.FC<{ space: Room }> = ({ space }) => {
                                 closeMenu();
                                 showCreateNewSubspace(space);
                             }}
-                        >
-                            <BetaPill />
-                        </IconizedContextMenuOption>
+                        />
                     )}
                 </IconizedContextMenuOptionList>
             </IconizedContextMenu>

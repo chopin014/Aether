@@ -30,6 +30,7 @@ import { CHATS_TAG } from "../../stores/room-list-v3/section";
 import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 import { SPACE_CATEGORY_EVENT_TYPE, SPACE_CHANNEL_EVENT_TYPE } from "../../stores/space-layout/SpaceLayout";
 import { SpaceLayoutStore } from "../../stores/space-layout/SpaceLayoutStore";
+import DMRoomMap from "../../utils/DMRoomMap";
 
 const SPACE_ID = "!space:example.org";
 const CATEGORY = "c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e";
@@ -117,15 +118,13 @@ describe("desktop channel sections", () => {
         ]);
     });
 
-    it("keeps invitations, favourites and direct messages, and files other sections' rooms by the layout", () => {
+    it("keeps invitations and favourites, and files other sections' rooms by the layout", () => {
         enableDesktop();
-        const dm = mkStubRoom("!dm:example.org", "Alice", client);
         const result = getDesktopChannelSections({
             spaceId: SPACE_ID,
             sections: [
                 { tag: DefaultTagID.LowPriority, rooms: [rules] },
                 { tag: "element.io.section.design", rooms: [voice] },
-                { tag: DefaultTagID.DM, rooms: [dm] },
                 { tag: DefaultTagID.Favourite, rooms: [text] },
                 { tag: DefaultTagID.Invite, rooms: [] },
             ],
@@ -133,11 +132,37 @@ describe("desktop channel sections", () => {
         expect(result).toEqual([
             { tag: DefaultTagID.Invite, rooms: [] },
             { tag: DefaultTagID.Favourite, rooms: [text] },
-            { tag: DefaultTagID.DM, rooms: [dm] },
             { tag: DESKTOP_UNCATEGORIZED, rooms: [] },
             { tag: DESKTOP_TEXT_CHANNELS, rooms: [rules] },
             { tag: DESKTOP_VOICE_CHANNELS, rooms: [voice] },
         ]);
+    });
+
+    it("leaves direct messages to Home, even ones the server lists", () => {
+        enableDesktop();
+        const dm = mkStubRoom("!dm:example.org", "Alice", client);
+        const invitedDm = mkStubRoom("!dm-invite:example.org", "Bob", client);
+        vi.spyOn(DMRoomMap, "shared").mockReturnValue({
+            getUserIdForRoomId: (roomId: string) =>
+                roomId === dm.roomId || roomId === invitedDm.roomId ? "@alice:example.org" : undefined,
+        } as unknown as DMRoomMap);
+        const result = {
+            spaceId: SPACE_ID,
+            sections: [
+                { tag: DefaultTagID.Invite, rooms: [invitedDm] },
+                { tag: DefaultTagID.DM, rooms: [dm] },
+                { tag: CHATS_TAG, rooms: [dm, text] },
+                { tag: DefaultTagID.Favourite, rooms: [dm] },
+            ],
+        };
+        expect(getDesktopChannelSections(result)).toEqual([
+            { tag: DefaultTagID.Invite, rooms: [] },
+            { tag: DefaultTagID.Favourite, rooms: [] },
+            { tag: DESKTOP_UNCATEGORIZED, rooms: [] },
+            { tag: DESKTOP_TEXT_CHANNELS, rooms: [text] },
+            { tag: DESKTOP_VOICE_CHANNELS, rooms: [] },
+        ]);
+        expect(getDesktopCategoryMembers(result).get(DESKTOP_TEXT_CHANNELS)).toEqual([text]);
     });
 
     it("hides muted channels when the person asked, except the open one", async () => {

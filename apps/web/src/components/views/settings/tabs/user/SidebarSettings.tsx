@@ -44,6 +44,7 @@ export const SidebarSettings: React.FC = () => {
         [MetaSpace.VideoRooms]: videoRoomsEnabled,
     } = useSettingValue("Spaces.enabledMetaSpaces");
     const allRoomsInHome = useSettingValue("Spaces.allRoomsInHome");
+    const desktopShell = useSettingValue("feature_desktop_shell");
     const guestSpaUrl = useMemo(() => {
         return SdkConfig.get("element_call").guest_spa_url;
     }, []);
@@ -73,16 +74,19 @@ export const SidebarSettings: React.FC = () => {
                 {_t("common|home")}
             </StyledCheckbox>
 
-            <StyledCheckbox
-                checked={allRoomsInHome}
-                disabled={!homeEnabled}
-                onChange={onAllRoomsInHomeToggle}
-                className="mx_SidebarUserSettingsTab_checkbox mx_SidebarUserSettingsTab_homeAllRoomsCheckbox"
-                data-testid="mx_SidebarUserSettingsTab_homeAllRoomsCheckbox"
-                description={_t("settings|sidebar|metaspaces_home_all_rooms_description")}
-            >
-                {_t("settings|sidebar|metaspaces_home_all_rooms")}
-            </StyledCheckbox>
+            {/* The desktop shell keeps every server's channels in that server, so Home never shows all rooms. */}
+            {!desktopShell && (
+                <StyledCheckbox
+                    checked={allRoomsInHome}
+                    disabled={!homeEnabled}
+                    onChange={onAllRoomsInHomeToggle}
+                    className="mx_SidebarUserSettingsTab_checkbox mx_SidebarUserSettingsTab_homeAllRoomsCheckbox"
+                    data-testid="mx_SidebarUserSettingsTab_homeAllRoomsCheckbox"
+                    description={_t("settings|sidebar|metaspaces_home_all_rooms_description")}
+                >
+                    {_t("settings|sidebar|metaspaces_home_all_rooms")}
+                </StyledCheckbox>
+            )}
 
             <StyledCheckbox
                 checked={!!orphansEnabled}

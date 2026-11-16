@@ -10,7 +10,13 @@ Please see LICENSE files in the repository root for full details.
 
 import { ipcRenderer, contextBridge, type IpcRendererEvent } from "electron";
 import type { ConfigOptions } from "./config.js" with { "resolution-mode": "import" };
-import type { DesktopAudioApi, DesktopAudioPacket, X509Api } from "shared-types" with { "resolution-mode": "import" };
+import type {
+    DesktopAudioApi,
+    DesktopAudioPacket,
+    HomeserverFetchRequest,
+    HomeserverFetchResponse,
+    X509Api,
+} from "shared-types" with { "resolution-mode": "import" };
 
 import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./global-shortcuts/types.js" with {
     "resolution-mode": "import",
@@ -37,6 +43,7 @@ const CHANNELS = [
     "userDownloadCompleted",
     "userDownloadAction",
     "openDesktopCapturerSourcePicker",
+    "openMatrixLink",
     "userAccessToken",
     "homeserverUrl",
     "serverSupportedVersions",
@@ -107,6 +114,13 @@ contextBridge.exposeInMainWorld("electron", {
             ipcRenderer.on("aether:global-shortcut", handler);
             return () => ipcRenderer.removeListener("aether:global-shortcut", handler);
         },
+    },
+
+    // Homeserver requests without a CORS preflight before each one; see homeserver-fetch.ts.
+    homeserverFetch: {
+        fetch: (request: HomeserverFetchRequest): Promise<HomeserverFetchResponse> =>
+            ipcRenderer.invoke("aether:homeserver-fetch", request),
+        abort: (id: string): void => ipcRenderer.send("aether:homeserver-fetch-abort", id),
     },
 
     // X.509 hardware-key IPC

@@ -13,10 +13,13 @@ import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { type Args, getArgsForProtocolRegistration } from "./args.js";
+import { findMatrixLink, getMatrixLinkHash, MATRIX_SCHEME, type MatrixLink } from "./matrix-uri.js";
 
 const LEGACY_PROTOCOL = "element";
 const SEARCH_PARAM = "element-desktop-ssoid";
 const STORE_FILE_NAME = "sso-sessions.json";
+/** Where the app is loaded to open a Matrix link, with the link's route as the fragment. */
+const MATRIX_LINK_BASE_URL = "vector://vector/webapp/";
 
 // we getPath userData before electron-main changes it, so this is the default value
 const storePath = path.join(app.getPath("userData"), STORE_FILE_NAME);
@@ -30,7 +33,9 @@ export default class ProtocolHandler {
             // Protocol handler for macos
             app.on("open-url", (ev, url) => {
                 ev.preventDefault();
-                this.handleDeeplink(url);
+                const link = findMatrixLink([url]);
+                if (link) this.openMatrixLink(link);
+                else this.handleDeeplink(url);
             });
         } else {
             // Protocol handler for win32/Linux
@@ -38,7 +43,11 @@ export default class ProtocolHandler {
                 const url = commandLine.at(-1);
                 if (url && this.checkArgIsUrl(url)) {
                     this.handleDeeplink(url);
+                    return;
                 }
+                // The first argument is the program itself.
+                const link = findMatrixLink(commandLine.slice(1));
+                if (link) this.openMatrixLink(link);
             });
         }
 
@@ -57,6 +66,11 @@ export default class ProtocolHandler {
         if (app.isPackaged) {
             app.setAsDefaultProtocolClient(this.protocol, process.execPath, args);
             app.setAsDefaultProtocolClient(LEGACY_PROTOCOL, process.execPath, args);
+            // Other Matrix apps open matrix: links too, and the person may have chosen one of them: only take the
+            // links when nothing handles them. Development builds never register for them.
+            if (!app.getApplicationNameForProtocol(`${MATRIX_SCHEME}:`)) {
+                app.setAsDefaultProtocolClient(MATRIX_SCHEME, process.execPath, args);
+            }
         } else if (process.platform === "win32") {
             // on Mac/Linux this would just cause the electron binary to open
             // special handler for running without being packaged, e.g `electron .` by passing our app path to electron
@@ -99,6 +113,24 @@ export default class ProtocolHandler {
         return true;
     }
 
+    /**
+     * Opens a Matrix link in the app. A running app is told where to go, so nothing it is doing, like a call, is
+     * interrupted. Otherwise the app is loaded at the link's route, which it also keeps through signing in.
+     */
+    private openMatrixLink(link: MatrixLink): boolean {
+        if (!global.mainWindow) return false;
+        const hash = getMatrixLinkHash(link);
+        const webContents = global.mainWindow.webContents;
+        // Only the app's own page counts: a frame the running app embeds, such as a widget, may be loading at any time.
+        if (webContents.isLoadingMainFrame()) {
+            // The app may not be listening yet, and loading it again at the link costs nothing at this point.
+            void global.mainWindow.loadURL(MATRIX_LINK_BASE_URL + hash);
+        } else {
+            webContents.send("openMatrixLink", hash);
+        }
+        return true;
+    }
+
     private readStore(): Record<string, string> {
         try {
             const s = fs.readFileSync(storePath, { encoding: "utf8" });
@@ -117,7 +149,7 @@ export default class ProtocolHandler {
     /**
      * Initialises the ProtocolHandler
      * Registers the app as the default protocol client for deeplink handling.
-     * Handles any deeplink passed in via args on app start.
+     * Handles any deeplink or Matrix link passed in via args on app start.
      * Must be called after mainWindow is set up and any initial navigation is fired.
      * @returns whether a deeplink was present in args and navigated to.
      */
@@ -125,7 +157,14 @@ export default class ProtocolHandler {
         this.setAsDefaultProtocolClient(args);
 
         const url = args.positional.find(this.checkArgIsUrl);
-        const hasDeeplink = url ? this.handleDeeplink(url) : false;
+        const link = url ? undefined : findMatrixLink(args.positional);
+        let hasDeeplink = false;
+        if (url) {
+            hasDeeplink = this.handleDeeplink(url);
+        } else if (link && global.mainWindow) {
+            void global.mainWindow.loadURL(MATRIX_LINK_BASE_URL + getMatrixLinkHash(link));
+            hasDeeplink = true;
+        }
 
         for (const key in this.store) {
             // ensure each instance only has one (the latest) session ID to prevent the file growing unbounded

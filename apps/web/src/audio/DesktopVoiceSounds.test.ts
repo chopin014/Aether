@@ -71,15 +71,29 @@ describe("desktop voice feedback", () => {
         expect(audios[0]).toMatchObject({ preload: "auto" });
         expect(play).not.toHaveBeenCalled();
     });
-    it("plays a preloaded cue without loading it again, then loads a fresh one next time", async () => {
+    it("plays a preloaded cue without loading or routing it again, and replays the same one next time", async () => {
         preloadDesktopVoiceSounds(["cameraOn"]);
         await playDesktopVoiceSound("cameraOn");
         expect(createAudio).toHaveBeenCalledOnce();
-        expect(setSinkId).toHaveBeenCalledWith("headset");
+        expect(setSinkId).toHaveBeenCalledExactlyOnceWith("headset");
         expect(play).toHaveBeenCalledOnce();
 
         audios[0].onended?.();
         await playDesktopVoiceSound("cameraOn");
+        expect(createAudio).toHaveBeenCalledOnce();
+        expect(play).toHaveBeenCalledTimes(2);
+    });
+    it("starts a routed cue in the same task as the change it answers", () => {
+        preloadDesktopVoiceSounds(["leave"]);
+        (audios[0] as unknown as { sinkId: string }).sinkId = "headset";
+        void playDesktopVoiceSound("leave");
+        // No await: the click that leaves a call goes on to tear the call down, after the cue has started.
+        expect(play).toHaveBeenCalledOnce();
+    });
+    it("loads a cue afresh after it failed to load", async () => {
+        await playDesktopVoiceSound("mute");
+        (audios[0] as unknown as { onerror: () => void }).onerror();
+        await playDesktopVoiceSound("mute");
         expect(createAudio).toHaveBeenCalledTimes(2);
     });
     it("routes the cue to the selected output before playing", async () => {

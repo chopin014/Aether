@@ -27,6 +27,7 @@ import { crossSigningCallbacks } from "../SecurityManager";
 import IdentityAuthClient from "../IdentityAuthClient";
 import { _t } from "../languageHandler";
 import { formatList } from "./FormattingUtils";
+import { desktopHomeserverFetch } from "./desktopHomeserverFetch";
 import { persistTokens } from "./tokens/tokens.ts";
 import { AccessTokenRenewal, ownsStoredSession, persistAccessTokenExpiry } from "./tokens/AccessTokenRenewal.ts";
 
@@ -210,6 +211,8 @@ export function createMatrixClient(opts: ICreateClientOpts): MatrixClient {
 
     return createClient({
         ...storeOpts,
+        // The desktop app sends homeserver requests itself, without a CORS preflight before each one.
+        fetchFn: desktopHomeserverFetch(opts.baseUrl),
         ...opts,
     });
 }

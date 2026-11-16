@@ -327,6 +327,11 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
         if (!cli || localNotificationsAreSilenced(cli)) {
             return;
         }
+        // The system hides notification banners while it is in Do Not Disturb; the app's sound must not give the
+        // notification away. Ringing for a call is played elsewhere and still rings.
+        if (await PlatformPeg.get()?.isSystemDoNotDisturb()) {
+            return;
+        }
 
         // Play notification sound here
         const sound = this.getSoundForRoom(room.roomId);
