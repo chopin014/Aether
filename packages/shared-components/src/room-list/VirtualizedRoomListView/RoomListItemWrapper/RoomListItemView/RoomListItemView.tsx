@@ -128,6 +128,8 @@ export interface RoomListItemViewSnapshot {
         isDeafened?: boolean;
         /** Whether this user muted the participant for themselves only. */
         isLocallyMuted?: boolean;
+        /** Whether this is the user, still connecting to the call: shown dimmed until their media is up. */
+        isConnecting?: boolean;
     }[];
     /** When people started gathering in an occupied voice channel, in milliseconds since the epoch. */
     callStartedAt?: number;
@@ -429,6 +431,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                         // region, so screen readers only hear it when the participant is focused.
                         aria-label={participantLabel(participant)}
                         data-speaking={participant.isSpeaking || undefined}
+                        data-connecting={participant.isConnecting || undefined}
                         data-soundboard={participant.isSoundboardPlaying || undefined}
                     >
                         <span

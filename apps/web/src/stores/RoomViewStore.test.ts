@@ -29,6 +29,7 @@ import { RoomViewStore } from "./RoomViewStore";
 import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
 import { onServerJoined } from "../utils/servers/joinServer";
+import { afterNextPaint } from "../utils/afterNextPaint";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { PosthogAnalytics } from "../PosthogAnalytics";
 import { TimelineRenderingType } from "../contexts/RoomContext";
@@ -50,11 +51,20 @@ import { storeRoomAliasInCache } from "../RoomAliasCache.ts";
 import { prefetchAliasPreview } from "../performance/AliasRoomSummary";
 import * as roomSwitch from "../performance/RoomSwitchPerformance";
 import * as roomEntry from "../performance/RoomEntryReady";
-import { type Call, ConnectionState } from "../models/Call.ts";
+import { type Call, ConnectionState, ElementCall } from "../models/Call.ts";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { ModuleApi } from "../modules/Api";
 import { type JoinRoomPayload } from "../dispatcher/payloads/JoinRoomPayload.ts";
 import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoiceChannelSwitch";
+
+/** Work held until the next paint, run by the tests when they choose. */
+const paintQueue = vi.hoisted(() => [] as (() => void)[]);
+vi.mock("../utils/afterNextPaint", () => ({
+    afterNextPaint: vi.fn((work: () => void) => {
+        paintQueue.push(work);
+        return () => {};
+    }),
+}));
 
 vi.mock("../components/views/voip/confirmVoiceChannelSwitch");
 
@@ -187,6 +197,8 @@ describe("RoomViewStore", function () {
     let stores: TestSDKContext;
 
     beforeEach(function () {
+        paintQueue.length = 0;
+        vi.mocked(afterNextPaint).mockClear();
         vi.clearAllMocks();
         mockClient.credentials = { userId: userId };
         mockClient.joinRoom.mockResolvedValue(room);
@@ -800,6 +812,123 @@ describe("RoomViewStore", function () {
             } finally {
                 callRoom.mockRestore();
             }
+        });
+
+        describe("clicking a voice channel in the list", () => {
+            /** A voice channel's call, as the store sees it before anyone has joined it. */
+            function voiceCall(state: { joinRequested?: boolean } = {}): ElementCall {
+                // Real getters and instanceof checks, without a widget, a client or Element Call behind them.
+                return Object.defineProperties(Object.create(ElementCall.prototype), {
+                    roomId: { value: roomId },
+                    presented: { value: false, writable: true },
+                    _connectionState: { value: ConnectionState.Disconnected },
+                    _joinRequested: { value: state.joinRequested ?? false, writable: true },
+                    localLeavePending: { value: false, writable: true },
+                    componentOptions: { value: { config: { skipLobby: true } } },
+                    emit: { value: vi.fn() },
+                    widget: { value: { id: "call-widget", roomId } },
+                    start: { value: vi.fn().mockResolvedValue(null) },
+                }) as ElementCall;
+            }
+            function inDesktopShell(): void {
+                const original = SettingsStore.getValue.bind(SettingsStore);
+                vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : original(name, ...args),
+                );
+                vi.spyOn(CallStore.instance, "connectedCalls", "get").mockReturnValue(new Set());
+                vi.spyOn(CallStore.instance, "getCall").mockReturnValue(null);
+            }
+
+            it("joins it where the user is, without opening it", async () => {
+                inDesktopShell();
+                const call = voiceCall();
+                vi.spyOn(CallStore.instance, "getCall").mockReturnValue(call);
+                const persist = vi.spyOn(ActiveWidgetStore.instance, "setWidgetPersistence");
+                const callRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+                try {
+                    await roomViewStore.viewRoom({
+                        action: Action.ViewRoom,
+                        room_id: roomId2,
+                        metricsTrigger: undefined,
+                    });
+                    expect(roomViewStore.joinVoiceChannel(room)).toBe(true);
+                    await flushPromises();
+                    expect(roomViewStore.getRoomId()).toBe(roomId2);
+                    // The join shows at once; the call itself starts once that is painted.
+                    expect(call.joinRequested).toBe(true);
+                    expect(afterNextPaint).toHaveBeenCalledOnce();
+                    expect(call.start).not.toHaveBeenCalled();
+                    paintQueue.splice(0).forEach((work) => work());
+                    expect(call.start).toHaveBeenCalledOnce();
+                    expect(persist).toHaveBeenCalledWith("call-widget", roomId, true);
+                } finally {
+                    callRoom.mockRestore();
+                    persist.mockRestore();
+                }
+            });
+
+            it("does not start a call left again before it started", async () => {
+                inDesktopShell();
+                const call = voiceCall();
+                vi.spyOn(CallStore.instance, "getCall").mockReturnValue(call);
+                const callRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+                try {
+                    await roomViewStore.viewRoom({
+                        action: Action.ViewRoom,
+                        room_id: roomId2,
+                        metricsTrigger: undefined,
+                    });
+                    expect(roomViewStore.joinVoiceChannel(room)).toBe(true);
+                    await flushPromises();
+                    call.setJoinRequested(false);
+                    paintQueue.splice(0).forEach((work) => work());
+                    expect(call.start).not.toHaveBeenCalled();
+                } finally {
+                    callRoom.mockRestore();
+                }
+            });
+
+            it("opens the call of a channel the user is already joining or in", async () => {
+                inDesktopShell();
+                vi.spyOn(CallStore.instance, "getCall").mockReturnValue(voiceCall({ joinRequested: true }));
+                const callRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+                try {
+                    await roomViewStore.viewRoom({
+                        action: Action.ViewRoom,
+                        room_id: roomId2,
+                        metricsTrigger: undefined,
+                    });
+                    expect(roomViewStore.joinVoiceChannel(room)).toBe(false);
+                } finally {
+                    callRoom.mockRestore();
+                }
+            });
+
+            it("opens the channel when the user is looking at another voice channel's call", async () => {
+                inDesktopShell();
+                const call = voiceCall();
+                vi.spyOn(CallStore.instance, "getCall").mockReturnValue(call);
+                const callRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+                const otherCallRoom = vi.spyOn(room2, "isCallRoom").mockReturnValue(true);
+                try {
+                    await roomViewStore.viewRoom({
+                        action: Action.ViewRoom,
+                        room_id: roomId2,
+                        view_call: false,
+                        metricsTrigger: undefined,
+                    });
+                    expect(roomViewStore.joinVoiceChannel(room)).toBe(false);
+                    expect(call.start).not.toHaveBeenCalled();
+                } finally {
+                    callRoom.mockRestore();
+                    otherCallRoom.mockRestore();
+                }
+            });
+
+            it("leaves text channels and other rooms to be opened", () => {
+                inDesktopShell();
+                expect(roomViewStore.joinVoiceChannel(room)).toBe(false);
+            });
         });
 
         it("does not duplicate a switch when the same call is clicked twice", async () => {

@@ -2359,3 +2359,77 @@ diff --git a/src/matrixrtc/MatrixRTCSession.ts b/src/matrixrtc/MatrixRTCSession.
          // This also needs to be done if `changed` = false
          // A member might have updated their fingerprint (created_ts)
          this.encryptionManager?.onMembershipsUpdate(oldMemberships);
+diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryptionManager.ts
+index 6295781..abec57b 100644
+--- a/src/matrixrtc/RTCEncryptionManager.ts
++++ b/src/matrixrtc/RTCEncryptionManager.ts
+@@ -282,8 +282,18 @@ export class RTCEncryptionManager implements IEncryptionManager {
+ 
+         this.logger?.info(`Joining room`);
+         this.transport.start();
++        // Aether: make our key now rather than when our own membership comes back over sync (one to several seconds
++        // later): until then nothing we send can be decrypted. Members already in the call are sent it at once; a
++        // receiver that holds keys from people it does not see as members yet (as this SDK does) can use it as soon
++        // as our membership reaches it. It is sent to them again once our membership is known, for receivers that
++        // drop such keys.
++        this.resendWhenOwnMembershipKnown = true;
++        this.ensureKeyDistribution();
+     }
+ 
++    /** Whether our key went out before our own membership was known, and must be sent again once it is. */
++    private resendWhenOwnMembershipKnown = false;
++
+     public leave(): void {
+         this.transport.off(KeyTransportEvents.ReceivedKeys, this.onNewKeyReceived);
+         this.transport.stop();
+@@ -393,10 +403,16 @@ export class RTCEncryptionManager implements IEncryptionManager {
+                 );
+         }
+         // get current memberships
++        const { userId: ownUserId, deviceId: ownDeviceId } = this.ownMembership;
++        const ownMembershipKnown = this.getMemberships().some(
++            (membership) => membership.sender === ownUserId && membership.deviceId === ownDeviceId,
++        );
+         const toShareWith: ParticipantDeviceInfo[] = this.getMemberships()
+             .filter((membership) => {
+                 return membership.sender != undefined;
+             })
++            // Aether: we have our own key; our membership arriving late is not a joiner to rotate for.
++            .filter((membership) => !(membership.sender === ownUserId && membership.deviceId === ownDeviceId))
+             .map((membership) => {
+                 return {
+                     userId: membership.sender,
+@@ -465,6 +481,12 @@ export class RTCEncryptionManager implements IEncryptionManager {
+                 }
+             }
+         }
++        // Aether: our key went out before our membership was known; now that it is, send it again to everyone it did
++        // not change for (see join).
++        if (this.resendWhenOwnMembershipKnown && ownMembershipKnown) {
++            this.resendWhenOwnMembershipKnown = false;
++            if (!hasKeyChanged) toDistributeTo = toShareWith;
++        }
+         // return early if we dont have anything to distribute.
+         if (toDistributeTo.length === 0) {
+             return;
+@@ -477,7 +499,19 @@ export class RTCEncryptionManager implements IEncryptionManager {
+                 newOutboundEncryptionSession.keyId,
+                 toDistributeTo,
+             );
+-            newOutboundEncryptionSession.sharedWith.push(...toDistributeTo);
++            // A key sent again (see join) is not recorded twice.
++            const sharedWith = newOutboundEncryptionSession.sharedWith;
++            sharedWith.push(
++                ...toDistributeTo.filter(
++                    (member) =>
++                        !sharedWith.some(
++                            (shared) =>
++                                shared.userId === member.userId &&
++                                shared.deviceId === member.deviceId &&
++                                shared.membershipTs === member.membershipTs,
++                        ),
++                ),
++            );
+             const outboundSessionList = newOutboundEncryptionSession.sharedWith
+                 .map((m) => `${m.userId}:${m.deviceId}`)
+                 .join(",");

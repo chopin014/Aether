@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX, useCallback, useContext, useState, memo } from "react";
+import React, { type JSX, useCallback, useContext, useEffect, useState, memo } from "react";
 import { Text, Button, IconButton, Menu, MenuItem, Tooltip } from "@vector-im/compound-web";
 import VideoCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/video-call-solid";
 import VoiceCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/voice-call-solid";
@@ -68,6 +68,7 @@ import { DesktopThreadBrowser } from "../threads/DesktopThreadBrowser";
 import { RoomNotificationContextMenu } from "../../context_menus/RoomNotificationContextMenu";
 import { DesktopChannelInfo } from "./DesktopChannelInfo";
 import { DesktopMessageSearchBox } from "../../desktop/DesktopMessageSearchBox";
+import { prepareCallInBackground, prepareCallSoon } from "../../voip/prepareElementCall";
 
 function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: JSX.Element }): JSX.Element {
     const sdkContext = useContext(SDKContext);
@@ -96,6 +97,15 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
     const notificationsEnabled = useFeatureEnabled("feature_notifications");
     const [notificationMenuOpen, notificationMenuRef, openNotificationMenu, closeNotificationMenu] =
         useContextMenu<HTMLButtonElement>();
+
+    // A conversation being read is a likely place for a call: have its call token ready when the app is idle, and
+    // at once when someone points at a call button.
+    const canStartCall =
+        (showVoiceCallButton && !voiceCallDisabledReason) || (showVideoCallButton && !videoCallDisabledReason);
+    useEffect(() => {
+        if (desktopShell && isDirectMessage && canStartCall) prepareCallInBackground(room);
+    }, [room, desktopShell, isDirectMessage, canStartCall]);
+    const prepareCall = useCallback(() => prepareCallSoon(room), [room]);
 
     const videoClick = useCallback(
         (ev: React.MouseEvent) => videoCallClick(ev, callOptions[0]),
@@ -187,6 +197,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                         <IconButton
                             disabled={!!videoCallDisabledReason}
                             aria-label={videoCallDisabledReason ?? _t("voip|video_call")}
+                            onPointerEnter={prepareCall}
+                            onFocus={prepareCall}
                         >
                             {videoCallIconWithTooltip}
                         </IconButton>
@@ -218,6 +230,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                     disabled={!!videoCallDisabledReason}
                     aria-label={videoCallDisabledReason ?? _t("voip|video_call")}
                     onClick={videoClick}
+                    onPointerEnter={prepareCall}
+                    onFocus={prepareCall}
                 >
                     {videoCallIconWithTooltip}
                 </IconButton>
@@ -236,6 +250,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                         <IconButton
                             disabled={!!voiceCallDisabledReason}
                             aria-label={voiceCallDisabledReason ?? _t("voip|voice_call")}
+                            onPointerEnter={prepareCall}
+                            onFocus={prepareCall}
                         >
                             {voiceCallIconWithTooltip}
                         </IconButton>
@@ -267,6 +283,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                     disabled={!!voiceCallDisabledReason}
                     aria-label={voiceCallDisabledReason ?? _t("voip|voice_call")}
                     onClick={voiceClick}
+                    onPointerEnter={prepareCall}
+                    onFocus={prepareCall}
                 >
                     {voiceCallIconWithTooltip}
                 </IconButton>

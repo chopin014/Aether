@@ -10,7 +10,7 @@ Please see LICENSE in the repository root for full details.
 // This transport fixture needs real event subscription and cleanup.
 // oxlint-disable-next-line no-restricted-imports
 import { EventEmitter } from "events";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type { MatrixClient } from "matrix-js-sdk/src/matrix";
 
 import { DesktopCallStageViewModel } from "./DesktopCallStageViewModel";
@@ -24,6 +24,7 @@ import type {
 } from "../../components/views/voip/AetherCallPresentationTypes";
 import { CallEvent, type ElementCall } from "../../models/Call";
 import SettingsStore from "../../settings/SettingsStore";
+import DMRoomMap from "../../utils/DMRoomMap";
 import { DesktopVoicePipeline } from "../../audio/desktop/DesktopVoicePipeline";
 import MediaDeviceHandler, { MediaDeviceKindEnum } from "../../MediaDeviceHandler";
 import ActiveWidgetStore, { ActiveWidgetStoreEvent } from "../../stores/ActiveWidgetStore";
@@ -34,6 +35,7 @@ import * as RoomInvite from "../../RoomInvite";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { VoiceUserMenuViewModel } from "./VoiceUserMenuViewModel";
 
+vi.mock("../../utils/DMRoomMap", () => ({ default: { shared: vi.fn() } }));
 vi.mock("../../profile/RichProfileStore", () => ({
     RichProfileStore: { forClient: vi.fn(() => ({ get: vi.fn(), subscribe: vi.fn(() => vi.fn()), request: vi.fn() })) },
 }));
@@ -139,6 +141,8 @@ vi.mock("../../audio/DesktopCallRingtone", () => ({
 describe("DesktopCallStageViewModel", () => {
     const mockClient = {
         getRoom: vi.fn().mockReturnValue(null),
+        // Signed out as far as these tests go, so the stage adds no tile of its own for the user.
+        getUserId: () => null,
         isUserIgnored: vi.fn().mockReturnValue(false),
         on: vi.fn(),
         off: vi.fn(),
@@ -290,6 +294,154 @@ describe("DesktopCallStageViewModel", () => {
         expect(setRinging).toHaveBeenLastCalledWith(false);
         vm.dispose();
         expect(setRinging).toHaveBeenLastCalledWith(false);
+    });
+
+    describe("while joining", () => {
+        const me = { userId: "@me:example.org", name: "Me", getMxcAvatarUrl: () => undefined };
+        const bob = { userId: "@bob:example.org", name: "Bob", membership: "join", getMxcAvatarUrl: () => undefined };
+        const clientFor = (room: object): MatrixClient =>
+            ({
+                ...mockClient,
+                getRoom: vi.fn().mockReturnValue(room),
+                getUserId: () => "@me:example.org",
+            }) as unknown as MatrixClient;
+        const asked = (requested: boolean): ElementCall =>
+            Object.assign(mockCall, { joinRequested: requested, participants: new Map() });
+        afterEach(() => {
+            Object.assign(mockCall, { joinRequested: undefined, participants: new Map() });
+            vi.mocked(DMRoomMap.shared).mockReset();
+        });
+
+        it("shows a join that was asked for as joining, with the user's tile, instead of the lobby", () => {
+            const room = { isElementVideoRoom: () => false, isCallRoom: () => true, getMember: () => me };
+            const vm = new DesktopCallStageViewModel({
+                client: clientFor(room),
+                call: asked(true),
+                bridge: createBridge({ phase: "lobby" }),
+            });
+            expect(vm.getSnapshot().phase).toBe("joining");
+            expect(vm.getSnapshot().participants).toEqual([
+                expect.objectContaining({ userId: "@me:example.org", local: true, waitingForMedia: true }),
+            ]);
+            // Element Call's own tiles replace the stand-in as soon as it reports them.
+            const own = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
+            vm.setBridge(createBridge({ phase: "in_call", participants: [own as AetherParticipantMediaItem] }));
+            expect(vm.getSnapshot().participants.map((tile) => tile.id)).toEqual(["p-me"]);
+            vm.dispose();
+        });
+
+        it("keeps the user's own tile, as the same tile, while Element Call reports nobody for a moment", () => {
+            vi.mocked(DMRoomMap.shared).mockReturnValue({
+                getUserIdForRoomId: () => "@bob:example.org",
+            } as unknown as DMRoomMap);
+            const room = {
+                isElementVideoRoom: () => false,
+                isCallRoom: () => false,
+                getMember: () => me,
+                getMembers: () => [{ ...me, membership: "join" }, bob],
+            };
+            const vm = new DesktopCallStageViewModel({
+                client: clientFor(room),
+                call: asked(true),
+                bridge: createBridge({ phase: "joining" }),
+            });
+            // In the call with nobody reported yet, as Element Call is between joining and its media.
+            vm.setBridge(createBridge({ phase: "in_call", ringing: "ringing", participants: [] }));
+            expect(vm.getSnapshot().participants).toEqual([
+                expect.objectContaining({ userId: "@me:example.org", local: true }),
+            ]);
+            const own = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
+            vm.setBridge(
+                createBridge({
+                    phase: "in_call",
+                    ringing: "ringing",
+                    participants: [own as AetherParticipantMediaItem],
+                }),
+            );
+            vm.setBridge(createBridge({ phase: "in_call", ringing: "ringing", participants: [] }));
+            // The stand-in takes the tile Element Call gave the user, so the tile stays rather than being redrawn.
+            expect(vm.getSnapshot().participants.map((tile) => tile.id)).toEqual(["p-me"]);
+            expect(vm.getSnapshot().callees.map((callee) => callee.userId)).toEqual(["@bob:example.org"]);
+            vm.dispose();
+        });
+
+        it("keeps the lobby for someone who has not asked to join", () => {
+            const room = { isElementVideoRoom: () => false, isCallRoom: () => true, getMember: () => me };
+            const vm = new DesktopCallStageViewModel({
+                client: clientFor(room),
+                call: asked(false),
+                bridge: createBridge({ phase: "lobby" }),
+            });
+            expect(vm.getSnapshot().phase).toBe("lobby");
+            expect(vm.getSnapshot().participants).toEqual([]);
+            vm.dispose();
+        });
+
+        it("shows the person being called in a conversation from the click until the ringing is reported", () => {
+            vi.mocked(DMRoomMap.shared).mockReturnValue({
+                getUserIdForRoomId: () => "@bob:example.org",
+            } as unknown as DMRoomMap);
+            const room = {
+                isElementVideoRoom: () => false,
+                isCallRoom: () => false,
+                getMember: () => me,
+                getMembers: () => [{ ...me, membership: "join" }, bob],
+            };
+            const vm = new DesktopCallStageViewModel({
+                client: clientFor(room),
+                call: asked(true),
+                bridge: createBridge({ phase: "joining" }),
+            });
+            expect(vm.getSnapshot().callees.map((callee) => callee.userId)).toEqual(["@bob:example.org"]);
+            // Element Call joins a moment before it reports ringing: Bob stays on screen in between.
+            const own = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
+            vm.setBridge(createBridge({ phase: "in_call", participants: [own as AetherParticipantMediaItem] }));
+            expect(vm.getSnapshot().callees.map((callee) => callee.userId)).toEqual(["@bob:example.org"]);
+            // Once the ringing has an outcome, it decides.
+            vm.setBridge(
+                createBridge({
+                    phase: "in_call",
+                    ringing: "decline",
+                    participants: [own as AetherParticipantMediaItem],
+                }),
+            );
+            expect(vm.getSnapshot().callees).toEqual([]);
+            vm.setBridge(createBridge({ phase: "in_call", participants: [own as AetherParticipantMediaItem] }));
+            expect(vm.getSnapshot().callees).toEqual([]);
+            vm.dispose();
+        });
+
+        it("plays the ringback from the click, while the call still joins, and stops it with the ringing", () => {
+            vi.mocked(DMRoomMap.shared).mockReturnValue({
+                getUserIdForRoomId: () => "@bob:example.org",
+            } as unknown as DMRoomMap);
+            const room = {
+                isElementVideoRoom: () => false,
+                isCallRoom: () => false,
+                getMember: () => me,
+                getMembers: () => [{ ...me, membership: "join" }, bob],
+            };
+            setRinging.mockClear();
+            const vm = new DesktopCallStageViewModel({
+                client: clientFor(room),
+                call: asked(true),
+                bridge: createBridge({ phase: "joining" }),
+            });
+            vm.startRingtone();
+            expect(setRinging).toHaveBeenLastCalledWith(true);
+            const own = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
+            vm.setBridge(createBridge({ phase: "in_call", participants: [own as AetherParticipantMediaItem] }));
+            expect(setRinging).toHaveBeenLastCalledWith(true);
+            vm.setBridge(
+                createBridge({
+                    phase: "in_call",
+                    ringing: "decline",
+                    participants: [own as AetherParticipantMediaItem],
+                }),
+            );
+            expect(setRinging).toHaveBeenLastCalledWith(false);
+            vm.dispose();
+        });
     });
 
     it("waits for device changes, reports failure, and ignores a late failure after disposal", async () => {
@@ -806,10 +958,9 @@ describe("DesktopCallStageViewModel", () => {
         expect(vm.getSnapshot().roomName).toBe("Lobby Voice");
     });
 
-    it("echoes leaving before disconnecting through the model and restores participants on failure", async () => {
+    it("leaves through the model, which echoes it at once, and restores participants on failure", async () => {
         const bridge = createBridge();
         vi.mocked(mockCall.disconnect).mockImplementation(async () => {
-            expect(mockCall.setLocalLeavePending).toHaveBeenLastCalledWith(true);
             throw new Error("Engine unavailable");
         });
         const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });

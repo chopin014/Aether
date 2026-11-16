@@ -8,6 +8,8 @@ Please see LICENSE in the repository root for full details.
 /** Far below anything an output device can reproduce, but not zero, so Chromium never sees the output as silent. */
 export const INAUDIBLE_LEVEL = 1e-20;
 
+const clocked = new WeakSet<BaseAudioContext>();
+
 /**
  * Keeps a context that only feeds a MediaStream running on the audio device's clock.
  *
@@ -17,6 +19,9 @@ export const INAUDIBLE_LEVEL = 1e-20;
  * The source is released when the context closes.
  */
 export function keepRealtimeClock(context: BaseAudioContext): void {
+    // A context reused for another call already has its source.
+    if (clocked.has(context)) return;
+    clocked.add(context);
     const source = context.createConstantSource();
     source.offset.value = INAUDIBLE_LEVEL;
     source.connect(context.destination);

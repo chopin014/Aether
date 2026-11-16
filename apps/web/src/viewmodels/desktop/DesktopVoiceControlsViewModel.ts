@@ -38,10 +38,11 @@ import { SoundboardViewModel } from "./SoundboardViewModel";
 
 interface Props {
     client: MatrixClient;
-    callStore: Pick<CallStore, "connectedCalls"> & {
-        on: (event: CallStoreEvent.ConnectedCalls, listener: () => void) => unknown;
-        off: (event: CallStoreEvent.ConnectedCalls, listener: () => void) => unknown;
-    };
+    callStore: Pick<CallStore, "connectedCalls"> &
+        Partial<Pick<CallStore, "joiningCalls">> & {
+            on: (event: CallStoreEvent.ConnectedCalls | CallStoreEvent.JoiningCalls, listener: () => void) => unknown;
+            off: (event: CallStoreEvent.ConnectedCalls | CallStoreEvent.JoiningCalls, listener: () => void) => unknown;
+        };
     /** Finds the server (space) a call's channel belongs to; defaults to the app's space store. */
     spaceStore?: Pick<SpaceStore, "getKnownParents">;
 }
@@ -51,6 +52,12 @@ interface Props {
  * participant's client renews or re-sends its membership, or rejoins after a connection drop; those people never left.
  */
 export const PARTICIPANT_LEAVE_GRACE_MS = 6000;
+
+/**
+ * How long after our own media connects before other people joining are announced. The people already in the call
+ * are still being listed then, and announcing them would be noise rather than news.
+ */
+export const PARTICIPANT_SETTLE_MS = 2000;
 
 /** Persistent desktop voice controls, using Element Call's device and audio-output host APIs. */
 export class DesktopVoiceControlsViewModel
@@ -63,6 +70,8 @@ export class DesktopVoiceControlsViewModel
     private wasSharingScreen = false;
     /** Other people currently in the call. */
     private participantIds = new Set<string>();
+    /** When our own media last connected, or undefined while it is not connected. */
+    private mediaConnectedAt?: number;
     /** People who dropped out of the call and have not yet been announced as leaving. */
     private readonly pendingLeaves = new Map<string, number>();
     private pendingAction?: Promise<void>;
@@ -113,6 +122,8 @@ export class DesktopVoiceControlsViewModel
         this.disposables.track(() => this.releaseSoundboard?.());
         props.callStore.on(CallStoreEvent.ConnectedCalls, this.onCallsChanged);
         this.disposables.track(() => props.callStore.off(CallStoreEvent.ConnectedCalls, this.onCallsChanged));
+        props.callStore.on(CallStoreEvent.JoiningCalls, this.onCallsChanged);
+        this.disposables.track(() => props.callStore.off(CallStoreEvent.JoiningCalls, this.onCallsChanged));
         this.disposables.trackListener(props.client, RoomEvent.Name, this.refresh);
         for (const setting of [
             "audioInputMuted",
@@ -236,16 +247,28 @@ export class DesktopVoiceControlsViewModel
             roomName: call ? (this.props.client.getRoom(call.roomId)?.name ?? call.roomId) : undefined,
             spaceName: call ? this.getSpaceName(call.roomId) : undefined,
             noiseSuppression: processing.noiseSuppression !== null,
-            connection: call?.connectionStats ?? {
-                state: call ? "connecting" : "disconnected",
-                quality: "unknown",
-                rttMs: null,
-                averageRttMs: null,
-                outboundPacketLossPercent: null,
-                history: [],
-            },
+            connection:
+                // A call that was asked for is connecting from the click, before Element Call reports anything.
+                call && call.connectionStats.state !== "disconnected"
+                    ? call.connectionStats
+                    : {
+                          state: call ? "connecting" : "disconnected",
+                          quality: "unknown",
+                          rttMs: null,
+                          averageRttMs: null,
+                          outboundPacketLossPercent: null,
+                          history: [],
+                      },
         });
+        const mediaConnected = call?.connectionStats.state === "connected";
+        if (!mediaConnected) this.mediaConnectedAt = undefined;
+        else this.mediaConnectedAt ??= Date.now();
     };
+
+    /** Whether our own media is up and the call has had time to list who was already in it. */
+    private get announcesParticipants(): boolean {
+        return this.mediaConnectedAt !== undefined && Date.now() - this.mediaConnectedAt >= PARTICIPANT_SETTLE_MS;
+    }
 
     /** The name of the first joined space listing the channel, as Discord shows a voice channel's server. */
     private getSpaceName(roomId: string): string | undefined {
@@ -432,7 +455,7 @@ export class DesktopVoiceControlsViewModel
         const now = ids(participants);
         const before = ids(previous);
         this.participantIds = now;
-        if (!this.call || this.call.locallyLeaving || this.snapshot.current.deafened) {
+        if (!this.call || this.call.locallyLeaving || this.snapshot.current.deafened || !this.announcesParticipants) {
             this.clearPendingLeaves();
             return;
         }
@@ -459,7 +482,7 @@ export class DesktopVoiceControlsViewModel
     private announceLeave(id: string): void {
         this.pendingLeaves.delete(id);
         if (this.participantIds.has(id) || !this.call || this.call.locallyLeaving) return;
-        if (this.snapshot.current.deafened) return;
+        if (this.snapshot.current.deafened || !this.announcesParticipants) return;
         // Several people leaving together get one cue.
         for (const [other, timer] of this.pendingLeaves) {
             if (this.participantIds.has(other)) continue;
@@ -489,12 +512,17 @@ export class DesktopVoiceControlsViewModel
         const wasMuted = this.snapshot.current.microphoneMuted;
         this.refresh();
         const { microphoneMuted, busy, videoEnabled } = this.snapshot.current;
+        // While joining, Element Call reports the microphone and camera it is opening, which is no change the user
+        // made: those are taken in silently.
+        const mediaConnected = this.call?.connectionStats.state === "connected";
         if (videoEnabled !== this.wasVideoEnabled) {
             this.wasVideoEnabled = videoEnabled;
-            void playDesktopVoiceSound(videoEnabled ? "cameraOn" : "cameraOff");
+            if (mediaConnected) void playDesktopVoiceSound(videoEnabled ? "cameraOn" : "cameraOff");
         }
         // Dock actions play their own single cue after success; include changes from the call-stage controls.
-        if (!busy && wasMuted !== microphoneMuted) void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
+        if (!busy && mediaConnected && wasMuted !== microphoneMuted) {
+            void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
+        }
         if (this.call?.deviceMuteState) {
             void SettingsStore.setValue(
                 "audioInputMuted",
@@ -506,9 +534,11 @@ export class DesktopVoiceControlsViewModel
     };
 
     private readonly onCallsChanged = (): void => {
-        const call = [...this.props.callStore.connectedCalls].find(
-            (call): call is ElementCall => call instanceof ElementCall,
-        );
+        const isElementCall = (call: unknown): call is ElementCall => call instanceof ElementCall;
+        // A call being joined shows in the dock from the click; a connected one wins over it.
+        const call =
+            [...this.props.callStore.connectedCalls].find(isElementCall) ??
+            [...(this.props.callStore.joiningCalls ?? [])].find(isElementCall);
         if (call !== this.call) {
             void this.stopMicrophoneTest();
             // The device menus belong to the account row and stay open; the call's own panels go with it.
