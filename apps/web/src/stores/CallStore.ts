@@ -95,6 +95,9 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
                           action: Action.FollowVoiceMove,
                           room_id: room.roomId,
                       }),
+                  async (room) => {
+                      await this.getCall(room.roomId)?.disconnect();
+                  },
               )
             : undefined;
         // Fetch transports, but don't await the result.
