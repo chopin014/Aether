@@ -557,9 +557,11 @@ body.mx_DesktopShell [class*="_tooltip_"]:has([data-server-hover-card]) {
 /*
  * The tooltip's label, caption and arrow each find the card from themselves, beside them or within them. Styled from
  * the tooltip's `:has()`, they would make the browser restyle every element with a class in any part of the page
- * that also has a `:has()` rule, whenever anything there is added or removed.
+ * that also has a `:has()` rule, whenever anything there is added or removed. Nor do they name the tooltip around
+ * them: matching part of an ancestor's class makes the browser restyle every element with a class within any element
+ * whose class changes, such as the timeline as it is shown.
  */
-body.mx_DesktopShell [class*="_tooltip_"] > span:first-of-type:has(+ [class*="_caption_"] > [data-server-hover-card]) {
+body.mx_DesktopShell span:first-of-type:has(+ [class*="_caption_"] > [data-server-hover-card]) {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -568,11 +570,11 @@ body.mx_DesktopShell [class*="_tooltip_"] > span:first-of-type:has(+ [class*="_c
     white-space: nowrap;
 }
 
-body.mx_DesktopShell [class*="_tooltip_"] > [class*="_caption_"]:has(> [data-server-hover-card]) {
+body.mx_DesktopShell [class*="_caption_"]:has(> [data-server-hover-card]) {
     color: var(--server-hover-card-text);
 }
 
-body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-server-hover-card]) {
+body.mx_DesktopShell [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-server-hover-card]) {
     fill: var(--server-hover-card-background);
 }
 
@@ -1833,24 +1835,33 @@ body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_c
 body.mx_DesktopShell .mx_RoomView_conversationCallStage {
     flex: 0 0 auto;
     min-height: 0;
-    padding-bottom: 8px;
     box-sizing: border-box;
 }
 
+/* The call's lower edge is the handle: it straddles the edge, and its line is drawn on it. */
 body.mx_DesktopShell .mx_RoomView_callResizeHandle {
-    background: var(--cpd-color-bg-canvas-default);
+    z-index: 2;
 
     > [role="separator"] {
+        position: relative;
         width: 100%;
         height: 100%;
         cursor: row-resize;
         touch-action: none;
-        outline-offset: -2px;
+        outline: none;
     }
 
-    &:hover,
-    &:focus-within {
-        box-shadow: inset 0 -2px 0 var(--cpd-color-border-focused);
+    > [role="separator"]::after {
+        content: "";
+        position: absolute;
+        inset-inline: 0;
+        top: calc(50% - 1px);
+        height: 2px;
+    }
+
+    &:hover > [role="separator"]::after,
+    &:focus-within > [role="separator"]::after {
+        background: var(--cpd-color-border-focused);
     }
 }
 

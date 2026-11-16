@@ -11,7 +11,7 @@ import "matrix-js-sdk/src/@types/global"; // load matrix-js-sdk's type extension
 
 import type { ModuleLoader, X509Api } from "@element-hq/element-web-module-api";
 import type { logger } from "matrix-js-sdk/src/logger";
-import type { DesktopAudioApi } from "shared-types";
+import type { DesktopAudioApi, HomeserverFetchApi } from "shared-types";
 import type ContentMessages from "../ContentMessages";
 import { type IMatrixClientPeg } from "../MatrixClientPeg";
 import type ToastStore from "../stores/ToastStore";
@@ -59,6 +59,7 @@ type ElectronChannel =
     | "userDownloadCompleted"
     | "userDownloadAction"
     | "openDesktopCapturerSourcePicker"
+    | "openMatrixLink"
     | "userAccessToken"
     | "homeserverUrl"
     | "serverSupportedVersions"
@@ -139,6 +140,8 @@ declare global {
         getSettingValue(settingName: string): Promise<any>;
         // X.509 hardware key IPC
         x509?: X509Api;
+        // Homeserver requests without a CORS preflight before each one
+        homeserverFetch?: HomeserverFetchApi;
     }
 
     interface DesktopCapturerSource {

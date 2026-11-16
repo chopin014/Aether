@@ -47,6 +47,25 @@ async function viewSpace(clientApp: ElementAppPage, clientPage: Page, name: stri
     await clientPage.mouse.move(900, 400);
 }
 
+/**
+ * Join a voice channel from the channel list and open its call. A first click joins the channel and leaves the user
+ * where they were, as in Discord; once they are in it, clicking it again opens the call.
+ */
+async function joinAndOpenVoiceChannel(page: Page, name: string | RegExp): Promise<void> {
+    const channel = page.getByRole("button", {
+        name: typeof name === "string" ? `Open room ${name}` : name,
+        exact: true,
+    });
+    await channel.first().click({ timeout: 15_000 });
+    await expect(
+        page.getByRole("group", { name: "User menu" }).getByRole("button", { name: "Disconnect" }),
+    ).toBeVisible({
+        timeout: 15_000,
+    });
+    await channel.first().click();
+    await expect(page.getByTestId("aether-call-stage").filter({ visible: true })).toHaveCount(1, { timeout: 15_000 });
+}
+
 async function settle(page: Page): Promise<void> {
     await rejectToastIfExists(page, "Verify this device");
     await rejectToastIfExists(page, "Notifications");
@@ -310,7 +329,7 @@ test(
             await page.getByRole("menuitem", { name: "New voice room" }).click();
             await page.getByRole("textbox", { name: "Channel name", exact: true }).fill("Lounge");
             await page.getByRole("button", { name: "Create channel", exact: true }).click({ timeout: 15_000 });
-            await page.getByRole("button", { name: "Open room Lounge", exact: true }).click();
+            await joinAndOpenVoiceChannel(page, "Lounge");
             await expect(page.getByTestId("videoTile")).toHaveCount(1, { timeout: 60_000 });
             const roomId = await app.getCurrentRoomIdFromUrl();
             expect(await app.client.evaluate((client, id) => client.getRoom(id)!.getType(), roomId)).toBe(
@@ -612,7 +631,21 @@ test(
             const suppression = noisePanel.getByRole("switch", { name: "Noise suppression", exact: true });
             await expect(suppression).not.toBeChecked();
             await suppression.check();
-            await expect.poll(() => denoiserStatuses).toContain(200);
+            // It may have been fetched before this test started listening; the page's own record covers that.
+            await expect
+                .poll(async () =>
+                    denoiserStatuses.includes(200)
+                        ? 200
+                        : page.evaluate(
+                              () =>
+                                  performance
+                                      .getEntriesByType("resource")
+                                      .map((entry) => entry as PerformanceResourceTiming)
+                                      .find((entry) => /aether-denoiser\.[^/]+\.wasm$/.test(entry.name))
+                                      ?.responseStatus,
+                          ),
+                )
+                .toBe(200);
             // ANS always runs at full strength, so there is nothing to tune.
             await expect(noisePanel.getByRole("slider")).toHaveCount(0);
             await expect
@@ -898,7 +931,7 @@ test("stage join and red hangup play one lifecycle cue per transition", async ({
         initial_state: [{ type: "m.space.child", state_key: voiceId, content: { via: [user.homeServer] } }],
     });
     await viewSpace(app, page, "Cue space");
-    await page.getByRole("button", { name: "Open room Cue lounge", exact: true }).click();
+    await joinAndOpenVoiceChannel(page, "Cue lounge");
     const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
     // Webpack hashes asset names. Match the bytes of actual playing audio to the intended recordings.
     const recordings = new Map(
@@ -1018,9 +1051,8 @@ test("switches calls only after confirmation and remembers Don't ask again", asy
         })),
     });
     await viewSpace(app, page, "Switch space");
-    await page.getByRole("button", { name: "Open room Lounge", exact: true }).click();
+    await joinAndOpenVoiceChannel(page, "Lounge");
     const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
-    await expect(stage).toHaveCount(1, { timeout: 15_000 });
     await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
     const joinedRooms = (): Promise<string[]> =>
         app.client.evaluate((client) =>
@@ -1060,8 +1092,8 @@ test("switches calls only after confirmation and remembers Don't ask again", asy
             ),
         )
         .toBe(false);
-    await page.getByRole("button", { name: "Open room Lounge", exact: true }).click();
-    await expect(stage).toHaveCount(1, { timeout: 15_000 });
+    // From the conversation, the voice channel is joined without leaving it; a second click opens its call.
+    await joinAndOpenVoiceChannel(page, "Lounge");
     await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
     await expect.poll(joinedRooms, { timeout: 15_000 }).toEqual([lounge]);
     await expect(dialog).toHaveCount(0);
@@ -1157,7 +1189,7 @@ test("joining on another device moves voice there and can move back", async ({
         await expect.poll(() => joinedRooms(secondApp), { timeout: 60_000 }).toEqual([lounge]);
         await expect.poll(() => joinedRooms(app), { timeout: 30_000 }).toEqual([]);
         await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(1);
-        await secondPage.getByTestId("aether-call-stage").filter({ visible: true }).getByTestId("incall_leave").click();
+        await secondPage.getByRole("group", { name: "User menu" }).getByRole("button", { name: "Disconnect" }).click();
         await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(0);
     } finally {
         await context.close();
@@ -1194,7 +1226,7 @@ test("shows profile customisation in call tiles and keeps it when focusing a par
         })),
     });
     await viewSpace(app, page, "Profile calls");
-    await page.getByRole("button", { name: "Open room Profile voice", exact: true }).click();
+    await joinAndOpenVoiceChannel(page, "Profile voice");
     const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
     await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
     const tile = stage.getByTestId("videoTile");

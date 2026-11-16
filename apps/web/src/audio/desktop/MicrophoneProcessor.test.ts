@@ -9,7 +9,8 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MicrophoneProcessor } from "./MicrophoneProcessor";
+import { CAPTURE_LINGER_MS } from "./lingerCapture";
+import { MicrophoneProcessor, REPREPARE_AFTER_LEAVE_MS, SPARE_CONTEXT_MS } from "./MicrophoneProcessor";
 import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 import { INAUDIBLE_LEVEL } from "./keepRealtimeClock";
@@ -343,7 +344,7 @@ describe("MicrophoneProcessor", () => {
         expect(contexts[0].source.connect).not.toHaveBeenCalled();
     });
 
-    it("expires unused graphs and replenishes only after the last connection leaves", async () => {
+    it("expires unused graphs, and gives the next call the graph of the call that ended", async () => {
         vi.useFakeTimers();
         const root = new MicrophoneProcessor(config);
         root.prepare();
@@ -359,12 +360,164 @@ describe("MicrophoneProcessor", () => {
         const child = root.createProcessor();
         await init(child);
         await child.destroy();
-        await vi.advanceTimersByTimeAsync(0);
-        expect(contexts).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS);
+        // Nothing is built after the call: building a graph breaks up whatever plays, such as the leave cue.
+        expect(contexts).toHaveLength(2);
+        expect(nodes).toHaveLength(2);
+        expect(contexts[1].close).not.toHaveBeenCalled();
+        // The call's processor keeps running, silent, rather than stopping.
+        expect(nodes[1].port.postMessage).not.toHaveBeenCalledWith({ stop: true });
+        expect(nodes[1].port.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ shortcutMuted: true }));
+        const next = root.createProcessor();
+        await init(next);
+        expect(contexts[1].source.connect).toHaveBeenLastCalledWith(nodes[1]);
+        expect(nodes).toHaveLength(2);
+        expect(loadMicrophoneGateWorklet).toHaveBeenCalledTimes(2);
+        await next.destroy();
         root.clearPrepared();
         await root.destroy();
+        expect(contexts[1].close).toHaveBeenCalledOnce();
+    });
+
+    it("builds nothing when someone points at a voice channel right after leaving, nor when they rejoin", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor({ ...config, noiseSuppression: 80 });
+        root.prepare();
         await vi.advanceTimersByTimeAsync(0);
-        expect(contexts).toHaveLength(3);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { denoiser: "active" } });
+        await child.destroy();
+        // Pointing at a channel to rejoin while the leave cue plays.
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        root.onDenoiserStatus = vi.fn();
+        const rejoin = root.createProcessor();
+        await init(rejoin);
+        expect(nodes).toHaveLength(1);
+        expect(contexts).toHaveLength(1);
+        expect(loadDenoiserModule).toHaveBeenCalledOnce();
+        expect(contexts[0].source.connect).toHaveBeenLastCalledWith(nodes[0]);
+        // The rejoin learns that the graph it took already runs noise suppression.
+        expect(root.onDenoiserStatus).toHaveBeenCalledWith("active");
+        await rejoin.destroy();
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it("builds the next graph after the leave cue when the call's graph broke", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        nodes[0].onprocessorerror!();
+        await child.destroy();
+        expect(nodes[0].port.postMessage).toHaveBeenCalledWith({ stop: true });
+        await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS - 1);
+        expect(nodes).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        // Built afresh, in the call's context: nothing opened on the device.
+        expect(nodes).toHaveLength(2);
+        expect(contexts).toHaveLength(1);
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it("takes back its own graph when its microphone restarts, as after switching devices", async () => {
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await ready();
+        const child = root.createProcessor();
+        await init(child);
+        await child.restart({ kind: "audio", track: track(), audioContext: sharedContext });
+        expect(nodes).toHaveLength(1);
+        expect(contexts).toHaveLength(1);
+        expect(contexts[0].source.connect).toHaveBeenCalledTimes(2);
+        expect(child.processedTrack).toBe(contexts[0].outputTrack);
+        await child.destroy();
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it("builds a quick rejoin in the last call's context, and keeps that context only for a while", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const first = root.createProcessor();
+        await init(first);
+        const callContext = contexts[0];
+        await first.destroy();
+        // Rejoined before the next graph was prepared.
+        const second = root.createProcessor();
+        await init(second);
+        expect(contexts).toHaveLength(1);
+        expect(callContext.close).not.toHaveBeenCalled();
+        // One inaudible clock source per context, however many calls it carries.
+        expect(callContext.clockSource.start).toHaveBeenCalledOnce();
+        await second.destroy();
+        root.clearPrepared();
+        expect(callContext.close).toHaveBeenCalledOnce();
+        await root.destroy();
+    });
+
+    it("closes a kept context nobody used within its time", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        await child.destroy();
+        // Preparation would take the context; this account no longer prepares calls but stays signed in.
+        root.prepare = (): void => {};
+        await vi.advanceTimersByTimeAsync(SPARE_CONTEXT_MS - 1);
+        expect(contexts[0].close).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(contexts[0].close).toHaveBeenCalledOnce();
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it("does not prepare the next graph when the account leaves before the call's device is released", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        await child.destroy();
+        root.clearPrepared();
+        await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS);
+        expect(contexts).toHaveLength(1);
+        await root.destroy();
+    });
+    it("keeps a released microphone's capture open, silently, until its leave cue has played", async () => {
+        vi.useFakeTimers();
+        const clone = { enabled: true, stop: vi.fn() };
+        const captured = { id: "mic", enabled: true, clone: vi.fn(() => clone) } as unknown as MediaStreamTrack;
+        const root = new MicrophoneProcessor(config);
+        const child = root.createProcessor();
+        await init(child, captured);
+        expect(captured.clone).toHaveBeenCalledOnce();
+        expect(clone.enabled).toBe(false);
+        await child.destroy();
+        expect(clone.stop).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(CAPTURE_LINGER_MS);
+        expect(clone.stop).toHaveBeenCalledOnce();
+        await root.destroy();
     });
     it("rebuilds a graph that crashes while prepared instead of publishing a silent track", async () => {
         const root = new MicrophoneProcessor(config);

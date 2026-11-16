@@ -13,7 +13,9 @@ import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mocked
 import {
     type MatrixClient,
     type Device,
+    EventType,
     HistoryVisibility,
+    type Room,
     Preset,
     RoomType,
     JoinRule,
@@ -34,6 +36,7 @@ import WidgetStore from "./stores/WidgetStore";
 import WidgetUtils from "./utils/WidgetUtils";
 import { JitsiCall, ElementCall } from "./models/Call";
 import createRoom, {
+    type IOpts,
     checkUserIsAllowedToChangeEncryption,
     canEncryptToAllUsers,
     waitForRoomEncryption,
@@ -256,9 +259,90 @@ describe("createRoom", () => {
             initial_state: [
                 { state_key: "", type: "m.room.guest_access", content: { guest_access: "can_join" } },
                 { type: "m.space.parent", state_key: parentSpace.roomId, content: { canonical: true, via: [] } },
-                { type: "m.room.history_visibility", content: { history_visibility: "invited" } },
+                { type: "m.room.history_visibility", content: { history_visibility: "shared" } },
             ],
             power_level_content_override: { events: POWER_LEVELS_WITH_CALL_MEMBER },
+        });
+    });
+
+    describe("history visibility of server channels", () => {
+        let parentSpace: Room;
+        beforeEach(async () => {
+            const roomId = await createRoom(client, { roomType: RoomType.Space });
+            parentSpace = client.getRoom(roomId!)!;
+            client.createRoom.mockClear();
+        });
+
+        const historyVisibilitySent = (): string | undefined =>
+            client.createRoom.mock.calls[0][0].initial_state?.find(
+                (event) => event.type === EventType.RoomHistoryVisibility,
+            )?.content.history_visibility;
+
+        // The options each way of making a channel in a server passes, as their own tests check. createRoom adds
+        // to the options it is given, so each test takes a copy.
+        const paths: [string, IOpts][] = [
+            [
+                "the text channel of a new server",
+                {
+                    joinRule: JoinRule.Restricted,
+                    encryption: true,
+                    suggested: true,
+                    createOpts: { preset: Preset.PrivateChat },
+                },
+            ],
+            [
+                "the voice channel of a new server",
+                {
+                    joinRule: JoinRule.Restricted,
+                    encryption: true,
+                    roomType: RoomType.UnstableCall,
+                    createOpts: { preset: Preset.PrivateChat },
+                },
+            ],
+            [
+                "a text channel from the channel dialog or a category's +",
+                { joinRule: JoinRule.Restricted, encryption: true, createOpts: {} },
+            ],
+            [
+                "a voice channel from the channel dialog or a category's +",
+                { joinRule: JoinRule.Restricted, encryption: true, roomType: RoomType.UnstableCall, createOpts: {} },
+            ],
+            ["an invite-only channel from the channel dialog", { encryption: true, createOpts: {} }],
+            ["an ask-to-join channel from the channel dialog", { joinRule: JoinRule.Knock, createOpts: {} }],
+            [
+                "a first room from the space setup wizard",
+                { joinRule: JoinRule.Restricted, encryption: false, createOpts: { preset: Preset.PrivateChat } },
+            ],
+        ];
+
+        it.each(paths)("shares the history of %s in a private server with later members", async (_path, opts) => {
+            await createRoom(client, { ...structuredClone(opts), parentSpace });
+            expect(historyVisibilitySent()).toBe(HistoryVisibility.Shared);
+        });
+
+        it.each(paths)("keeps the history of %s in a public server for invited members", async (_path, opts) => {
+            vi.mocked(parentSpace.getJoinRule).mockReturnValue(JoinRule.Public);
+            await createRoom(client, { ...structuredClone(opts), parentSpace });
+            expect(historyVisibilitySent()).toBe(HistoryVisibility.Invited);
+        });
+
+        it("leaves a public channel of a private server to its preset", async () => {
+            await createRoom(client, { parentSpace, createOpts: { preset: Preset.PublicChat } });
+            expect(historyVisibilitySent()).toBeUndefined();
+        });
+
+        it("keeps an explicit history visibility for a channel of a private server", async () => {
+            await createRoom(client, {
+                parentSpace,
+                historyVisibility: HistoryVisibility.Joined,
+                createOpts: { preset: Preset.PrivateChat },
+            });
+            expect(historyVisibilitySent()).toBe(HistoryVisibility.Joined);
+        });
+
+        it("keeps a private room outside any server for invited members", async () => {
+            await createRoom(client, { encryption: true, createOpts: { preset: Preset.PrivateChat } });
+            expect(historyVisibilitySent()).toBe(HistoryVisibility.Invited);
         });
     });
 

@@ -75,6 +75,31 @@ vi.mock("../../../../hooks/right-panel/useCurrentPhase", () => ({
     },
 }));
 vi.mock("../../../../Modal");
+// Passed through, and counted, to tell how often the header is drawn.
+const { featureReads } = vi.hoisted(() => ({ featureReads: { askToJoin: 0 } }));
+vi.mock("../../../../hooks/useSettings.ts", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../../../hooks/useSettings.ts")>();
+    return {
+        ...actual,
+        useFeatureEnabled: (name: Parameters<typeof actual.useFeatureEnabled>[0], ...rest: unknown[]) => {
+            if (name === "feature_ask_to_join") featureReads.askToJoin++;
+            return (actual.useFeatureEnabled as (...args: unknown[]) => boolean)(name, ...rest);
+        },
+    };
+});
+
+// Passed through, and counted, to tell whether the header lists the room's members.
+const { memberLists } = vi.hoisted(() => ({ memberLists: { calls: 0 } }));
+vi.mock("../../../../hooks/useRoomMembers.ts", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../../../hooks/useRoomMembers.ts")>();
+    return {
+        ...actual,
+        useRoomMembers: (...args: Parameters<typeof actual.useRoomMembers>) => {
+            memberLists.calls++;
+            return actual.useRoomMembers(...args);
+        },
+    };
+});
 
 describe("RoomHeader", () => {
     filterConsole(
@@ -141,6 +166,24 @@ describe("RoomHeader", () => {
     afterEach(() => {
         vi.resetAllMocks();
         SettingsStore.reset();
+    });
+
+    it("is not drawn again when what renders it does so with the same props", async () => {
+        const Parent = ({ tick }: { tick: number }): React.JSX.Element => (
+            <div data-tick={tick}>
+                <RoomHeader room={room} />
+            </div>
+        );
+        const { rerender } = render(<Parent tick={0} />, getWrapper());
+        // What its own hooks draw it again for, as they load, settles first.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+        const drawn = featureReads.askToJoin;
+        expect(drawn).toBeGreaterThan(0);
+
+        rerender(<Parent tick={1} />);
+        await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+        expect(featureReads.askToJoin).toBe(drawn);
     });
 
     it("renders the room header", () => {
@@ -343,9 +386,11 @@ describe("RoomHeader", () => {
         room.currentState.setJoinedMemberCount(members.length);
         room.getJoinedMembers = vi.fn().mockReturnValue(members);
 
+        memberLists.calls = 0;
         const { container } = render(<RoomHeader room={room} />, getWrapper());
 
         expect(container).toHaveTextContent("4");
+        expect(memberLists.calls).toBeGreaterThan(0);
 
         const facePile = getByLabelText(document.body, "4 members");
         expect(facePile).toHaveTextContent("4");
@@ -353,6 +398,20 @@ describe("RoomHeader", () => {
         await user.click(facePile);
 
         expect(setCardSpy).toHaveBeenCalledWith({ phase: RightPanelPhases.MemberList });
+    });
+
+    it("does not list the room's members in the desktop shell, which shows no face pile", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            memberLists.calls = 0;
+            render(<RoomHeader room={room} />, getWrapper());
+            expect(memberLists.calls).toBe(0);
+        } finally {
+            setting.mockRestore();
+        }
     });
 
     it("has room info icon that opens the room info panel", async () => {

@@ -158,6 +158,8 @@ import { markRoomSwitch } from "../../performance/RoomSwitchPerformance";
 
 const DEBUG = false;
 const PREVENT_MULTIPLE_JITSI_WITHIN = 30_000;
+/** How tall a conversation's call is until resized, as a share of the window: about a third, as in Discord. */
+const CONVERSATION_CALL_HEIGHT_VH = 33;
 let debuglog = function (msg: string): void {};
 
 const BROWSER_SUPPORTS_SANDBOX = "sandbox" in document.createElement("iframe");
@@ -1672,7 +1674,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         if (
             this.getMainSplitContentType(room) !== MainSplitContentType.Timeline &&
-            this.context.roomNotificationStateStore.getRoomState(room).isUnread
+            this.context.roomNotificationStateStore.getRoomState(room).isUnread &&
+            // A voice channel opens on its call alone, as on Discord: its chat is opened from the header when wanted.
+            !(SettingsStore.getValue("feature_desktop_shell") && room.isCallRoom())
         ) {
             // Automatically open the chat panel to make unread messages easier to discover
             this.context.rightPanelStore.setCard({ phase: RightPanelPhases.Timeline }, true, room.roomId);
@@ -3063,7 +3067,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                 className="mx_RoomView_conversationCallStage"
                                 size={{
                                     width: "100%",
-                                    height: this.state.conversationCallHeight ?? "40vh",
+                                    height: this.state.conversationCallHeight ?? `${CONVERSATION_CALL_HEIGHT_VH}vh`,
                                 }}
                                 minHeight={248}
                                 maxHeight="80%"
@@ -3078,7 +3082,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                     topLeft: false,
                                 }}
                                 handleClasses={{ bottom: "mx_RoomView_callResizeHandle" }}
-                                handleStyles={{ bottom: { height: "8px", bottom: 0 } }}
+                                // Over the stage's lower edge, half on each side, so its line is that edge.
+                                handleStyles={{ bottom: { height: "8px", bottom: "-4px" } }}
                                 handleComponent={{
                                     bottom: (
                                         <div
@@ -3089,7 +3094,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                             aria-valuemin={248}
                                             aria-valuenow={Math.round(
                                                 this.state.conversationCallHeight ??
-                                                    Math.max(248, UIStore.instance.windowHeight * 0.4),
+                                                    Math.max(
+                                                        248,
+                                                        (UIStore.instance.windowHeight * CONVERSATION_CALL_HEIGHT_VH) /
+                                                            100,
+                                                    ),
                                             )}
                                             onKeyDown={this.onConversationCallResizeKeyDown}
                                             onDoubleClick={() => this.setState({ conversationCallHeight: undefined })}
@@ -3158,6 +3167,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             const b = cb(this.state.room.roomId);
             if (b) extraButtons.push(b);
         }
+        // None at all when no module adds one, so the header is not drawn again for every change to this view.
+        const headerButtons = extraButtons.length > 0 ? <>{extraButtons}</> : undefined;
 
         return (
             <ScopedRoomContextProvider {...this.state} roomViewStore={this.roomViewStore}>
@@ -3171,7 +3182,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     {showChatEffects && this.roomView.current && <EffectsOverlay room={this.roomView.current} />}
                     <ErrorBoundary>
                         {desktopShell && !this.props.hideHeader && (
-                            <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
+                            <RoomHeader room={this.state.room} extraButtons={headerButtons} />
                         )}
                         <MainSplit
                             panel={rightPanel}
@@ -3186,7 +3197,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                 data-layout={this.state.layout}
                             >
                                 {!desktopShell && !this.props.hideHeader && (
-                                    <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
+                                    <RoomHeader room={this.state.room} extraButtons={headerButtons} />
                                 )}
                                 {mainSplitBody}
                             </div>

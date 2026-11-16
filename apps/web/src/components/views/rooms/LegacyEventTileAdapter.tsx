@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX } from "react";
+import React, { memo, type JSX } from "react";
 import type { EventSendState } from "@element-hq/web-shared-components";
 
 import { EventStatus, type MatrixEvent } from "matrix-js-sdk/src/matrix";
@@ -78,8 +78,14 @@ const EVENT_STATUS: Record<EventSendState, EventStatus> = {
  * The new shared timeline calls `renderItem(item)` for each row.
  * For items that are not yet migrated to MVVM, the web-side
  * renderItem implementation returns `<LegacyEventTileAdapter {...rowProps} />`.
+ *
+ * Memoised: the timeline draws every row again whenever what it draws them with changes, such as which message is
+ * highlighted or the newest, and only the rows whose own props change need drawing again. Changes inside the event
+ * reach the tile through its own listeners, and through the props the view model gives it as it rebuilds its rows.
  */
-export function LegacyEventTileAdapter(props: Readonly<LegacyEventTileAdapterProps>): JSX.Element {
+export const LegacyEventTileAdapter = memo(function LegacyEventTileAdapter(
+    props: Readonly<LegacyEventTileAdapterProps>,
+): JSX.Element {
     return (
         <EventTile
             // The shared TimelineView wraps each row in its own semantic <li>, so
@@ -110,4 +116,4 @@ export function LegacyEventTileAdapter(props: Readonly<LegacyEventTileAdapterPro
             compactReplyPreview={true}
         />
     );
-}
+});

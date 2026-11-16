@@ -5,7 +5,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React, { type FC, lazy, Suspense, useEffect, useMemo } from "react";
+import React, { type FC, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { type MatrixClient } from "matrix-js-sdk/src/matrix";
 // Type-only: the component itself is loaded lazily below
 import type * as ElementCallComponent from "@element-hq/element-call-component";
@@ -16,9 +16,10 @@ import { useSettingValue } from "../../../hooks/useSettings";
 import { getCurrentLanguage } from "../../../languageHandler";
 import { useTheme } from "../../../hooks/useTheme";
 import Spinner from "../elements/Spinner";
-import { loadElementCallComponent } from "./ElementCallLoader";
+import { getLoadedElementCallComponent, loadElementCallComponent } from "./ElementCallLoader";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
 import { DesktopCallStage } from "./DesktopCallStage";
+import { pendingCallPresentation } from "./pendingCallPresentation";
 import { useTypedEventEmitterState } from "../../../hooks/useEventEmitter";
 
 /**
@@ -80,7 +81,23 @@ export const WrappedElementCallComponent: FC<{ call: ElementCallModel; client: M
     // Real component or mock: independent of the widget-vs-React choice CallAppTile makes.
     const useMock = Boolean(useSettingValue("Developer.elementCallMockComponent"));
     const desktopShell = Boolean(useSettingValue("feature_desktop_shell"));
-    const ElementCall = useMock ? MockElementCall : RealElementCall;
+    // The component is rendered directly once loaded (usually while idle, before any call), not through `lazy`: a
+    // render that suspends is held back by React for a few hundred milliseconds even after it could go on. Only if
+    // loading fails is it left to `lazy`, which tries again and reports the error.
+    const [loadedComponent, setLoadedComponent] = useState(getLoadedElementCallComponent);
+    const [loadFailed, setLoadFailed] = useState(false);
+    useEffect(() => {
+        if (useMock || loadedComponent) return;
+        let mounted = true;
+        loadElementCallComponent().then(
+            ({ default: component }) => mounted && setLoadedComponent(() => component),
+            () => mounted && setLoadFailed(true),
+        );
+        return () => {
+            mounted = false;
+        };
+    }, [useMock, loadedComponent]);
+    const ElementCall = useMock ? MockElementCall : (loadedComponent ?? (loadFailed ? RealElementCall : undefined));
     const { effectiveTheme: theme } = useTheme();
     // Not a hook: changing the language reloads Element Web, so there is no live change to follow
     const language = getCurrentLanguage().replace("_", "-");
@@ -99,10 +116,26 @@ export const WrappedElementCallComponent: FC<{ call: ElementCallModel; client: M
         [call, client, desktopShell, useMock],
     );
     const { intent, config } = call.componentOptions;
+    // While Element Call loads, the stage already shows the call rather than a spinner.
+    const loading = useMemo(
+        () =>
+            desktopShell && !useMock ? (
+                <DesktopCallStage
+                    client={client}
+                    call={call}
+                    bridge={pendingCallPresentation(call, client.getRoom(call.roomId)?.name ?? call.roomId)}
+                />
+            ) : (
+                <Spinner />
+            ),
+        [call, client, desktopShell, useMock],
+    );
     const generation = useTypedEventEmitterState(call, CallEvent.ComponentRestart, () => call.componentGeneration);
 
+    if (!ElementCall) return loading;
+
     return (
-        <Suspense fallback={<Spinner />}>
+        <Suspense fallback={loading}>
             <React.Fragment key={generation}>
                 <ElementCall
                     client={client}

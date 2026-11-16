@@ -26,6 +26,10 @@ export class MatrixDispatcher {
     private readonly isHandled = new Map<DispatchToken, boolean>();
     private readonly isPending = new Map<DispatchToken, boolean>();
     private pendingPayload?: ActionPayload;
+    /** How many payloads of each action dispatched asynchronously wait for their timers. */
+    private readonly queued = new Map<string, number>();
+    /** How many holds placed with {@link holdBack} are not yet released. */
+    private holds = 0;
     private lastId = 1;
 
     /**
@@ -169,8 +173,46 @@ export class MatrixDispatcher {
             // if you dispatch from within a dispatch, so rather than action
             // handlers having to worry about not calling anything that might
             // then dispatch, we just do dispatches asynchronously.
-            window.setTimeout(this._dispatch, 0, payload);
+            const { action } = payload;
+            this.queued.set(action, (this.queued.get(action) ?? 0) + 1);
+            window.setTimeout(() => {
+                const left = this.queued.get(action)! - 1;
+                if (left > 0) this.queued.set(action, left);
+                else this.queued.delete(action);
+                this._dispatch(payload);
+            }, 0);
         }
+    }
+
+    /**
+     * Whether a payload dispatched asynchronously, of an action other than `overtakable`, still waits for its timer.
+     * One dispatched synchronously now would be delivered before it, although asked for after it: a caller that must
+     * keep its place dispatches asynchronously then.
+     * @param overtakable - The actions it does not matter to overtake.
+     */
+    public hasQueuedOtherThan(...overtakable: string[]): boolean {
+        if (this.holds > 0) return true;
+        for (const action of this.queued.keys()) {
+            if (!overtakable.includes(action)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Has {@link hasQueuedOtherThan} report work waiting until the returned function is called, as for a dispatch
+     * waiting for its timer. For work outside the dispatcher that must finish first, such as an insertion into a
+     * composer waiting for its selection to take: a room opened meanwhile, which would replace the composer, then
+     * waits behind it.
+     * @returns A function that releases the hold; calling it again does nothing.
+     */
+    public holdBack(): () => void {
+        this.holds++;
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            this.holds--;
+        };
     }
 
     /**

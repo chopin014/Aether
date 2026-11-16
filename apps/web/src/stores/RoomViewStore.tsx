@@ -54,6 +54,7 @@ import { type CancelAskToJoinPayload } from "../dispatcher/payloads/CancelAskToJ
 import { type SubmitAskToJoinPayload } from "../dispatcher/payloads/SubmitAskToJoinPayload";
 import { setMarkedUnreadState } from "../utils/notifications";
 import { ConnectionState, ElementCall } from "../models/Call";
+import { afterNextPaint } from "../utils/afterNextPaint";
 import { isVideoRoom } from "../utils/video-rooms";
 import { ModuleApi } from "../modules/Api";
 import ActiveWidgetStore from "./ActiveWidgetStore";
@@ -215,12 +216,17 @@ export class RoomViewStore extends EventEmitter {
             if (this.state.roomId) this.emitForRoom(this.state.roomId, true);
 
             // Fired so we can reduce dependency on event emitters to this store, which is relatively
-            // central to the application and can easily cause import cycles.
-            this.dis.dispatch<ActiveRoomChangedPayload>({
+            // central to the application and can easily cause import cycles. Fired as soon as the dispatch under way
+            // has finished rather than after a timer: the view of the room, which can open in the same task, reads
+            // stores that follow this, such as the right panel's. No dispatch is under way in a microtask. After a timer
+            // still, behind anything dispatched earlier that waits, but for the user activity that comes with a click,
+            // which only presence follows.
+            const changed: ActiveRoomChangedPayload = {
                 action: Action.ActiveRoomChanged,
                 oldRoomId: lastRoomId,
                 newRoomId: this.state.roomId,
-            });
+            };
+            queueMicrotask(() => this.dis.dispatch(changed, !this.dis.hasQueuedOtherThan(Action.UserActivity)));
         }
 
         this.emit(UPDATE_EVENT);
@@ -372,6 +378,86 @@ export class RoomViewStore extends EventEmitter {
         return roomId === this.switchingCallToRoomId ? this.callSwitchResult : undefined;
     }
 
+    /**
+     * Before joining a call in `room`, leaves the user's other calls once they confirm the switch.
+     * @returns whether the join may go ahead.
+     */
+    private async leaveOtherCallsFor(room: Room, viewRequest: number): Promise<boolean> {
+        const otherCalls = [...CallStore.instance.connectedCalls, ...CallStore.instance.joiningCalls].filter(
+            (call) => call.roomId !== room.roomId,
+        );
+        if (otherCalls.length === 0) return true;
+        if (this.switchingCallToRoomId) return false;
+        this.switchingCallToRoomId = room.roomId;
+        const result = Promise.withResolvers<boolean>();
+        this.callSwitchResult = result.promise;
+        let switched = false;
+        try {
+            if (!(await confirmVoiceChannelSwitch(room.name)) || viewRequest !== this.viewRequest) return false;
+            // Closing the old stage must not navigate back to its room during the switch.
+            for (const call of otherCalls) call.presented = false;
+            await Promise.all(otherCalls.map((call) => call.disconnect()));
+            if (viewRequest !== this.viewRequest) return false;
+            switched = true;
+            return true;
+        } catch (error) {
+            logger.warn("Could not switch calls", error);
+            Modal.createDialog(ErrorDialog, {
+                title: _t("desktop|voice_settings|switch_error_title"),
+                description: _t("desktop|voice_settings|switch_error_description"),
+            });
+            return false;
+        } finally {
+            result.resolve(switched);
+            this.switchingCallToRoomId = null;
+            this.callSwitchResult = undefined;
+        }
+    }
+
+    /**
+     * Clicking a voice channel the user is not in joins it and leaves them in the channel they were reading, as
+     * Discord does; once they are in it, the same click opens the call. Previewing the camera first needs the lobby,
+     * with nothing open there is nothing to stay on, and someone looking at another voice channel's call would be left
+     * on its empty lobby, so those clicks open the channel.
+     *
+     * @returns whether the click was handled here; otherwise the caller opens the room.
+     */
+    public joinVoiceChannel(room: Room): boolean {
+        if (!SettingsStore.getValue("feature_desktop_shell") || !room.isCallRoom()) return false;
+        const call = CallStore.instance.getCall(room.roomId);
+        if (call instanceof ElementCall && (call.connected || call.joinRequested)) return false;
+        if (!this.state.roomId || this.state.roomId === room.roomId) return false;
+        // Someone looking at another voice channel's call would be left on its empty lobby: open the new one.
+        if (room.client.getRoom(this.state.roomId)?.isCallRoom()) return false;
+        if (SettingsStore.getValue("desktopAlwaysPreviewVideo")) return false;
+        void this.joinCallInBackground(room, this.viewRequest);
+        return true;
+    }
+
+    /**
+     * Joins a voice channel's call without opening it. The call is kept alive off screen, as a call the user has
+     * navigated away from is, and the voice panel, the channel and the stage show it as joining from now on.
+     */
+    private async joinCallInBackground(room: Room, viewRequest: number): Promise<void> {
+        if (!(await this.leaveOtherCallsFor(room, viewRequest))) return;
+        let call = CallStore.instance.getCall(room.roomId);
+        if (call === null) {
+            ElementCall.create(room);
+            call = CallStore.instance.getCall(room.roomId);
+        }
+        if (!(call instanceof ElementCall)) return;
+        const joining = call;
+        // Starting renders and sets up the whole call engine in one go: show the join in the voice panel and the
+        // channel first, and start the call once that is on screen.
+        if (joining.componentOptions.config.skipLobby === true) joining.setJoinRequested(true);
+        afterNextPaint(() => {
+            // Left again before the call started.
+            if (joining.componentOptions.config.skipLobby === true && !joining.joinRequested) return;
+            ActiveWidgetStore.instance.setWidgetPersistence(joining.widget.id, room.roomId, true);
+            if (joining.connectionState === ConnectionState.Disconnected) void joining.start({});
+        });
+    }
+
     public async viewRoom(payload: ViewRoomPayload): Promise<void> {
         if (payload.room_id && payload.room_id === this.switchingCallToRoomId) return;
         const viewRequest = ++this.viewRequest;
@@ -403,13 +489,15 @@ export class RoomViewStore extends EventEmitter {
 
             let viewingCall = payload.view_call;
             if (viewingCall === undefined) {
-                // Clicking a voice channel is a fresh join, including after leaving it on this device.
+                // Opening a voice channel from the list opens its call: one being joined, or a fresh join when there is
+                // nothing else to look at (see joinVoiceChannel for the click that joins without opening it).
                 if (
                     SettingsStore.getValue("feature_desktop_shell") &&
                     room?.isCallRoom() &&
                     payload.metricsTrigger === "RoomList"
-                )
+                ) {
                     viewingCall = true;
+                }
                 // Default behavior: keep the same call state as before if viewing the same room
                 else if (payload.room_id === this.state.roomId) viewingCall = this.state.viewingCall;
                 // Always view the call in video rooms
@@ -420,37 +508,7 @@ export class RoomViewStore extends EventEmitter {
 
             if (room && viewingCall) {
                 if (SettingsStore.getValue("feature_desktop_shell")) {
-                    const otherCalls = [...CallStore.instance.connectedCalls].filter(
-                        (call) => call.roomId !== room.roomId,
-                    );
-                    if (otherCalls.length > 0) {
-                        if (this.switchingCallToRoomId) return;
-                        this.switchingCallToRoomId = room.roomId;
-                        const result = Promise.withResolvers<boolean>();
-                        this.callSwitchResult = result.promise;
-                        let switched = false;
-                        try {
-                            if (!(await confirmVoiceChannelSwitch(room.name)) || viewRequest !== this.viewRequest) {
-                                return;
-                            }
-                            // Closing the old stage must not navigate back to its room during the switch.
-                            for (const call of otherCalls) call.presented = false;
-                            await Promise.all(otherCalls.map((call) => call.disconnect()));
-                            if (viewRequest !== this.viewRequest) return;
-                            switched = true;
-                        } catch (error) {
-                            logger.warn("Could not switch calls", error);
-                            Modal.createDialog(ErrorDialog, {
-                                title: _t("desktop|voice_settings|switch_error_title"),
-                                description: _t("desktop|voice_settings|switch_error_description"),
-                            });
-                            return;
-                        } finally {
-                            result.resolve(switched);
-                            this.switchingCallToRoomId = null;
-                            this.callSwitchResult = undefined;
-                        }
-                    }
+                    if (!(await this.leaveOtherCallsFor(room, viewRequest))) return;
                 }
                 let call = CallStore.instance.getCall(payload.room_id);
                 // Start a call if not already there

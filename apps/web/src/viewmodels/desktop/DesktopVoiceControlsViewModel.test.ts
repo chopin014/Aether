@@ -16,7 +16,11 @@ import { useCreateAutoDisposedViewModel } from "@element-hq/web-shared-component
 import { Room, type MatrixClient, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
-import { DesktopVoiceControlsViewModel, PARTICIPANT_LEAVE_GRACE_MS } from "./DesktopVoiceControlsViewModel";
+import {
+    DesktopVoiceControlsViewModel,
+    PARTICIPANT_LEAVE_GRACE_MS,
+    PARTICIPANT_SETTLE_MS,
+} from "./DesktopVoiceControlsViewModel";
 import { Call, CallEvent, ElementCall, NO_SCREEN_SHARE } from "../../models/Call";
 import { emptyCallConnectionStats } from "../../models/CallConnectionStats";
 import { CallStoreEvent } from "../../stores/CallStore";
@@ -126,6 +130,18 @@ describe("DesktopVoiceControlsViewModel", () => {
         store.connectedCalls.add(call);
         store.emit(CallStoreEvent.ConnectedCalls);
         await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
+    }
+    /** Reports our media as connected, as Element Call does once it flows. */
+    function mediaConnected(): void {
+        (call as unknown as { _connectionStats: unknown })._connectionStats = emptyCallConnectionStats("connected");
+        call.emit(CallEvent.ConnectionStats, call.connectionStats);
+    }
+    /** Connects the call and its media, long enough ago that the people already in it have been listed. */
+    async function connectMedia(): Promise<void> {
+        await connect();
+        mediaConnected();
+        // The dock times its settling from when media came up; that was a while ago.
+        (vm as unknown as { mediaConnectedAt: number }).mediaConnectedAt = Date.now() - PARTICIPANT_SETTLE_MS;
     }
     it("follows local microphone and soundboard activity for the account avatar", () => {
         store.connectedCalls.add(call);
@@ -362,8 +378,34 @@ describe("DesktopVoiceControlsViewModel", () => {
         // Call lifecycle cues belong to the model, not a second observer in the dock.
         expect(playDesktopVoiceSound).toHaveBeenCalledTimes(count);
     });
-    it("also sounds actual microphone changes from the call-stage controls", async () => {
+    it("shows a call being joined, as connecting, from the click", () => {
+        Object.assign(store, { joiningCalls: new Set([call]) });
+        (call as unknown as { _connectionStats: unknown })._connectionStats = emptyCallConnectionStats("disconnected");
+        store.emit(CallStoreEvent.JoiningCalls);
+        expect(vm.getSnapshot().roomName).toBe("Lounge");
+        expect(vm.getSnapshot().connection.state).toBe("connecting");
+    });
+    it("stays silent about the microphone and camera Element Call opens while joining", async () => {
         await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: true });
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        // Once media flows, the same changes are the user's own.
+        mediaConnected();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: true });
+        expect(playDesktopVoiceSound).toHaveBeenCalledExactlyOnceWith("mute");
+    });
+    it("does not announce the people already in the call while it connects", async () => {
+        await connect();
+        mediaConnected();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        call.emit(CallEvent.Participants, new Map([[alice, new Set(["A"])]]), new Map());
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
+    it("also sounds actual microphone changes from the call-stage controls", async () => {
+        await connectMedia();
         vi.mocked(playDesktopVoiceSound).mockClear();
         call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
         expect(playDesktopVoiceSound).toHaveBeenCalledExactlyOnceWith("mute");
@@ -373,7 +415,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("unmute");
     });
     it("sounds the camera and screen share changes, however they were made", async () => {
-        await connect();
+        await connectMedia();
         vi.mocked(playDesktopVoiceSound).mockClear();
         call.handleDeviceMute({ audio_enabled: true, video_enabled: true });
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("cameraOn");
@@ -390,7 +432,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("screenShareStop");
     });
     it("sounds other people joining and leaving, but not ourselves", async () => {
-        await connect();
+        await connectMedia();
         vi.mocked(playDesktopVoiceSound).mockClear();
         const me = { userId: client.getSafeUserId() } as RoomMember;
         const alice = { userId: "@alice:example.org" } as RoomMember;
@@ -428,7 +470,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(playDesktopVoiceSound).not.toHaveBeenCalled();
     });
     it("stays silent when somebody drops out briefly and comes back", async () => {
-        await connect();
+        await connectMedia();
         vi.mocked(playDesktopVoiceSound).mockClear();
         const alice = { userId: "@alice:example.org" } as RoomMember;
         const present = new Map([[alice, new Set(["A"])]]);
@@ -445,7 +487,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         }
     });
     it("plays one leave cue when several people leave together", async () => {
-        await connect();
+        await connectMedia();
         vi.mocked(playDesktopVoiceSound).mockClear();
         const alice = { userId: "@alice:example.org" } as RoomMember;
         const bob = { userId: "@bob:example.org" } as RoomMember;
@@ -469,7 +511,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         }
     });
     it("drops pending leave cues when the call ends", async () => {
-        await connect();
+        await connectMedia();
         vi.mocked(playDesktopVoiceSound).mockClear();
         const alice = { userId: "@alice:example.org" } as RoomMember;
         vi.useFakeTimers();
@@ -483,7 +525,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         }
     });
     it("keeps participant changes silent while deafened", async () => {
-        await connect();
+        await connectMedia();
         await vm.toggleDeafened();
         vi.mocked(playDesktopVoiceSound).mockClear();
         const alice = { userId: "@alice:example.org" } as RoomMember;
@@ -491,7 +533,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(playDesktopVoiceSound).not.toHaveBeenCalled();
     });
     it("ignores camera, sharing and participant teardown after hangup starts", async () => {
-        await connect();
+        await connectMedia();
         call.setLocalLeavePending(true);
         vi.mocked(playDesktopVoiceSound).mockClear();
         call.handleDeviceMute({ audio_enabled: false, video_enabled: true });
@@ -501,12 +543,12 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(playDesktopVoiceSound).not.toHaveBeenCalled();
     });
     it("disconnects the real call and releases all subscriptions on unmount", async () => {
-        await connect();
+        await connectMedia();
         expect(vm.getSnapshot().roomName).toBe("Lounge");
         await vm.disconnect();
         expect(call.disconnect).toHaveBeenCalledOnce();
         expect(vm.getSnapshot().roomName).toBeUndefined();
-        await connect();
+        await connectMedia();
         vm.dispose();
         expect(store.listenerCount(CallStoreEvent.ConnectedCalls)).toBe(0);
         expect(call.listenerCount(CallEvent.DeviceMute)).toBe(0);
@@ -518,7 +560,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         );
     });
     it("turns the camera on and off in the real call", async () => {
-        await connect();
+        await connectMedia();
         expect(vm.getSnapshot().videoEnabled).toBe(false);
         await vm.toggleVideo();
         expect(call.setDeviceMute).toHaveBeenLastCalledWith({ video_enabled: true });
@@ -528,7 +570,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(vm.getSnapshot().videoEnabled).toBe(false);
     });
     it("follows screen sharing as the call reports it, and toggles it through the call", async () => {
-        await connect();
+        await connectMedia();
         expect(vm.getSnapshot()).toMatchObject({ screenShareAvailable: false, screenSharing: false });
         call.handleScreenShare({ available: true, sharing: false, remoteSharerIds: [] });
         expect(vm.getSnapshot()).toMatchObject({ screenShareAvailable: true, screenSharing: false });
@@ -537,7 +579,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(vm.getSnapshot().screenSharing).toBe(true);
     });
     it("explains a screen share that could not start", async () => {
-        await connect();
+        await connectMedia();
         vi.mocked(call.toggleScreenShare).mockRejectedValueOnce(new Error("Picker dismissed"));
         await vm.toggleScreenShare();
         expect(vm.getSnapshot()).toMatchObject({

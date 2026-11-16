@@ -2350,6 +2350,35 @@ describe("<MatrixChat />", () => {
         });
     });
 
+    describe("openScreenFromLink", () => {
+        const screen = { screen: "room/#linked:server.org", params: { via: "server.org" } };
+
+        it("shows a linked screen at once when the user's account is showing", () => {
+            const chat = new MatrixChat(defaultProps);
+            chat.state = { ...chat.state, view: Views.LOGGED_IN };
+            const showScreen = vi.spyOn(chat, "showScreen").mockImplementation(() => {});
+
+            expect(chat.openScreenFromLink(screen)).toBe(true);
+            expect(showScreen).toHaveBeenCalledExactlyOnceWith(screen.screen, screen.params);
+        });
+
+        it.each([Views.WELCOME, Views.LOGIN, Views.LOADING, Views.COMPLETE_SECURITY])(
+            "keeps a linked screen for after sign-in while the view is %s",
+            (view) => {
+                const chat = new MatrixChat(defaultProps);
+                chat.state = { ...chat.state, view };
+                const showScreen = vi.spyOn(chat, "showScreen").mockImplementation(() => {});
+                vi.spyOn(chat, "setState").mockImplementation(() => {});
+
+                expect(chat.openScreenFromLink(screen)).toBe(false);
+                expect(showScreen).not.toHaveBeenCalled();
+
+                chat["onShowPostLoginScreen"]();
+                expect(showScreen).toHaveBeenCalledExactlyOnceWith(screen.screen, screen.params);
+            },
+        );
+    });
+
     describe("blacklistUnverifiedDevices settings", () => {
         beforeEach(async () => {
             mockPlatformPeg();

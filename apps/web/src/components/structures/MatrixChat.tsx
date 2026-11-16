@@ -1942,6 +1942,20 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         }
     }
 
+    /**
+     * Opens a screen asked for from outside the app, such as by a matrix: link: at once when the user is signed in
+     * and the app is showing their account, otherwise once it does, as for a link the app was started with.
+     * @returns whether the screen was shown now.
+     */
+    public openScreenFromLink(screen: IScreen): boolean {
+        if (this.state.view === Views.LOGGED_IN) {
+            this.showScreen(screen.screen, screen.params);
+            return true;
+        }
+        this.screenAfterLogin = screen;
+        return false;
+    }
+
     public showScreen(screen: string, params?: Record<string, any>): void {
         logger.debug(`showScreen ${screen}`);
 

@@ -152,6 +152,32 @@ describe("<TimelineView />", () => {
         }
     });
 
+    it("reports painted rows while it keeps drawing for something no row shows, and again for a changed row", async () => {
+        const { vm, update } = makeFakeVm({ items: eventItems(30) });
+        const painted = vi.fn();
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={painted} />
+            </div>,
+        );
+        await waitFor(() => expect(painted).toHaveBeenCalled(), { timeout: 5000 });
+        painted.mockClear();
+
+        // Drawn again more often than every two frames, for an unread count no row shows.
+        let count = 0;
+        const timer = setInterval(() => update({ numUnreadMessages: ++count }), 8);
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            expect(painted).not.toHaveBeenCalled();
+            // A row in view is replaced by another, though the drawing goes on: it is told of.
+            update({ items: [...eventItems(29), ...eventItems(1, 99)] });
+            await waitFor(() => expect(painted).toHaveBeenCalled(), { timeout: 1000 });
+        } finally {
+            clearInterval(timer);
+        }
+        expect(painted.mock.calls.at(-1)![0].map((item: TimelineItem) => item.key)).toContain("evt-99");
+    });
+
     it("does not report painted rows after unmounting before placement", async () => {
         const { vm } = makeFakeVm();
         const painted = vi.fn();
@@ -191,6 +217,45 @@ describe("<TimelineView />", () => {
             scroller.getBoundingClientRect().bottom,
             0,
         );
+    });
+
+    it("draws a row's content again only when its item or the function drawing items changes", async () => {
+        const items = eventItems(30);
+        const { vm, actions, update } = makeFakeVm({ items });
+        const drawn: string[] = [];
+        const draw = (item: TimelineItem): React.ReactNode => {
+            drawn.push(item.key);
+            return renderItem(item);
+        };
+        const tree = (drawItem: (item: TimelineItem) => React.ReactNode): React.ReactElement => (
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={drawItem} />
+            </div>
+        );
+        const { rerender } = render(tree(draw));
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        const shown = new Set(drawn);
+        drawn.length = 0;
+
+        // The view model publishes something no row shows, and the reader scrolls.
+        update({ numUnreadMessages: 3 });
+        act(() => {
+            screen.getByTestId("timeline-scroller").scrollTop -= ROW_HEIGHT;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(drawn.filter((key) => shown.has(key))).toEqual([]);
+
+        // One row's item changes. Rows the scroll brought into view are drawn for the first time.
+        for (const key of drawn) shown.add(key);
+        drawn.length = 0;
+        const last = items.at(-1)!;
+        update({ items: [...items.slice(0, -1), { ...last }] });
+        expect(drawn.filter((key) => shown.has(key))).toEqual([last.key]);
+
+        // A new function draws every row again.
+        drawn.length = 0;
+        rerender(tree((item) => draw(item)));
+        expect(drawn.length).toBeGreaterThan(1);
     });
 
     it("renders each item via the renderItem callback", async () => {

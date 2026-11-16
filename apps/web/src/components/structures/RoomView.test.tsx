@@ -104,6 +104,20 @@ vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue({
     [MediaDeviceKindEnum.AudioOutput]: [],
 });
 
+// Passed through, with what the room view gives it recorded.
+const { headerProps } = vi.hoisted(() => ({ headerProps: [] as { extraButtons?: unknown }[] }));
+vi.mock("../views/rooms/RoomHeader/RoomHeader", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../views/rooms/RoomHeader/RoomHeader")>();
+    const Header = actual.default;
+    return {
+        ...actual,
+        default: (props: React.ComponentProps<typeof Header>) => {
+            headerProps.push(props);
+            return <Header {...props} />;
+        },
+    };
+});
+
 describe("RoomView", () => {
     let cli: MockedObject<MatrixClient>;
     let room: Room;
@@ -629,6 +643,30 @@ describe("RoomView", () => {
         await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
         expect(container.querySelector(".mx_JumpToBottomButton")).toBeNull();
         expect(container.querySelector(".mx_TopUnreadMessagesBar")).toBeNull();
+    });
+
+    describe("room header", () => {
+        it("gets no extra buttons when no module adds any, so it is not drawn again for nothing", async () => {
+            room.getMyMembership = vi.fn().mockReturnValue(KnownMembership.Join);
+            headerProps.length = 0;
+            await mountRoomView();
+
+            await waitFor(() => expect(headerProps.length).toBeGreaterThan(0));
+            for (const props of headerProps) expect(props.extraButtons).toBeUndefined();
+        });
+
+        it("gets the buttons a module adds", async () => {
+            const callbacks = ModuleApi.instance.extras.roomHeaderButtonsCallbacks;
+            callbacks.push(() => <button>Module button</button>);
+            try {
+                room.getMyMembership = vi.fn().mockReturnValue(KnownMembership.Join);
+                headerProps.length = 0;
+                await mountRoomView();
+                await waitFor(() => expect(headerProps.at(-1)?.extraButtons).toBeDefined());
+            } finally {
+                callbacks.pop();
+            }
+        });
     });
 
     describe("with the room timeline host lab", () => {
@@ -1269,7 +1307,27 @@ describe("RoomView", () => {
             expect(stores.rightPanelStore.currentCard.phase).toEqual(RightPanelPhases.Timeline);
         });
 
+        it("opens a voice channel on its call alone in the desktop shell, even with unread messages", async () => {
+            vi.spyOn(NotificationState.prototype, "isUnread", "get").mockReturnValue(true);
+            const isCallRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+            const getValue = SettingsStore.getValue;
+            const desktopShell = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue.call(SettingsStore, name, ...args),
+                );
+            try {
+                await mountRoomView();
+                expect(stores.rightPanelStore.isOpen).toEqual(false);
+            } finally {
+                desktopShell.mockRestore();
+                isCallRoom.mockRestore();
+            }
+        });
+
         it("should render joined video room view", async () => {
+            // With no unread messages, as the spy of an earlier test would otherwise say there are.
+            vi.spyOn(NotificationState.prototype, "isUnread", "get").mockReturnValue(false);
             vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
             const { asFragment } = await mountRoomView();
             expect(asFragment()).toMatchSnapshot();
@@ -1346,7 +1404,7 @@ describe("RoomView", () => {
             fireEvent.keyDown(separator, { key: "Home" });
             expect(callArea.style.height).toBe("248px");
             fireEvent.doubleClick(separator);
-            expect(callArea.style.height).toBe("40vh");
+            expect(callArea.style.height).toBe("33vh");
         });
 
         it("makes a call that fills the room the page's one main landmark", async () => {

@@ -15,10 +15,12 @@ import React, {
     useEffect,
     useMemo,
     useRef,
+    useState,
     useSyncExternalStore,
 } from "react";
 
 import RoomContext from "./RoomContext.ts";
+import { EventTileContext } from "./EventTileContext.ts";
 import { ScopedRoomContext, ScopedRoomContextStore } from "./scoped-room-context-store.ts";
 
 // React Contexts with frequently changing values (like State where the object reference is changed on every update)
@@ -27,6 +29,67 @@ import { ScopedRoomContext, ScopedRoomContextStore } from "./scoped-room-context
 // and subscribers specify which fields they care about, and they will only be awoken on updates to those specific fields.
 
 type ContextValue = ContextType<typeof RoomContext>;
+
+/**
+ * How long a refresh of event tiles waits after the first change since the last refresh: past the burst of changes a
+ * room makes as it opens, so that the tiles just drawn are not drawn again while it does.
+ */
+const REFRESH_DELAY_MS = 750;
+/** How long it then waits for the main thread to be idle before it happens anyway. */
+const IDLE_REFRESH_TIMEOUT_MS = 300;
+
+/**
+ * Provides the event tiles' context: the fields they read, changed at once with them, and a refresh that grows once
+ * a moment after the room view has rendered, when the main thread is idle, however often it renders before then; see
+ * EventTileContext. Its own render for the refresh reaches only the tiles: its children are the same as before.
+ * @param rendered - What the room view rendered with, a new object each time it renders.
+ */
+function EventTileContextProvider({
+    isRoomEncrypted,
+    timelineRenderingType,
+    showHiddenEvents,
+    rendered,
+    children,
+}: {
+    isRoomEncrypted: ContextValue["isRoomEncrypted"];
+    timelineRenderingType: ContextValue["timelineRenderingType"];
+    showHiddenEvents: ContextValue["showHiddenEvents"];
+    rendered: object;
+    children: ReactNode;
+}): JSX.Element {
+    const [refresh, setRefresh] = useState(0);
+    const first = useRef(rendered);
+    // Cancels the refresh asked for and not yet made, if any.
+    const pending = useRef<(() => void) | null>(null);
+    useEffect(() => {
+        if (rendered === first.current || pending.current) return;
+        const done = (): void => {
+            pending.current = null;
+            setRefresh((n) => n + 1);
+        };
+        const timer = window.setTimeout(() => {
+            if (typeof window.requestIdleCallback === "function") {
+                const handle = window.requestIdleCallback(done, { timeout: IDLE_REFRESH_TIMEOUT_MS });
+                pending.current = () => window.cancelIdleCallback(handle);
+            } else {
+                done();
+            }
+        }, REFRESH_DELAY_MS);
+        pending.current = () => window.clearTimeout(timer);
+    }, [rendered]);
+    useEffect(
+        () => () => {
+            pending.current?.();
+            pending.current = null;
+        },
+        [],
+    );
+    const value = useMemo(
+        () => ({ isRoomEncrypted, timelineRenderingType, showHiddenEvents, refresh }),
+        [isRoomEncrypted, timelineRenderingType, showHiddenEvents, refresh],
+    );
+    return <EventTileContext.Provider value={value}>{children}</EventTileContext.Provider>;
+}
 
 // Uses react memo and leverages splatting the value to ensure that the context is only updated when the state changes (shallow compare)
 export const ScopedRoomContextProvider = memo(
@@ -38,11 +101,17 @@ export const ScopedRoomContextProvider = memo(
         useEffect(() => {
             store.publish(state, ++revision.current);
         }, [store, state]);
-
         // Includes the legacy RoomContext provider for backwards compatibility with class components
         return (
             <RoomContext.Provider value={state}>
-                <ScopedRoomContext.Provider value={store}>{children}</ScopedRoomContext.Provider>
+                <EventTileContextProvider
+                    isRoomEncrypted={state.isRoomEncrypted}
+                    timelineRenderingType={state.timelineRenderingType}
+                    showHiddenEvents={state.showHiddenEvents}
+                    rendered={state}
+                >
+                    <ScopedRoomContext.Provider value={store}>{children}</ScopedRoomContext.Provider>
+                </EventTileContextProvider>
             </RoomContext.Provider>
         );
     },

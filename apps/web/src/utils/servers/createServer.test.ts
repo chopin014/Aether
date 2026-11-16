@@ -6,7 +6,15 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { JoinRule, KnownMembership, type MatrixClient, Preset, type Room, RoomType } from "matrix-js-sdk/src/matrix";
+import {
+    HistoryVisibility,
+    JoinRule,
+    KnownMembership,
+    type MatrixClient,
+    Preset,
+    type Room,
+    RoomType,
+} from "matrix-js-sdk/src/matrix";
 
 import createRoom from "../../createRoom";
 import { createSpace } from "../../components/views/spaces/SpaceCreateMenu";
@@ -58,6 +66,7 @@ describe("createServer", () => {
             andView: false,
             joinRule: JoinRule.Restricted,
             encryption: true,
+            historyVisibility: HistoryVisibility.Shared,
             createOpts: { preset: Preset.PrivateChat },
         };
         expect(createRoom).toHaveBeenCalledWith(client, expect.objectContaining({ ...shared, name: "general" }));
@@ -92,6 +101,8 @@ describe("createServer", () => {
                 createOpts: { preset: Preset.PublicChat },
             }),
         );
+        // Public channels already show their history to anyone through their preset.
+        for (const [, opts] of vi.mocked(createRoom).mock.calls) expect(opts.historyVisibility).toBeUndefined();
     });
 
     it("fails when the server never arrives or a channel is not created", async () => {

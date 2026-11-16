@@ -60,7 +60,7 @@ export async function installAetherAppImage(source: string, home: string = homed
             `Icon=${desktopValue(path.join(installDirectory, "icon.png"))}`,
             "Terminal=false",
             "Categories=Network;InstantMessaging;Chat;",
-            "MimeType=x-scheme-handler/aether;",
+            "MimeType=x-scheme-handler/aether;x-scheme-handler/matrix;",
             "StartupNotify=true",
             "StartupWMClass=Aether",
             "",

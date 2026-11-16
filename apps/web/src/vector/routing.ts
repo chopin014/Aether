@@ -97,7 +97,11 @@ function getStoredInitialScreenAfterLogin(): ReturnType<typeof getScreenFromLoca
     return screenAfterLogin ? JSON.parse(screenAfterLogin) : undefined;
 }
 
-function setInitialScreenAfterLogin(screenAfterLogin?: ReturnType<typeof getScreenFromLocation>): void {
+/**
+ * Keeps a screen to show after login for the rest of this window's session, so that it survives signing in through
+ * the browser, which reloads the app.
+ */
+export function setInitialScreenAfterLogin(screenAfterLogin?: ReturnType<typeof getScreenFromLocation>): void {
     if (screenAfterLogin?.screen) {
         sessionStorage.setItem(ScreenAfterLoginStorageKey, JSON.stringify(screenAfterLogin));
     }

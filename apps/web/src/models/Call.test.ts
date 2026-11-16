@@ -59,8 +59,13 @@ import { BugReportEndpointURLLocal } from "../IConfigOptions.ts";
 import { DesktopVoicePipeline } from "../audio/desktop/DesktopVoicePipeline";
 import { emptyCallConnectionStats } from "./CallConnectionStats";
 import { playDesktopVoiceSound } from "../audio/DesktopVoiceSounds";
+import { joinElementCallEarly } from "../components/views/voip/ElementCallLoader";
+import { AFTER_PAINT_DEADLINE_MS } from "../utils/afterNextPaint";
 
 vi.mock("../audio/DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
+vi.mock("../components/views/voip/ElementCallLoader", () => ({
+    joinElementCallEarly: vi.fn().mockResolvedValue(true),
+}));
 
 const { enabledSettings } = enableCalls();
 
@@ -1221,6 +1226,67 @@ describe("ElementCall with the React component embedding", () => {
         expect(changed).toHaveBeenCalledTimes(2);
     });
 
+    /** Runs with the real Element Call component selected, which the test setup otherwise swaps for its mock. */
+    function withRealComponent(): () => void {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((name, ...args) =>
+            name === "Developer.elementCallMockComponent" ? false : getValue(name, ...args),
+        );
+        return () => vi.mocked(SettingsStore.getValue).mockImplementation(getValue);
+    }
+
+    it("sends the membership of a join that skips the lobby at once, while the user still wants the call", () => {
+        enabledSettings.add("feature_desktop_shell");
+        const restore = withRealComponent();
+        try {
+            vi.mocked(joinElementCallEarly).mockClear();
+            vi.useFakeTimers();
+            call.setJoinRequested(true);
+            // Once the join is on screen.
+            expect(joinElementCallEarly).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(AFTER_PAINT_DEADLINE_MS);
+            expect(joinElementCallEarly).toHaveBeenCalledExactlyOnceWith(client, room.roomId, {
+                intent: call.componentOptions.intent,
+                config: call.componentOptions.config,
+                stillWanted: expect.any(Function),
+            });
+            const { stillWanted } = vi.mocked(joinElementCallEarly).mock.calls[0]![2];
+            expect(stillWanted()).toBe(true);
+            call.setJoinRequested(false);
+            expect(stillWanted()).toBe(false);
+        } finally {
+            restore();
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("joins no call session early for the mock component", () => {
+        enabledSettings.add("feature_desktop_shell");
+        try {
+            vi.mocked(joinElementCallEarly).mockClear();
+            vi.useFakeTimers();
+            call.setJoinRequested(true);
+            vi.advanceTimersByTime(AFTER_PAINT_DEADLINE_MS);
+            expect(joinElementCallEarly).not.toHaveBeenCalled();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("leaves a call session joined early when the user leaves before Element Call took it over", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        const session = client.matrixRTC.getRoomSession(room);
+        vi.mocked(session.isJoined).mockReturnValue(true);
+        try {
+            call.setJoinRequested(true);
+            await call.disconnect();
+            expect(session.leave).toHaveBeenCalledOnce();
+        } finally {
+            vi.mocked(session.isJoined).mockReturnValue(false);
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
     it("cleans stale memberships only for this user's device while it is not in the call", async () => {
         enabledSettings.add("feature_desktop_shell");
         const session = client.matrixRTC.getRoomSession(room);
@@ -1613,6 +1679,64 @@ describe("ElementCall with the React component embedding", () => {
         }
     });
 
+    it("plays the leave cue as the user leaves, before the engine acknowledges it, and only once", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleJoined();
+            mediaConnected();
+            const leaving = call.disconnect();
+            // No await: the cue answers the click, ahead of the engine's teardown.
+            expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"]]);
+            await leaving;
+            call.handleHangup();
+            expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"]]);
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("shows the call as asked for from a start that skips the lobby until the user leaves", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        const requested = vi.fn();
+        call.on(CallEvent.JoinRequested, requested);
+        try {
+            const started = call.start({ skipLobby: true });
+            expect(call.joinRequested).toBe(true);
+            expect(requested).toHaveBeenCalledExactlyOnceWith(true);
+            call.markReady();
+            await started;
+            call.handleJoined();
+            expect(call.joinRequested).toBe(true);
+            call.handleHangup();
+            expect(call.joinRequested).toBe(false);
+            expect(requested).toHaveBeenLastCalledWith(false);
+        } finally {
+            call.off(CallEvent.JoinRequested, requested);
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("is no longer leaving once asked for again", () => {
+        // The same call is reused for the next join: the last leave must not hide it while it joins.
+        call.setLocalLeavePending(true);
+        expect(call.locallyLeaving).toBe(true);
+        call.setJoinRequested(true);
+        expect(call.locallyLeaving).toBe(false);
+    });
+
+    it("does not show a call opened in its lobby as asked for", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        try {
+            const started = call.start({ skipLobby: false });
+            expect(call.joinRequested).toBe(false);
+            call.markReady();
+            await started;
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
     it("waits for media to connect before the join cue, and does not replay it on reconnects", () => {
         enabledSettings.add("feature_desktop_shell");
         vi.mocked(playDesktopVoiceSound).mockClear();
@@ -1865,6 +1989,23 @@ describe("ElementCall with the React component embedding", () => {
                 background: "solid",
             });
             expect(config.returnToLobby).toBeUndefined();
+        });
+
+        it("announces no voice channel call in the desktop shell, but leaves other rooms' calls as they were", () => {
+            const original = call.getCallOptions().config;
+            expect("sendNotificationType" in original).toBe(false);
+            enabledSettings.add("feature_desktop_shell");
+            const isCallRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+            try {
+                const { config } = call.getCallOptions();
+                expect("sendNotificationType" in config).toBe(true);
+                expect(config.sendNotificationType).toBeUndefined();
+                isCallRoom.mockReturnValue(false);
+                expect("sendNotificationType" in call.getCallOptions().config).toBe(false);
+            } finally {
+                isCallRoom.mockRestore();
+                enabledSettings.delete("feature_desktop_shell");
+            }
         });
 
         it("decides the component's options once per call, until the call is closed", () => {

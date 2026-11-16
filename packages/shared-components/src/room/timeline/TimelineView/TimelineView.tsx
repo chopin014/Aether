@@ -5,7 +5,16 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
+import React, {
+    memo,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type JSX,
+    type ReactNode,
+} from "react";
 import classNames from "classnames";
 import { measureElement, useVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { InlineSpinner } from "@vector-im/compound-web";
@@ -176,6 +185,21 @@ interface DrawnRows {
 
 const NO_ITEMS: TimelineItem[] = [];
 
+/**
+ * What a row shows, drawn again only when its item or the function drawing items changes: the view renders whenever
+ * its view model publishes or the reader scrolls, and the rows whose item is unchanged need nothing new. The row's
+ * list item around it, with its index and position, still follows the virtualizer.
+ */
+const RowContent = memo(function RowContent({
+    item,
+    renderItem,
+}: {
+    item: TimelineItem;
+    renderItem: (item: TimelineItem) => ReactNode;
+}): ReactNode {
+    return renderItem(item);
+});
+
 /** Whether `scroller` is in the page with a size, as the rows can only be measured and placed in one that is. */
 function hasGeometry(scroller: HTMLDivElement | null): boolean {
     return !!scroller?.isConnected && scroller.clientWidth > 0 && scroller.clientHeight > 0;
@@ -253,26 +277,6 @@ export function TimelineView({
         revision: number | undefined;
     } | null>(null);
     const receivedResizeEntryRef = useRef(false);
-
-    // Nothing is painted while suspended: the rows on screen were told of before it.
-    useEffect(() => {
-        if (!revealed || !onItemsPainted || frozen) return;
-        const revision = executionRef.current?.revision;
-        let frame = requestAnimationFrame(() => {
-            frame = requestAnimationFrame(() => {
-                const scroller = scrollerRef.current;
-                if (!scroller || !mayAct(revision)) return;
-                const top = scroller.scrollTop;
-                const bottom = top + scroller.clientHeight;
-                const painted = virtualizer.getVirtualItems().flatMap((row) => {
-                    const item = itemsRef.current[row.index];
-                    return row.end > top && row.start < bottom && item ? [item] : [];
-                });
-                onItemsPainted(painted);
-            });
-        });
-        return () => cancelAnimationFrame(frame);
-    });
 
     // Reading every new row's offsetHeight during its ref callback forces layout between
     // TanStack's positioning writes. Let ResizeObserver measure the rows together instead.
@@ -524,6 +528,45 @@ export function TimelineView({
         // Called on every TanStack update; we use it to report what is on screen upwards.
         onChange: reportVisibleState,
     });
+
+    // Tells what was painted, two frames after the rows to tell of change: once the view is shown, its rows or the
+    // range of them shown change, or a new placement or visit begins. Nothing is painted while suspended: the rows
+    // on screen were told of before it. Any other render, such as for the unread count, leaves the frames be.
+    const paintedRange = virtualizer.range;
+    const paintedFrom = paintedRange?.startIndex;
+    const paintedTo = paintedRange?.endIndex;
+    const paintVisit = snapshot.visit?.generation;
+    const paintPlacement = snapshot.visit?.placementRevision;
+    useEffect(() => {
+        if (!revealed || !onItemsPainted || frozen) return;
+        const revision = executionRef.current?.revision;
+        let frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(() => {
+                const scroller = scrollerRef.current;
+                if (!scroller || !mayAct(revision)) return;
+                const top = scroller.scrollTop;
+                const bottom = top + scroller.clientHeight;
+                const painted = virtualizer.getVirtualItems().flatMap((row) => {
+                    const item = itemsRef.current[row.index];
+                    return row.end > top && row.start < bottom && item ? [item] : [];
+                });
+                onItemsPainted(painted);
+            });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [
+        revealed,
+        onItemsPainted,
+        frozen,
+        items,
+        paintedFrom,
+        paintedTo,
+        paintVisit,
+        paintPlacement,
+        execution?.revision,
+        mayAct,
+        virtualizer,
+    ]);
 
     // An accurate initial estimate may need no scroll event after placement. Report the
     // visible range and the ends shown once revealed and each time the view model has acknowledged an
@@ -860,7 +903,7 @@ export function TimelineView({
                     data-key={item.key}
                     ref={virtualizer.measureElement}
                 >
-                    {renderItem(item)}
+                    <RowContent item={item} renderItem={renderItem} />
                 </li>,
             ];
         });

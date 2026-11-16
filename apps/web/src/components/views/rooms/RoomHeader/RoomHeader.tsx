@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX, useCallback, useContext, useState } from "react";
+import React, { type JSX, useCallback, useContext, useEffect, useState, memo } from "react";
 import { Text, Button, IconButton, Menu, MenuItem, Tooltip } from "@vector-im/compound-web";
 import VideoCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/video-call-solid";
 import VoiceCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/voice-call-solid";
@@ -68,10 +68,10 @@ import { DesktopThreadBrowser } from "../threads/DesktopThreadBrowser";
 import { RoomNotificationContextMenu } from "../../context_menus/RoomNotificationContextMenu";
 import { DesktopChannelInfo } from "./DesktopChannelInfo";
 import { DesktopMessageSearchBox } from "../../desktop/DesktopMessageSearchBox";
+import { prepareCallInBackground, prepareCallSoon } from "../../voip/prepareElementCall";
 
 function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: JSX.Element }): JSX.Element {
     const sdkContext = useContext(SDKContext);
-    const members = useRoomMembers(room, 2500);
     const memberCount = useRoomMemberCount(room, { throttleWait: 2500, includeInvited: true });
 
     const {
@@ -97,6 +97,15 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
     const notificationsEnabled = useFeatureEnabled("feature_notifications");
     const [notificationMenuOpen, notificationMenuRef, openNotificationMenu, closeNotificationMenu] =
         useContextMenu<HTMLButtonElement>();
+
+    // A conversation being read is a likely place for a call: have its call token ready when the app is idle, and
+    // at once when someone points at a call button.
+    const canStartCall =
+        (showVoiceCallButton && !voiceCallDisabledReason) || (showVideoCallButton && !videoCallDisabledReason);
+    useEffect(() => {
+        if (desktopShell && isDirectMessage && canStartCall) prepareCallInBackground(room);
+    }, [room, desktopShell, isDirectMessage, canStartCall]);
+    const prepareCall = useCallback(() => prepareCallSoon(room), [room]);
 
     const videoClick = useCallback(
         (ev: React.MouseEvent) => videoCallClick(ev, callOptions[0]),
@@ -188,6 +197,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                         <IconButton
                             disabled={!!videoCallDisabledReason}
                             aria-label={videoCallDisabledReason ?? _t("voip|video_call")}
+                            onPointerEnter={prepareCall}
+                            onFocus={prepareCall}
                         >
                             {videoCallIconWithTooltip}
                         </IconButton>
@@ -219,6 +230,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                     disabled={!!videoCallDisabledReason}
                     aria-label={videoCallDisabledReason ?? _t("voip|video_call")}
                     onClick={videoClick}
+                    onPointerEnter={prepareCall}
+                    onFocus={prepareCall}
                 >
                     {videoCallIconWithTooltip}
                 </IconButton>
@@ -237,6 +250,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                         <IconButton
                             disabled={!!voiceCallDisabledReason}
                             aria-label={voiceCallDisabledReason ?? _t("voip|voice_call")}
+                            onPointerEnter={prepareCall}
+                            onFocus={prepareCall}
                         >
                             {voiceCallIconWithTooltip}
                         </IconButton>
@@ -268,6 +283,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                     disabled={!!voiceCallDisabledReason}
                     aria-label={voiceCallDisabledReason ?? _t("voip|voice_call")}
                     onClick={voiceClick}
+                    onPointerEnter={prepareCall}
+                    onFocus={prepareCall}
                 >
                     {voiceCallIconWithTooltip}
                 </IconButton>
@@ -410,26 +427,36 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                 </Tooltip>
             )}
             {desktopShell && <DesktopMessageSearchBox key={`search-${room.roomId}`} room={room} />}
-            {!isDirectMessage && !desktopShell && (
-                <Text as="div" size="sm" weight="medium">
-                    <FacePile
-                        className="mx_RoomHeader_members"
-                        members={members.slice(0, 3)}
-                        size="20px"
-                        overflow={false}
-                        viewUserOnClick={false}
-                        tooltipLabel={_t("room|header_face_pile_tooltip")}
-                        onClick={(e: ButtonEvent) => {
-                            sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.MemberList);
-                            e.stopPropagation();
-                        }}
-                        aria-label={_t("common|n_members", { count: memberCount })}
-                    >
-                        {formatCount(memberCount)}
-                    </FacePile>
-                </Text>
-            )}
+            {!isDirectMessage && !desktopShell && <RoomHeaderFacePile room={room} memberCount={memberCount} />}
         </>
+    );
+}
+
+/**
+ * The room's members as a face pile, opening the member list. Its own component, so that only a header showing it
+ * lists the room's members and follows their changes: the desktop shell's does not.
+ */
+function RoomHeaderFacePile({ room, memberCount }: { room: Room; memberCount: number }): JSX.Element {
+    const sdkContext = useContext(SDKContext);
+    const members = useRoomMembers(room, 2500);
+    return (
+        <Text as="div" size="sm" weight="medium">
+            <FacePile
+                className="mx_RoomHeader_members"
+                members={members.slice(0, 3)}
+                size="20px"
+                overflow={false}
+                viewUserOnClick={false}
+                tooltipLabel={_t("room|header_face_pile_tooltip")}
+                onClick={(e: ButtonEvent) => {
+                    sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.MemberList);
+                    e.stopPropagation();
+                }}
+                aria-label={_t("common|n_members", { count: memberCount })}
+            >
+                {formatCount(memberCount)}
+            </FacePile>
+        </Text>
     );
 }
 
@@ -467,7 +494,7 @@ function historyVisibilityIcon(historyVisibility: HistoryVisibility): JSX.Elemen
     }
 }
 
-export default function RoomHeader({
+function RoomHeader({
     room,
     extraButtons,
     oobData,
@@ -618,3 +645,9 @@ export default function RoomHeader({
         </CurrentRightPanelPhaseContextProvider>
     );
 }
+
+/**
+ * Memoised: the room view draws again for many changes to its own state, and the header needs drawing again only when
+ * its props change. What it shows of the room comes from its own hooks, which draw it again as that changes.
+ */
+export default memo(RoomHeader);

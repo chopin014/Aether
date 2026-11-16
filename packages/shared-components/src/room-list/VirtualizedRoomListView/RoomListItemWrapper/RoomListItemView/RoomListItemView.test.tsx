@@ -344,6 +344,20 @@ describe("<RoomListItemView />", () => {
         expect(!!participant.queryByTestId("participant-deafened")).toBe(isDeafened);
     });
 
+    it("marks the user as still connecting, and nobody else", () => {
+        render(
+            <Default
+                channelKind="voice"
+                callParticipants={[
+                    { userId: "@me:example.org", name: "Me", isConnecting: true },
+                    { userId: "@alice:example.org", name: "Alice" },
+                ]}
+            />,
+        );
+        expect(screen.getByRole("button", { name: "Me" })).toHaveAttribute("data-connecting", "true");
+        expect(screen.getByRole("button", { name: "Alice" })).not.toHaveAttribute("data-connecting");
+    });
+
     it("shows no speaking indicator when everyone is silent", () => {
         render(<DesktopVoiceParticipantsSilent />);
         for (const name of ["Alice", "Bob"]) {
