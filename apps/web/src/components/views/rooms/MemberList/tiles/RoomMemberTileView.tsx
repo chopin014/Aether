@@ -99,13 +99,15 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
 
     const desktopShell = useFeatureEnabled("feature_desktop_shell");
     const client = useMatrixClientContext();
-    // Like Discord's "In voice", from the MatrixRTC calls this client follows.
-    const voiceRoomId = useVoiceRoom(desktopShell && !member.isInvite ? member.userId : undefined);
-    const voiceChannel = voiceRoomId ? client.getRoom(voiceRoomId)?.name : undefined;
     const merged = useMergedPresence(member.isInvite ? undefined : member.userId);
     // Match the desktop Offline group when no presence was reported; activity alone is not an online status.
     const reported = merged && merged.source !== "activity" ? merged : null;
     const presenceState = desktopShell ? (reported?.state ?? "offline") : member.presenceState;
+    // Like Discord's "In voice", from the MatrixRTC calls this client follows. Someone who appears offline, such as
+    // an invisible person, shows no activity: a voice channel beside their name would say they are online.
+    const appearsOffline = props.offline || presenceState === "offline";
+    const voiceRoomId = useVoiceRoom(desktopShell && !member.isInvite && !appearsOffline ? member.userId : undefined);
+    const voiceChannel = voiceRoomId ? client.getRoom(voiceRoomId)?.name : undefined;
     let presenceJSX: JSX.Element | undefined;
     if (vm.showPresence && presenceState) {
         presenceJSX = (
