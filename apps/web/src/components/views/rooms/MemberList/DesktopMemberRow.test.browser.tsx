@@ -121,6 +121,13 @@ describe("Desktop member row", () => {
         );
     });
 
+    it("fades the nameplate art in across the row, on top of keeping it faint behind the name", () => {
+        renderRow();
+        const art = getComputedStyle(container.querySelector("[data-nameplate] canvas")!);
+        expect(art.maskImage.match(/linear-gradient/g)).toHaveLength(2);
+        expect(art.maskComposite).toMatch(/^intersect/);
+    });
+
     it("writes group headings in sentence case", () => {
         renderRow();
         const heading = container.querySelector<HTMLElement>(".mx_MemberListView_groupHeading")!;
