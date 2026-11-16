@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import EventEmitter from "node:events";
 import { EventType, MatrixEvent, Room, RoomStateEvent, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
@@ -29,7 +29,7 @@ describe("VoiceMoveFollower", () => {
     let client: MatrixClient;
     let rooms: Map<string, Room>;
     let inCall: Set<string>;
-    let follow: ReturnType<typeof vi.fn>;
+    let follow: Mock<(room: Room) => void>;
     let follower: VoiceMoveFollower;
     let sessions: Map<string, MatrixRTCSession>;
 
@@ -52,7 +52,13 @@ describe("VoiceMoveFollower", () => {
     /** A move request as it arrives through sync. */
     const request = (
         content: object,
-        { sender = MOD, stateKey = `u:${ME}`, age = 0, roomId = GERAL1, ts = Date.now() - age } = {},
+        {
+            sender = MOD,
+            stateKey = `u:${ME}`,
+            age = 0,
+            roomId = GERAL1,
+            ts,
+        }: { sender?: string; stateKey?: string; age?: number; roomId?: string; ts?: number } = {},
     ): MatrixEvent =>
         new MatrixEvent({
             type: VOICE_MOVE_EVENT_TYPE,
@@ -61,7 +67,7 @@ describe("VoiceMoveFollower", () => {
             sender,
             content,
             event_id: `$${Math.random()}`,
-            origin_server_ts: ts,
+            origin_server_ts: ts ?? Date.now() - age,
             unsigned: { age },
         });
 
