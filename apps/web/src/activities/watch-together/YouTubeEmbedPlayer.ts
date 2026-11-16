@@ -91,6 +91,10 @@ export class YouTubeEmbedPlayer implements WatchPlayer {
         return this.item?.id ?? null;
     }
 
+    public get itemRef(): string | null {
+        return this.item?.ref ?? null;
+    }
+
     public load(item: WatchItem, position: number, play: boolean): void {
         if (this.disposed) return;
         this.item = item;

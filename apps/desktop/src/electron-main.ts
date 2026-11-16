@@ -36,6 +36,7 @@ import { setDisplayMediaCallback } from "./displayMediaCallback.js";
 import { setupMacosTitleBar } from "./macos-titlebar.js";
 import { setupMediaAuth } from "./media-auth.js";
 import { setupHomeserverFetch } from "./homeserver-fetch.js";
+import { setupSiteView } from "./site-view.js";
 import { handleWindowClose, revealMainWindow } from "./window-close.js";
 import { type RendererRecovery, setupRendererRecovery } from "./renderer-recovery.js";
 import { getBuildConfig } from "./build-config.js";
@@ -446,6 +447,7 @@ app.on("ready", async () => {
 
     setupMediaAuth(global.mainWindow);
     setupHomeserverFetch();
+    setupSiteView(global.mainWindow);
 });
 
 app.on("window-all-closed", () => {

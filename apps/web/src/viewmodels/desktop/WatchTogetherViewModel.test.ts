@@ -18,6 +18,8 @@ import { CallEvent, type ElementCall } from "../../models/Call";
 import SettingsStore from "../../settings/SettingsStore";
 import type { SoundboardTransport } from "../../audio/soundboard/SoundboardTransport";
 import type { WatchPlayer, WatchPlayerEvent, WatchPlayerStatus } from "../../activities/watch-together/WatchPlayer";
+import { SitePlayer } from "../../activities/watch-together/SitePlayer";
+import type { SiteViewApi, SiteViewEvent } from "shared-types";
 import {
     encodeMessage,
     parseMessage,
@@ -28,11 +30,13 @@ import {
 class StubPlayer implements WatchPlayer {
     public readonly element = document.createElement("div");
     public itemId: string | null = null;
+    public itemRef: string | null = null;
     public volume = 1;
     public statusValue: Partial<WatchPlayerStatus> = {};
-    public constructor(public readonly source: "youtube" | "media") {}
-    public load(item: { id: string }): void {
+    public constructor(public readonly source: "youtube" | "media" | "site") {}
+    public load(item: { id: string; ref: string }): void {
         this.itemId = item.id;
+        this.itemRef = item.ref;
     }
     public play(): void {}
     public pause(): void {}
@@ -266,6 +270,55 @@ describe("WatchTogetherViewModel", () => {
         players[0].statusValue = { error: "not_embeddable" };
         vm.togglePlaying();
         expect(vm.getSnapshot().playerError).toMatch(/owner/);
+    });
+
+    it("opens a website for everyone and shares the page someone browsed to", async () => {
+        let emit: (event: SiteViewEvent) => void = () => {};
+        const api: SiteViewApi = {
+            open: vi.fn().mockResolvedValue(undefined),
+            setBounds: vi.fn(),
+            command: vi.fn(),
+            goBack: vi.fn(),
+            close: vi.fn(),
+            onEvent: (listener) => {
+                emit = listener;
+                return () => {};
+            },
+        };
+        Object.assign(window, { electron: { siteView: api } });
+        const siteVm = new WatchTogetherViewModel({
+            client,
+            call,
+            createPlayer: (source) => (source === "site" ? new SitePlayer(api) : new StubPlayer(source)),
+        });
+        try {
+            expect(siteVm.getSnapshot().canOpenSites).toBe(true);
+            expect(siteVm.addLink("https://archive.org/details/movie")).toBe(true);
+            await vi.waitFor(() => expect(siteVm.getSnapshot().active).toBe(true));
+            expect(lastState()).toMatchObject({ playing: false, items: [{ source: "site", title: "archive.org" }] });
+            expect(api.open).toHaveBeenCalledWith("https://archive.org/details/movie");
+            emit({
+                type: "state",
+                state: {
+                    url: "https://archive.org/details/movie/part-2",
+                    title: "Part 2",
+                    loading: false,
+                    canGoBack: true,
+                    video: null,
+                },
+            });
+            expect(siteVm.getSnapshot().site).toMatchObject({ onSharedPage: false, canGoBack: true });
+            siteVm.siteShareThisPage();
+            expect(lastState().items[0]).toMatchObject({
+                ref: "https://archive.org/details/movie/part-2",
+                title: "Part 2",
+            });
+            siteVm.setObscured(true);
+            expect(api.open).toHaveBeenLastCalledWith("https://archive.org/details/movie/part-2");
+        } finally {
+            siteVm.dispose();
+            Object.assign(window, { electron: undefined });
+        }
     });
 
     it("is shared by every view of the call and disposed with the last one", () => {

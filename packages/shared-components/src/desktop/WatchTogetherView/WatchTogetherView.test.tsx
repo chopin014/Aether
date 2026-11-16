@@ -73,6 +73,10 @@ function makeVm(overrides: Partial<WatchTogetherViewSnapshot> = {}) {
             stop: vi.fn(),
             setVolume: vi.fn(),
             attachPlayer: vi.fn(),
+            siteGoBack: vi.fn(),
+            siteOpenShared: vi.fn(),
+            siteShareThisPage: vi.fn(),
+            setObscured: vi.fn(),
             openSource: vi.fn(),
         },
     );
@@ -259,6 +263,34 @@ describe("WatchTogetherPlayer", () => {
         await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
         fireEvent.click(screen.getByRole("button", { name: "Show the shared player" }));
         expect(onFocus).toHaveBeenCalled();
+    });
+
+    it("goes out of sight with its tile when the strip is tucked away", async () => {
+        const vm = makeVm();
+        const slot = createRef<HTMLDivElement>();
+        const container = createRef<HTMLDivElement>();
+        const { rerender } = render(
+            <div ref={container}>
+                <div>
+                    <div ref={slot} style={{ width: 160, height: 90 }} />
+                </div>
+                <WatchTogetherPlayer
+                    vm={vm}
+                    slotRef={slot}
+                    containerRef={container}
+                    compact
+                    focused={false}
+                    onFocus={vi.fn()}
+                    onOpenQueue={vi.fn()}
+                />
+            </div>,
+        );
+        await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+        expect(screen.getByTestId("watch-together-player")).not.toHaveAttribute("data-hidden");
+        slot.current!.parentElement!.setAttribute("inert", "");
+        await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+        expect(screen.getByTestId("watch-together-player")).toHaveAttribute("data-hidden", "true");
+        rerender(<div />);
     });
 
     it("is a small labelled tile in the filmstrip that focuses when clicked", async () => {

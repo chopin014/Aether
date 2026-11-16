@@ -473,6 +473,9 @@ importers:
       electron-devtools-installer:
         specifier: ^4.0.0
         version: 4.0.0
+      happy-dom:
+        specifier: ^21.0.0
+        version: 21.0.3
       memfs:
         specifier: ^4.57.2
         version: 4.80.0

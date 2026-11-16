@@ -142,7 +142,7 @@ export class WatchTogetherSession extends TypedEventEmitter<WatchTogetherSession
             session: randomId(),
             items: items.slice(0, WATCH_MAX_ITEMS),
             index: 0,
-            playing: true,
+            playing: this.startsPlaying(items[0]),
             position: this.startPosition(items[0]),
             rate: this._state?.rate ?? 1,
             ended: false,
@@ -161,7 +161,7 @@ export class WatchTogetherSession extends TypedEventEmitter<WatchTogetherSession
             this.commit({
                 items: queue,
                 index,
-                playing: true,
+                playing: this.startsPlaying(queue[index]),
                 position: this.startPosition(queue[index]),
                 ended: false,
             });
@@ -178,7 +178,13 @@ export class WatchTogetherSession extends TypedEventEmitter<WatchTogetherSession
         if (state.items.length + items.length > WATCH_MAX_ITEMS) throw new WatchQueueFullError();
         const index = state.index + 1;
         const queue = [...state.items.slice(0, index), ...items, ...state.items.slice(index)];
-        this.commit({ items: queue, index, playing: true, position: this.startPosition(items[0]), ended: false });
+        this.commit({
+            items: queue,
+            index,
+            playing: this.startsPlaying(items[0]),
+            position: this.startPosition(items[0]),
+            ended: false,
+        });
     }
 
     /** Plays or pauses for everyone; `at` is where this player actually is, when it knows better than the state. */
@@ -186,7 +192,8 @@ export class WatchTogetherSession extends TypedEventEmitter<WatchTogetherSession
         const state = this._state;
         if (!state?.items.length) return;
         if (playing && state.ended) {
-            this.commit({ playing: true, position: this.startPosition(), ended: false });
+            const item = this.current ?? undefined;
+            this.commit({ playing: true, position: item?.source === "site" ? 0 : this.startPosition(), ended: false });
             return;
         }
         if (state.playing === playing) return;
@@ -210,7 +217,12 @@ export class WatchTogetherSession extends TypedEventEmitter<WatchTogetherSession
     public jump(index: number): void {
         const state = this._state;
         if (!state || index < 0 || index >= state.items.length) return;
-        this.commit({ index, playing: true, position: this.startPosition(state.items[index]), ended: false });
+        this.commit({
+            index,
+            playing: this.startsPlaying(state.items[index]),
+            position: this.startPosition(state.items[index]),
+            ended: false,
+        });
     }
 
     public next(): void {
@@ -262,9 +274,32 @@ export class WatchTogetherSession extends TypedEventEmitter<WatchTogetherSession
         this.next();
     }
 
-    /** A new item waits for everyone's player to load; a `t=` link starts at its time without waiting. */
+    /**
+     * A new item waits for everyone's player to load; a `t=` link starts at its time without waiting. A website
+     * starts at the beginning, paused: people may have to sign in or click through to the video first.
+     */
     private startPosition(item?: WatchItem): number {
+        if (item?.source === "site") return 0;
         return item?.start ?? -WATCH_START_LEAD_SECONDS;
+    }
+
+    /** Websites start paused, so whoever reaches the video first does not leave the others behind. */
+    private startsPlaying(item?: WatchItem): boolean {
+        return item?.source !== "site";
+    }
+
+    /** Points an item at another page, for "share this page" on a website; playback starts over, paused. */
+    public retarget(itemId: string, ref: string, title?: string): void {
+        const state = this._state;
+        const index = state?.items.findIndex((item) => item.id === itemId) ?? -1;
+        if (!state || index < 0 || state.items[index].source !== "site") return;
+        const items = state.items.map((item, i) =>
+            i === index ? { ...item, ref, ...(title ? { title: title.slice(0, 120) } : {}) } : item,
+        );
+        this.commit({
+            items,
+            ...(index === state.index ? { playing: false, position: 0, ended: false } : {}),
+        });
     }
 
     private commit(patch: Partial<Omit<WatchState, "revision" | "author" | "origin">>): void {

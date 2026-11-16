@@ -863,7 +863,7 @@ describe("Focused view", () => {
         fireEvent.click(screen.getByRole("button", { name: "Hide Members" }));
         expect(vm.setParticipantsOpen).toHaveBeenCalledWith(false);
         expect(strip).not.toHaveAttribute("data-open");
-        expect(screen.getByRole("button", { name: "Show Members" })).toHaveAttribute("aria-expanded", "false");
+        expect(screen.getByRole("button", { name: "Show Members" })).toHaveAttribute("aria-pressed", "true");
         // The tiles stay mounted so their video keeps playing.
         expect(screen.getByTestId("videoTile")).toBeInTheDocument();
     });
@@ -919,6 +919,10 @@ describe("Watch together", () => {
                 stop: vi.fn(),
                 setVolume: vi.fn(),
                 attachPlayer: vi.fn(),
+                siteGoBack: vi.fn(),
+                siteOpenShared: vi.fn(),
+                siteShareThisPage: vi.fn(),
+                setObscured: vi.fn(),
                 openSource: vi.fn(),
             },
         );

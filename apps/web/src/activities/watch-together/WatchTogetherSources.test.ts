@@ -54,6 +54,23 @@ describe("parsePlayableLink", () => {
         expect(parsePlayableLink(text)).toBeUndefined();
     });
 
+    it("treats any other https page as a website only where websites can be opened", () => {
+        expect(parsePlayableLink("https://archive.org/details/BigBuckBunny_124")).toBeUndefined();
+        expect(parsePlayableLink("https://archive.org/details/BigBuckBunny_124", { sites: true })).toEqual({
+            source: "site",
+            ref: "https://archive.org/details/BigBuckBunny_124",
+        });
+        expect(parsePlayableLink("https://youtu.be/aqz-KE-bpKQ", { sites: true })?.source).toBe("youtube");
+        expect(parsePlayableLink("hello", { sites: true })).toBeUndefined();
+        expect(parsePlayableLink("http://insecure.example/video", { sites: true })).toBeUndefined();
+    });
+
+    it("names a website after its domain", async () => {
+        await expect(fetchMetadata({ source: "site", ref: "https://www.archive.org/x" }, vi.fn())).resolves.toEqual({
+            title: "archive.org",
+        });
+    });
+
     it("gives YouTube thumbnails and source links", () => {
         expect(thumbnailUrl({ source: "youtube", ref: "aqz-KE-bpKQ" })).toBe(
             "https://i.ytimg.com/vi/aqz-KE-bpKQ/mqdefault.jpg",

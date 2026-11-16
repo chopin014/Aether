@@ -15,6 +15,8 @@ import type {
     DesktopAudioPacket,
     HomeserverFetchRequest,
     HomeserverFetchResponse,
+    SiteViewApi,
+    SiteViewEvent,
     X509Api,
 } from "shared-types" with { "resolution-mode": "import" };
 
@@ -105,6 +107,19 @@ contextBridge.exposeInMainWorld("electron", {
                   },
               } satisfies DesktopAudioApi)
             : undefined,
+
+    siteView: {
+        open: (url: string) => ipcRenderer.invoke("aether:site-open", url),
+        setBounds: (bounds) => ipcRenderer.send("aether:site-bounds", bounds),
+        command: (command) => ipcRenderer.send("aether:site-command", command),
+        goBack: () => ipcRenderer.send("aether:site-back"),
+        close: () => ipcRenderer.send("aether:site-close"),
+        onEvent: (listener: (event: SiteViewEvent) => void) => {
+            const handler = (_event: IpcRendererEvent, event: SiteViewEvent): void => listener(event);
+            ipcRenderer.on("aether:site-event", handler);
+            return () => ipcRenderer.removeListener("aether:site-event", handler);
+        },
+    } satisfies SiteViewApi,
 
     globalShortcuts: {
         configure: (configuration: ShortcutConfiguration): Promise<ShortcutResult> =>

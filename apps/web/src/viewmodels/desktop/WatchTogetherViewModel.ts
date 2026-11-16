@@ -25,6 +25,8 @@ import {
 import { WatchPlayerSync } from "../../activities/watch-together/WatchPlayerSync";
 import { YouTubeEmbedPlayer } from "../../activities/watch-together/YouTubeEmbedPlayer";
 import { HtmlMediaPlayer } from "../../activities/watch-together/HtmlMediaPlayer";
+import { SitePlayer, UnsupportedSitePlayer } from "../../activities/watch-together/SitePlayer";
+import Modal, { ModalManagerEvent } from "../../Modal";
 import type { WatchPlayer, WatchPlayerError } from "../../activities/watch-together/WatchPlayer";
 import { WATCH_RATES, type WatchItem, type WatchState } from "../../activities/watch-together/WatchTogetherProtocol";
 import {
@@ -68,6 +70,8 @@ function playerErrorText(error: WatchPlayerError): string {
             return _t("desktop|watch_together|error_not_embeddable");
         case "not_found":
             return _t("desktop|watch_together|error_not_found");
+        case "needs_desktop":
+            return _t("desktop|watch_together|error_needs_desktop");
         default:
             return _t("desktop|watch_together|error_unplayable");
     }
@@ -114,6 +118,7 @@ export class WatchTogetherViewModel
     public constructor(props: Props) {
         super(props, {
             connected: false,
+            canOpenSites: !!window.electron?.siteView,
             active: false,
             title: "",
             playing: false,
@@ -137,8 +142,12 @@ export class WatchTogetherViewModel
         this.session = new WatchTogetherSession(props.client.getSafeUserId());
         const createPlayer =
             props.createPlayer ??
-            ((source: WatchItem["source"]): WatchPlayer =>
-                source === "youtube" ? new YouTubeEmbedPlayer() : new HtmlMediaPlayer());
+            ((source: WatchItem["source"]): WatchPlayer => {
+                if (source === "youtube") return new YouTubeEmbedPlayer();
+                if (source === "media") return new HtmlMediaPlayer();
+                const api = window.electron?.siteView;
+                return api ? new SitePlayer(api) : new UnsupportedSitePlayer();
+            });
         this.sync = new WatchPlayerSync(this.session, {
             createPlayer,
             onPlayerChanged: this.onPlayerChanged,
@@ -158,6 +167,9 @@ export class WatchTogetherViewModel
             this.applyVolume();
         });
         this.disposables.track(() => SettingsStore.unwatchSetting(deafenRef));
+        // A website draws above the whole app, so it steps aside while a dialog is open.
+        this.disposables.trackListener(Modal, ModalManagerEvent.Opened, this.applyObscured);
+        this.disposables.trackListener(Modal, ModalManagerEvent.Closed, this.applyObscured);
         this.bindTransport();
     }
 
@@ -166,7 +178,7 @@ export class WatchTogetherViewModel
     };
 
     public submitDraft = async (mode: "play" | "queue"): Promise<void> => {
-        const link = parsePlayableLink(this.snapshot.current.draft);
+        const link = parsePlayableLink(this.snapshot.current.draft, { sites: this.canOpenSites });
         if (!link) {
             this.snapshot.merge({ addError: _t("desktop|watch_together|error_not_a_link") });
             return;
@@ -175,7 +187,7 @@ export class WatchTogetherViewModel
     };
 
     public addLink = (text: string): boolean => {
-        const link = parsePlayableLink(text);
+        const link = parsePlayableLink(text, { sites: this.canOpenSites });
         if (!link || !this.session.connected) return false;
         void this.add(link, this.session.active ? "queue" : "play");
         return true;
@@ -220,6 +232,41 @@ export class WatchTogetherViewModel
         this.placePlayer(this.sync.currentPlayer);
     };
 
+    /** Whether this app can open websites inside itself; only the desktop app has an embedded browser. */
+    private get canOpenSites(): boolean {
+        return !!window.electron?.siteView;
+    }
+
+    private get sitePlayer(): SitePlayer | null {
+        const player = this.sync.currentPlayer;
+        return player instanceof SitePlayer ? player : null;
+    }
+
+    public siteGoBack = (): void => this.sitePlayer?.goBack();
+
+    /** Goes back to the page shared with the call after browsing away from it. */
+    public siteOpenShared = (): void => this.sitePlayer?.reopen();
+
+    /** Sends everyone to the page this person is on, for when the video is a few clicks away from the shared link. */
+    public siteShareThisPage = (): void => {
+        const page = this.sitePlayer?.page();
+        const item = this.session.current;
+        if (!page || !item || page.onSharedPage) return;
+        this.session.retarget(item.id, page.url, page.title || undefined);
+    };
+
+    /** The app's own menus are about to cover the player. */
+    public setObscured = (obscured: boolean): void => {
+        this.obscuredByView = obscured;
+        this.applyObscured();
+    };
+
+    private obscuredByView = false;
+
+    private readonly applyObscured = (): void => {
+        this.sitePlayer?.setObscured(this.obscuredByView || Modal.hasDialogs() || this.snapshot.current.ended);
+    };
+
     public openSource = (): void => {
         const item = this.session.current;
         if (item) window.open(sourceUrl(item), "_blank", "noopener,noreferrer");
@@ -237,6 +284,7 @@ export class WatchTogetherViewModel
 
     private readonly onPlayerChanged = (player: WatchPlayer | null): void => {
         this.placePlayer(player);
+        this.applyObscured();
     };
 
     private placePlayer(player: WatchPlayer | null): void {
@@ -308,6 +356,8 @@ export class WatchTogetherViewModel
     }
 
     private itemTitle(item: WatchItem, playerTitle?: string): string {
+        // A website's own title for the page beats the bare site name shared with it.
+        if (item.source === "site" && playerTitle) return playerTitle;
         if (item.title) return item.title;
         if (playerTitle) return playerTitle;
         if (item.source === "youtube") return _t("desktop|watch_together|youtube_video");
@@ -387,10 +437,12 @@ export class WatchTogetherViewModel
                 queue: [],
                 hasNext: false,
                 hasPrevious: false,
+                site: undefined,
             });
             return;
         }
         const status = this.sync.currentPlayer?.itemId === item.id ? this.sync.currentPlayer.status() : undefined;
+        const page = this.sitePlayer?.page() ?? null;
         const expected = session.position();
         const position =
             Math.round((status?.ready && status.time !== null ? status.time : Math.max(0, expected)) * 10) / 10;
@@ -410,13 +462,23 @@ export class WatchTogetherViewModel
             subtitle: item.channel,
             addedBy: this.displayName(item.addedBy),
             thumbnailUrl: thumbnailUrl(item),
-            sourceName: item.source === "youtube" ? "YouTube" : new URL(item.ref).hostname,
+            sourceName: item.source === "youtube" ? "YouTube" : new URL(item.ref).hostname.replace(/^www\./, ""),
             playing: state.playing && !state.ended,
             ended: state.ended,
             startingIn: state.playing && expected < 0 ? Math.ceil(-expected) : null,
             buffering: !!status?.buffering,
             hasVideo: status?.hasVideo ?? true,
-            embedHandlesClicks: item.source === "youtube",
+            embedHandlesClicks: item.source !== "media",
+            site:
+                item.source === "site" && page
+                    ? {
+                          title: page.title,
+                          loading: page.loading,
+                          canGoBack: page.canGoBack,
+                          videoFound: page.videoFound,
+                          onSharedPage: page.onSharedPage,
+                      }
+                    : undefined,
             playerError: status?.error ? playerErrorText(status.error) : undefined,
             position,
             duration: status?.duration ?? null,
@@ -425,5 +487,6 @@ export class WatchTogetherViewModel
             hasNext: state.index + 1 < state.items.length,
             hasPrevious: state.index > 0,
         });
+        this.applyObscured();
     };
 }

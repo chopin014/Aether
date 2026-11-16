@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 import type { WatchItem, WatchSource } from "./WatchTogetherProtocol";
 
 /** Why this device cannot play the current item. */
-export type WatchPlayerError = "not_embeddable" | "not_found" | "unplayable";
+export type WatchPlayerError = "not_embeddable" | "not_found" | "unplayable" | "needs_desktop";
 
 /** What the player last reported, with the time projected forward to now while it plays. */
 export interface WatchPlayerStatus {
@@ -29,7 +29,16 @@ export interface WatchPlayerStatus {
 }
 
 /** Something the player did, which may not have been asked for: someone may have clicked the video itself. */
-export type WatchPlayerEvent = "playing" | "paused" | "ended" | "error" | "status" | "reset";
+export type WatchPlayerEvent =
+    | "playing"
+    | "paused"
+    | "ended"
+    | "error"
+    | "status"
+    | "reset"
+    /** The position jumped; on a website this is usually someone using the site's own progress bar. */
+    | "seeked"
+    | "ratechange";
 
 /** One kind of media player embedded in the call stage; the shared session tells it what to do. */
 export interface WatchPlayer {
@@ -38,6 +47,8 @@ export interface WatchPlayer {
     readonly source: WatchSource;
     /** The item last loaded, or null before the first. */
     readonly itemId: string | null;
+    /** What the last load pointed at; a website item can be pointed at another page. */
+    readonly itemRef: string | null;
     load(item: WatchItem, position: number, play: boolean): void;
     play(): void;
     pause(): void;

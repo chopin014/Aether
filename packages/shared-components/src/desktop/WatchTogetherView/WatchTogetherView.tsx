@@ -17,6 +17,7 @@ import React, {
 } from "react";
 import { Text } from "@vector-im/compound-web";
 import {
+    ArrowLeftIcon,
     CloseIcon,
     DeleteIcon,
     ListBulletedIcon,
@@ -53,6 +54,8 @@ export interface WatchTogetherQueueEntry {
 export interface WatchTogetherViewSnapshot {
     /** In the call, so links can be shared. */
     readonly connected: boolean;
+    /** This app can open any website to watch together (the desktop app); otherwise only YouTube and files. */
+    readonly canOpenSites?: boolean;
     /** Something is queued for the call. */
     readonly active: boolean;
     readonly title: string;
@@ -90,6 +93,16 @@ export interface WatchTogetherViewSnapshot {
     readonly addError?: string;
     /** Why this device cannot play the current item. */
     readonly playerError?: string;
+    /** For a website: where this person's embedded browser is, compared with the page shared with the call. */
+    readonly site?: {
+        readonly title: string;
+        readonly loading: boolean;
+        readonly canGoBack: boolean;
+        /** The page shows a video, which is now kept in sync. */
+        readonly videoFound: boolean;
+        /** The browser is on the page everyone was sent to. */
+        readonly onSharedPage: boolean;
+    };
     /** A short line such as "Alice paused", shown for a moment; the ID changes for each new notice. */
     readonly notice?: { readonly id: number; readonly text: string };
 }
@@ -115,6 +128,14 @@ export interface WatchTogetherViewActions {
     attachPlayer(host: HTMLElement | null): void;
     /** Opens what is playing at its source in the browser. */
     openSource(): void;
+    /** Website only: goes back a page in the embedded browser. */
+    siteGoBack(): void;
+    /** Website only: returns to the page shared with the call. */
+    siteOpenShared(): void;
+    /** Website only: sends everyone to the page this person is on. */
+    siteShareThisPage(): void;
+    /** The app's own menus cover the player; a website, which draws above the app, steps aside meanwhile. */
+    setObscured(obscured: boolean): void;
 }
 
 export type WatchTogetherViewModel = ViewModel<WatchTogetherViewSnapshot, WatchTogetherViewActions>;
@@ -145,7 +166,10 @@ function useFollowSlot(
             const target = slot.current;
             const parent = container.current;
             if (!element) return;
-            if (!target || !parent || !target.isConnected) {
+            // A tile tucked away with the strip, or otherwise hidden, takes the player out of sight with it.
+            const hiddenTile =
+                !!target && (!!target.closest("[inert]") || getComputedStyle(target).visibility === "hidden");
+            if (!target || !parent || !target.isConnected || hiddenTile) {
                 if (last !== "hidden") element.dataset.hidden = "true";
                 last = "hidden";
                 return;
@@ -169,13 +193,19 @@ function SpeedMenu({
     vm,
     rate,
     rates,
+    onOpenChange,
 }: {
     vm: WatchTogetherViewModel;
     rate: number;
     rates: readonly number[];
+    onOpenChange: (open: boolean) => void;
 }): JSX.Element {
     const { translate: _t } = useI18n();
-    const [open, setOpen] = useState(false);
+    const [open, setOpenState] = useState(false);
+    const setOpen = (next: boolean): void => {
+        setOpenState(next);
+        onOpenChange(next);
+    };
     return (
         <div className={styles.speed} onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setOpen(false)}>
             <button
@@ -221,6 +251,8 @@ export interface WatchTogetherPlayerProps {
     compact: boolean;
     /** It is the focused tile; otherwise its controls offer to focus it, since the video takes its clicks. */
     focused: boolean;
+    /** The app's own menus cover the player. */
+    obscured?: boolean;
     /** The call is fullscreen. */
     fullscreen?: boolean;
     /** Shows the player alone and fullscreen, or leaves fullscreen; the video takes double-clicks itself. */
@@ -240,6 +272,7 @@ export function WatchTogetherPlayer({
     compact,
     focused,
     fullscreen = false,
+    obscured = false,
     onToggleFullscreen,
     onFocus,
     onOpenQueue,
@@ -249,7 +282,15 @@ export function WatchTogetherPlayer({
     const layerRef = useRef<HTMLDivElement>(null);
     const hostRef = useRef<HTMLDivElement>(null);
     const [scrub, setScrub] = useState<number | null>(null);
+    const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
     useFollowSlot(layerRef, slotRef, containerRef);
+
+    // A website draws above the app; it steps aside for menus over it, and shows a still frame as a small tile.
+    const covered = obscured || speedMenuOpen || compact;
+    useEffect(() => {
+        vm.setObscured(covered);
+    }, [vm, covered]);
+    useEffect(() => () => vm.setObscured(false), [vm]);
 
     useEffect(() => {
         vm.attachPlayer(hostRef.current);
@@ -431,7 +472,17 @@ export function WatchTogetherPlayer({
                             </span>
                             {/* What someone just did shows in place of the details for a moment. */}
                             <span className={styles.metaLine}>
-                                {snapshot.startingIn !== null && !snapshot.playerError ? (
+                                {snapshot.site && !snapshot.site.onSharedPage ? (
+                                    <span className={styles.status} role="status">
+                                        {_t("desktop|watch_together|site_elsewhere")}
+                                    </span>
+                                ) : snapshot.site && !snapshot.site.videoFound ? (
+                                    <span className={styles.status} role="status">
+                                        {snapshot.site.loading
+                                            ? _t("desktop|watch_together|site_loading")
+                                            : _t("desktop|watch_together|site_searching")}
+                                    </span>
+                                ) : snapshot.startingIn !== null && !snapshot.playerError ? (
                                     <span className={styles.status} role="status">
                                         {_t("desktop|watch_together|starting")}
                                     </span>
@@ -454,6 +505,32 @@ export function WatchTogetherPlayer({
                                 )}
                             </span>
                         </div>
+                        {snapshot.site?.canGoBack && (
+                            <button
+                                type="button"
+                                className={styles.iconControl}
+                                aria-label={_t("desktop|watch_together|site_back")}
+                                title={_t("desktop|watch_together|site_back")}
+                                onClick={vm.siteGoBack}
+                            >
+                                <ArrowLeftIcon />
+                            </button>
+                        )}
+                        {snapshot.site && !snapshot.site.onSharedPage && (
+                            <>
+                                <button type="button" className={styles.pillButton} onClick={vm.siteOpenShared}>
+                                    {_t("desktop|watch_together|site_open_shared")}
+                                </button>
+                                <button
+                                    type="button"
+                                    className={styles.pillButton}
+                                    data-accent="true"
+                                    onClick={vm.siteShareThisPage}
+                                >
+                                    {_t("desktop|watch_together|site_share_page")}
+                                </button>
+                            </>
+                        )}
                         <div className={styles.volume}>
                             <button
                                 type="button"
@@ -479,7 +556,12 @@ export function WatchTogetherPlayer({
                                 onChange={(e) => vm.setVolume(Number(e.currentTarget.value))}
                             />
                         </div>
-                        <SpeedMenu vm={vm} rate={snapshot.rate} rates={snapshot.rates} />
+                        <SpeedMenu
+                            vm={vm}
+                            rate={snapshot.rate}
+                            rates={snapshot.rates}
+                            onOpenChange={setSpeedMenuOpen}
+                        />
                         {!focused && (
                             <button
                                 type="button"
@@ -582,7 +664,11 @@ export function WatchTogetherPanel({ vm }: { vm: WatchTogetherViewModel }): JSX.
                         inputMode="url"
                         autoComplete="off"
                         spellCheck={false}
-                        placeholder={_t("desktop|watch_together|link_placeholder")}
+                        placeholder={
+                            snapshot.canOpenSites
+                                ? _t("desktop|watch_together|link_placeholder_sites")
+                                : _t("desktop|watch_together|link_placeholder")
+                        }
                         value={snapshot.draft}
                         disabled={!snapshot.connected}
                         aria-invalid={!!snapshot.addError}
@@ -623,7 +709,10 @@ export function WatchTogetherPanel({ vm }: { vm: WatchTogetherViewModel }): JSX.
                     className={snapshot.addError ? styles.error : styles.hint}
                     role={snapshot.addError ? "alert" : undefined}
                 >
-                    {snapshot.addError ?? _t("desktop|watch_together|link_hint")}
+                    {snapshot.addError ??
+                        (snapshot.canOpenSites
+                            ? _t("desktop|watch_together|link_hint_sites")
+                            : _t("desktop|watch_together|link_hint"))}
                 </Text>
             </form>
 
