@@ -8,7 +8,9 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventType, MatrixEvent, Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { EventType, MatrixEvent, Room, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import EventEmitter from "node:events";
+import { MatrixRTCSessionEvent, type CallMembership, type MatrixRTCSession } from "matrix-js-sdk/src/matrixrtc";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 
@@ -22,10 +24,12 @@ import { findDMRoom } from "../../utils/dm/findDMRoom";
 import { startDmOnFirstMessage } from "../../utils/direct-messages";
 import { verifyUser } from "../../verification";
 import { confirmAndIgnoreUser } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
+import { moveVoiceMember } from "../../utils/call/moveVoiceMember";
 
 vi.mock("../../Modal");
 vi.mock("../../utils/dm/findDMRoom", () => ({ findDMRoom: vi.fn(() => null) }));
 vi.mock("../../verification", () => ({ verifyUser: vi.fn() }));
+vi.mock("../../utils/call/moveVoiceMember", () => ({ moveVoiceMember: vi.fn() }));
 vi.mock("../../utils/direct-messages", async (importOriginal) => ({
     ...(await importOriginal<typeof import("../../utils/direct-messages")>()),
     startDmOnFirstMessage: vi.fn().mockResolvedValue("!dm:example.org"),
@@ -222,5 +226,92 @@ describe("VoiceUserMenuViewModel", () => {
             expect.objectContaining({ description: "Forbidden" }),
         );
         vm.dispose();
+    });
+
+    describe("in a voice channel", () => {
+        let session: MatrixRTCSession;
+        let voice: Room;
+
+        /** A joined room of a server, where the user is a moderator unless `myLevel` says otherwise. */
+        const serverRoom = (roomId: string, type: string, name: string, myLevel = 50): Room => {
+            const created = new Room(roomId, client, ME);
+            const event = (eventType: string, content: object, stateKey = ""): MatrixEvent =>
+                new MatrixEvent({ type: eventType, state_key: stateKey, room_id: roomId, sender: ME, content });
+            created.currentState.setStateEvents([
+                event(EventType.RoomCreate, { creator: ME, room_version: "10", type }),
+                join(created, ME),
+                join(created, BOB),
+                event(EventType.RoomPowerLevels, { users: { [ME]: myLevel }, users_default: 0, state_default: 50 }),
+            ]);
+            created.updateMyMembership(KnownMembership.Join);
+            created.name = name;
+            return created;
+        };
+
+        beforeEach(() => {
+            const server = serverRoom("!server:example.org", RoomType.Space, "Server");
+            voice = serverRoom("!geral1:example.org", RoomType.UnstableCall, "Geral#1");
+            const other = serverRoom("!geral2:example.org", RoomType.UnstableCall, "Geral#2");
+            for (const child of [voice, other]) {
+                server.currentState.setStateEvents([
+                    new MatrixEvent({
+                        type: EventType.SpaceChild,
+                        state_key: child.roomId,
+                        room_id: server.roomId,
+                        sender: ME,
+                        content: { via: ["example.org"] },
+                    }),
+                ]);
+            }
+            const all = [server, voice, other];
+            vi.mocked(client.getRooms).mockReturnValue(all);
+            vi.mocked(client.getRoom).mockImplementation((id) => all.find((r) => r.roomId === id) ?? null);
+            session = Object.assign(new EventEmitter(), { memberships: [] }) as unknown as MatrixRTCSession;
+            vi.mocked(client.matrixRTC.getRoomSession).mockReturnValue(session);
+        });
+
+        const inCall = (...userIds: string[]): void => {
+            session.memberships = userIds.map((userId) => ({ userId }) as CallMembership);
+            session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], session.memberships);
+        };
+
+        it("offers the server's other voice channels for someone in the call, and moves them there", () => {
+            inCall(BOB);
+            const vm = new VoiceUserMenuViewModel({
+                client,
+                userId: BOB,
+                room: voice,
+                spaceStore: { spacePanelSpaces: [] },
+            });
+            expect(vm.getSnapshot().moveDestinations).toEqual([{ id: "!geral2:example.org", name: "Geral#2" }]);
+            vm.moveTo("!geral2:example.org");
+            expect(moveVoiceMember).toHaveBeenCalledWith(client, voice.roomId, BOB, "!geral2:example.org");
+
+            // They left the call meanwhile: there is nobody to move.
+            inCall();
+            expect(vm.getSnapshot().moveDestinations).toEqual([]);
+            vm.dispose();
+        });
+
+        it("offers no move to anyone without the power to move people", () => {
+            inCall(BOB);
+            voice.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomPowerLevels,
+                    state_key: "",
+                    room_id: voice.roomId,
+                    sender: ME,
+                    content: { users: {}, users_default: 0, state_default: 50 },
+                }),
+            ]);
+            const vm = new VoiceUserMenuViewModel({
+                client,
+                userId: BOB,
+                room: voice,
+                spaceStore: { spacePanelSpaces: [] },
+            });
+            expect(vm.getSnapshot().moveDestinations).toEqual([]);
+            vm.dispose();
+        });
     });
 });
