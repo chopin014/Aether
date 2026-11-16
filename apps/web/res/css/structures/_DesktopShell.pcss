@@ -1645,18 +1645,28 @@ body.mx_DesktopShell [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-serve
     }
 
     .mx_MemberListView {
-        padding-inline: 12px;
+        padding-inline: 8px;
 
+        /*
+         * Discord's member row: a 40px row with 1px above and below, so neighbouring nameplates sit 2px apart. The
+         * avatar starts 8px in and the name 12px after it.
+         */
         .mx_MemberTileView {
-            /* DESKTOP_MEMBER_LIST_ITEM_HEIGHT in MemberListView, shared with the presence headings. */
-            height: 48px;
-            padding: 6px 10px;
+            /* DESKTOP_MEMBER_LIST_ITEM_HEIGHT in MemberListView is this height plus the margins. */
+            height: 40px;
+            margin-block: 1px;
+            padding: 0 8px;
             border: 0;
             border-radius: 8px;
 
             &:hover,
             &:focus-visible {
                 background: var(--cpd-color-bg-action-tertiary-hovered);
+            }
+
+            /* As in Discord, a long name stops short of the nameplate's far end, where its art is strongest. */
+            &:has(> [data-nameplate]) {
+                padding-inline-end: 32px;
             }
 
             /*
@@ -1673,14 +1683,39 @@ body.mx_DesktopShell [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-serve
                 z-index: 1;
             }
 
+            .mx_MemberTileView_left {
+                gap: 12px;
+            }
+
             .mx_MemberTileView_name {
-                font: var(--cpd-font-body-lg-medium);
+                font: var(--cpd-font-body-md-medium);
+                line-height: 20px;
+
+                /* The name gives way to its tag and status, which keep their size, as in Discord. */
+                .mx_DisambiguatedProfile {
+                    display: flex;
+                    align-items: center;
+                    min-width: 0;
+                    font: inherit;
+
+                    > span:first-child {
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+
+                    > :not(:first-child) {
+                        flex: none;
+                    }
+                }
             }
 
             .mx_MemberTileView_status {
+                margin-block-start: -1px;
                 overflow: hidden;
                 color: var(--cpd-color-text-secondary);
-                font: var(--cpd-font-body-xs-regular);
+                font: var(--cpd-font-body-xs-medium);
+                line-height: 16px;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
@@ -1697,16 +1732,45 @@ body.mx_DesktopShell [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-serve
                 font-size: 10px;
             }
 
-            /* Discord's status dot: a ring in the row's colour separates it from the avatar, like a cutout. */
+            /*
+             * Discord's status dot: 10px in the avatar's corner, with the avatar cut away in a ring around it. The
+             * cut shows whatever is behind the row, a nameplate or the hover colour, where a painted ring would not.
+             */
             .mx_MemberTileView_presence {
-                inset-inline-end: -3px;
-                inset-block-end: -3px;
+                /* The glyph's 12px box centres its 10.5px dot on the cut, 5px in from the avatar's corner. */
+                inset-inline-end: -1px;
+                inset-block-end: -1px;
+                z-index: 1;
+            }
+
+            .mx_MemberTileView_avatar:has(.mx_PresenceIconView) > :is(.mx_BaseAvatar, svg[data-decoration]) {
+                /* The dot's centre, from the bottom and end corner. */
+                --mx-member-presence-centre: 5px;
+                mask-image: radial-gradient(
+                    circle at calc(100% - var(--mx-member-presence-centre))
+                        calc(100% - var(--mx-member-presence-centre)),
+                    transparent 7.5px,
+                    #000000 8px
+                );
+
+                /* A decoration reaches 10% of the avatar past each side, so the same point is further from its corner. */
+                &[data-decoration] {
+                    --mx-member-presence-centre: 8.2px;
+                }
+
+                /* The dot sits at the inline end, which is the left in right-to-left text. */
+                &:dir(rtl) {
+                    mask-image: radial-gradient(
+                        circle at var(--mx-member-presence-centre) calc(100% - var(--mx-member-presence-centre)),
+                        transparent 7.5px,
+                        #000000 8px
+                    );
+                }
             }
 
             .mx_PresenceIconView {
-                /* Larger than a plain dot needs: the crescent has to read as a moon at this size. */
-                padding: 2px;
-                background: var(--cpd-color-bg-canvas-default);
+                padding: 0;
+                background: none;
 
                 svg {
                     width: 12px;
@@ -1725,15 +1789,15 @@ body.mx_DesktopShell [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-serve
                     color: var(--cpd-color-icon-critical-primary);
                 }
             }
+        }
 
-            &:is(:hover, :focus-visible) .mx_PresenceIconView {
-                background:
-                    linear-gradient(
-                        var(--cpd-color-bg-action-tertiary-hovered),
-                        var(--cpd-color-bg-action-tertiary-hovered)
-                    ),
-                    var(--cpd-color-bg-canvas-default);
-            }
+        /* Discord's group headings: sentence case, a size below the names, aligned with the avatars below. */
+        .mx_MemberListView_groupHeading {
+            height: 100%;
+            padding: 18px 8px 4px;
+            font: var(--cpd-font-body-sm-medium);
+            line-height: 18px;
+            text-transform: none;
         }
     }
 

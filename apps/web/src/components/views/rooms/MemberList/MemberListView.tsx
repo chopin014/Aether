@@ -28,8 +28,8 @@ interface IProps {
  * Height of a single member list item
  */
 const MEMBER_LIST_ITEM_HEIGHT = 56;
-/** Height of a desktop shell member or presence heading, matching `_DesktopShell.pcss`. */
-const DESKTOP_MEMBER_LIST_ITEM_HEIGHT = 48;
+/** Height of a desktop shell member or presence heading: a 40px row and its 1px margins in `_DesktopShell.pcss`. */
+const DESKTOP_MEMBER_LIST_ITEM_HEIGHT = 42;
 type MemberListItem = DesktopMemberListItem;
 /**
  * Amount to extend the top and bottom of the viewport by.
