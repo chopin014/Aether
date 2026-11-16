@@ -15,6 +15,7 @@ import Store, { clearData } from "./store.js";
 import { getConfig } from "./config.js";
 import { setDesktopShellTitleBarColors } from "./desktop-shell-titlebar.js";
 import { desktopUpdater } from "./updater.js";
+import { systemDoNotDisturb } from "./system-do-not-disturb.js";
 
 let focusHandlerAttached = false;
 ipcMain.on("loudNotification", function (): void {
@@ -82,6 +83,10 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
             break;
         case "getAppVersion":
             ret = app.getVersion();
+            break;
+        case "getSystemDoNotDisturb":
+            // null when the system's Do Not Disturb state cannot be read here.
+            ret = (await systemDoNotDisturb.isActive()) ?? null;
             break;
         case "getSystemIdleTime":
             // Seconds since the last keyboard or mouse input anywhere on the computer, not only in this window.

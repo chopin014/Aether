@@ -27,10 +27,12 @@ import * as windowControlsTheme from "./watchWindowControlsTheme";
 import { CallStore } from "../../stores/CallStore";
 import type { Call } from "../../models/Call";
 import ToastStore from "../../stores/ToastStore.ts";
+import { openMatrixLink } from "./openMatrixLink";
 
 vi.mock("../../rageshake/rageshake", () => ({
     flush: vi.fn(),
 }));
+vi.mock("./openMatrixLink", () => ({ openMatrixLink: vi.fn() }));
 
 describe("ElectronPlatform", () => {
     const initialiseValues = vi.fn().mockReturnValue({
@@ -185,6 +187,15 @@ describe("ElectronPlatform", () => {
         handler();
 
         expect(dispatchFireSpy).toHaveBeenCalledWith(Action.ViewUserSettings);
+    });
+
+    it("opens a matrix: link the desktop host sends", () => {
+        new ElectronPlatform();
+        const [, handler] = getElectronEventHandlerCall("openMatrixLink")!;
+
+        handler({}, "#/user/%40alice%3Aexample.org");
+
+        expect(openMatrixLink).toHaveBeenCalledWith("#/user/%40alice%3Aexample.org");
     });
 
     it("creates a modal on openDesktopCapturerSourcePicker", async () => {
@@ -492,6 +503,32 @@ describe("ElectronPlatform", () => {
         const [, reply] = getElectronEventHandlerCall("ipcReply")!;
         reply({}, { id, error: "Unknown IPC Call: getSystemIdleTime" });
         await expect(idle).resolves.toBeNull();
+    });
+
+    it.each([
+        [true, true],
+        [false, false],
+        [null, false],
+    ])("reads the system's Do Not Disturb answer %s as %s", async (answer, expected) => {
+        const platform = new ElectronPlatform();
+        mockElectron.send.mockClear();
+        const dnd = platform.isSystemDoNotDisturb();
+        const [channel, { id, name }] = mockElectron.send.mock.calls[0];
+        expect(channel).toBe("ipcCall");
+        expect(name).toBe("getSystemDoNotDisturb");
+        const [, reply] = getElectronEventHandlerCall("ipcReply")!;
+        reply({}, { id, reply: answer });
+        await expect(dnd).resolves.toBe(expected);
+    });
+
+    it("keeps notification sounds when an older desktop host cannot read Do Not Disturb", async () => {
+        const platform = new ElectronPlatform();
+        mockElectron.send.mockClear();
+        const dnd = platform.isSystemDoNotDisturb();
+        const [, { id }] = mockElectron.send.mock.calls[0];
+        const [, reply] = getElectronEventHandlerCall("ipcReply")!;
+        reply({}, { id, error: "Unknown IPC Call: getSystemDoNotDisturb" });
+        await expect(dnd).resolves.toBe(false);
     });
 
     describe("spellcheck", () => {

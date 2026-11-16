@@ -127,7 +127,64 @@ diff --git a/src/client.ts b/src/client.ts
      protected syncLeftRoomsPromise?: Promise<Room[]>;
      protected syncedLeftRooms = false;
      protected clientOpts?: IStoredClientOpts;
-@@ -4417,6 +4477,30 @@
+@@ -2934,8 +2994,7 @@
+         queryDict?: QueryDict,
+     ): Promise<ISendEventResponse>;
+     /**
+-     * Simply sends a delayed event without encrypting it.
+-     * TODO: Allow encrypted delayed events, and encrypt them properly
++     * Encrypts the event if necessary, then schedules it as a delayed event.
+      * @deprecated Support for {@link SendDelayedEventRequestOpts} has been dropped. Use a numeric delay duration instead.
+      * @param delayOpts - Properties of the delay for this event.
+      * @returns returns a promise which resolves with the result of the delayed send request
+@@ -2947,8 +3006,7 @@
+         queryDict?: QueryDict,
+     ): Promise<SendDelayedEventResponse>;
+     /**
+-     * Simply sends a delayed event without encrypting it.
+-     * TODO: Allow encrypted delayed events, and encrypt them properly
++     * Encrypts the event if necessary, then schedules it as a delayed event.
+      * @experimental based on MSC4140
+      * @param delayMs - A positive non-zero integer of milliseconds the homeserver should wait before sending the event.
+      * @returns returns a promise which resolves with the result of the delayed send request
+@@ -2966,6 +3024,13 @@
+         queryDict?: QueryDict,
+     ): Promise<ISendEventResponse | SendDelayedEventResponse> {
+         if (this.isDelayMsOrOpts(delayOrQueryDict)) {
++            // Aether: MatrixRTC membership is left as it was before upstream began encrypting delayed events
++            // (matrix-js-sdk #5682). A delayed leave is encrypted once, when it is scheduled, so a device that
++            // arrives before it is sent may not be able to read it and would keep showing the caller.
++            if (event.getType() !== EventType.RTCMembership) {
++                // A delayed event has no local echo in the room, so there is no pending event status to update.
++                await this.encryptEventIfNeeded(event, room ?? undefined, false);
++            }
+             return this.sendEventHttpRequest(event, this.getDelayMsFromArg(delayOrQueryDict), queryDict);
+         }
+         queryDict = delayOrQueryDict;
+@@ -3032,7 +3097,12 @@
+         }
+     }
+ 
+-    private async encryptEventIfNeeded(event: MatrixEvent, room?: Room): Promise<void> {
++    /**
++     * Encrypts the event in place if the room requires it.
++     * @param updatePendingStatus - Whether to mark the event as `ENCRYPTING` while it is being encrypted. Pass
++     *     `false` for events that are not pending events of the room, such as delayed events.
++     */
++    private async encryptEventIfNeeded(event: MatrixEvent, room?: Room, updatePendingStatus = true): Promise<void> {
+         // If the room is unknown, we cannot encrypt for it
+         if (!room) return;
+ 
+@@ -3049,7 +3119,7 @@
+             throw new Error("This room is configured to use encryption, but your client does not support encryption.");
+         }
+ 
+-        this.updatePendingEventStatus(room, event, EventStatus.ENCRYPTING);
++        if (updatePendingStatus) this.updatePendingEventStatus(room, event, EventStatus.ENCRYPTING);
+         await this.cryptoBackend.encryptEvent(event, room);
+     }
+ 
+@@ -4417,6 +4487,30 @@
       * Useful when an event just got decrypted
       * @returns A dict of actions to perform.
       */
@@ -158,7 +215,7 @@ diff --git a/src/client.ts b/src/client.ts
      public getPushActionsForEvent(event: MatrixEvent, forceRecalculate = false): IActionsObject | null {
          if (!event.getPushActions() || forceRecalculate) {
              const { actions, rule } = this.pushProcessor.actionsAndRuleForEvent(event);
-@@ -5265,7 +5349,7 @@
+@@ -5265,7 +5359,7 @@
                          await thread?.processEvent(event);
                          const sender = event.getSender()!;
                          if (!backwards || thread?.getEventReadUpTo(sender) === null) {
@@ -167,7 +224,7 @@ diff --git a/src/client.ts b/src/client.ts
                          }
                      }
  
-@@ -5315,6 +5399,21 @@
+@@ -5315,6 +5409,21 @@
                      const matrixEvents = res.chunk.filter(noUnsafeEventProps).map(this.getEventMapper());
  
                      const timelineSet = eventTimeline.getTimelineSet();
@@ -189,7 +246,7 @@ diff --git a/src/client.ts b/src/client.ts
                      const [timelineEvents, , unknownRelations] = room.partitionThreadedEvents(matrixEvents);
                      timelineSet.addEventsToTimeline(timelineEvents, backwards, false, eventTimeline, token);
                      this.processAggregatedTimelineEvents(room, timelineEvents);
-@@ -6037,7 +6136,9 @@
+@@ -6037,7 +6146,9 @@
       * we have on record matches.
       */
      private fixupRoomNotifications = (): void => {
@@ -200,7 +257,7 @@ diff --git a/src/client.ts b/src/client.ts
              const unreadRooms = (this.getRooms() ?? []).filter((room) => {
                  return room.getUnreadNotificationCount(NotificationCountType.Total) > 0;
              });
-@@ -9153,6 +9254,8 @@
+@@ -9153,6 +9264,8 @@
   * accurate notification_count
   */
  export function fixNotificationCountOnDecryption(cli: MatrixClient, event: MatrixEvent): void {
