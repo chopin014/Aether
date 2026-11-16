@@ -385,6 +385,19 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(vm.getSnapshot().roomName).toBe("Lounge");
         expect(vm.getSnapshot().connection.state).toBe("connecting");
     });
+    it("waits for the call to connect before applying playback, which Element Call refuses while joining", async () => {
+        // Element Call's output controls throw until its call view is up.
+        vi.mocked(call.setAudioOutputEnabled).mockImplementation(() => {
+            if (!store.connectedCalls.has(call)) throw new Error("Output controls are disabled");
+        });
+        Object.assign(store, { joiningCalls: new Set([call]) });
+        store.emit(CallStoreEvent.JoiningCalls);
+        await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
+        expect(call.setAudioOutputEnabled).not.toHaveBeenCalled();
+        await connect();
+        expect(call.setAudioOutputEnabled).toHaveBeenCalledExactlyOnceWith(true);
+        expect(vm.getSnapshot().error).toBeUndefined();
+    });
     it("stays silent about the microphone and camera Element Call opens while joining", async () => {
         await connect();
         vi.mocked(playDesktopVoiceSound).mockClear();
