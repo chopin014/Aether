@@ -968,6 +968,8 @@
             "mute_soundboard": "Mute soundboard",
             "profile": "Profile",
             "roles": "Roles",
+            "server_deafen": "Server deafen",
+            "server_mute": "Server mute",
             "start_call": "Start call",
             "title": "Options for %(name)s",
             "unignore": "Stop ignoring",

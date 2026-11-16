@@ -1280,6 +1280,8 @@
             "mute_soundboard": "Silenciar efeitos sonoros",
             "profile": "Perfil",
             "roles": "Cargos",
+            "server_deafen": "Desativar áudio no servidor",
+            "server_mute": "Silenciar voz no servidor",
             "start_call": "Iniciar chamada",
             "title": "Opções de %(name)s",
             "unignore": "Parar de ignorar",

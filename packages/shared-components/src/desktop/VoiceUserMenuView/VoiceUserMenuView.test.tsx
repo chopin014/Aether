@@ -53,6 +53,8 @@ function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
         copyUserId: vi.fn(),
         toggleIgnore: vi.fn(),
         setRole: vi.fn(),
+        toggleServerMuted: vi.fn(),
+        toggleServerDeafened: vi.fn(),
     });
 }
 
@@ -145,6 +147,22 @@ describe("VoiceUserMenuView", () => {
         expect(vm.setRole).toHaveBeenCalledWith(100);
     });
 
+    it("offers a moderator server mute and deafen, in red, without closing", () => {
+        const vm = makeVm({ serverVoiceMute: { muted: true, deafened: false } });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names().slice(-2)).toEqual(["Server mute", "Server deafen"]);
+        const mute = screen.getByTestId("voice-user-menu-server-mute");
+        expect(mute).toHaveAttribute("aria-checked", "true");
+        expect(mute).toHaveAttribute("data-kind", "critical");
+        expect(screen.getByTestId("voice-user-menu-server-deafen")).toHaveAttribute("aria-checked", "false");
+        fireEvent.click(mute);
+        fireEvent.click(screen.getByTestId("voice-user-menu-server-deafen"));
+        expect(vm.toggleServerMuted).toHaveBeenCalledOnce();
+        expect(vm.toggleServerDeafened).toHaveBeenCalledOnce();
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
     it("moves between entries with the arrow keys and closes on Escape, returning focus", () => {
         const trigger = document.createElement("button");
         document.body.append(trigger);
@@ -185,6 +203,7 @@ describe("VoiceUserMenuView", () => {
         expect(names()).not.toContain("Verify");
         expect(names()).not.toContain("Invite to server");
         expect(names()).not.toContain("Roles");
+        expect(names()).not.toContain("Server mute");
         expect(names()).toContain("Stop ignoring");
     });
 });
