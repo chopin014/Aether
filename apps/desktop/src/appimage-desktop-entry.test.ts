@@ -46,7 +46,7 @@ describe("registerAppImageDesktopEntry", () => {
         const entry = await readFile(entryPath(), "utf8");
         expect(entry).toContain('Exec="/home/user/Downloads/Aether-0.1.13-linux-x86_64.AppImage" %U\n');
         expect(entry).toContain("TryExec=/home/user/Downloads/Aether-0.1.13-linux-x86_64.AppImage\n");
-        expect(entry).toContain("MimeType=x-scheme-handler/aether;\n");
+        expect(entry).toContain("MimeType=x-scheme-handler/aether;x-scheme-handler/matrix;\n");
         expect(entry).toContain(`Icon=${iconPath()}\n`);
         expect(entry).toContain("StartupWMClass=aether\n");
         await expect(readFile(iconPath(), "utf8")).resolves.toBe("png bytes");
