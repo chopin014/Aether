@@ -72,6 +72,10 @@ jobs:
                   src/components/views/dialogs/UserSettingsDialog.test.tsx
                   src/components/views/voip/ElementCall
                   src/components/views/voip/ElementWebHostBridge.test.ts
+                  src/utils/call
+                  src/models/VoiceMoveFollower.test.ts
+                  src/stores/CallStore.test.ts
+                  src/stores/RoomViewStore.test.ts
             - name: Component tests in Chromium
               working-directory: packages/shared-components
               run: >-

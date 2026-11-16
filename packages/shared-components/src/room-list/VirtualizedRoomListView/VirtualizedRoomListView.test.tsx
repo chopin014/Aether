@@ -15,7 +15,7 @@ import userEvent from "@testing-library/user-event";
 import * as stories from "./VirtualizedRoomListView.stories";
 import { getScrollTargetEntryIndex, KEYBOARD_DRAG_OFFSET } from "./VirtualizedRoomListView";
 
-const { Default, Sections } = composeStories(stories);
+const { Default, Sections, VoiceChannels, VoiceChannelsWithoutPower } = composeStories(stories);
 
 const renderWithMockContext = (component: React.ReactElement): ReturnType<typeof render> => {
     return render(component, {
@@ -25,6 +25,12 @@ const renderWithMockContext = (component: React.ReactElement): ReturnType<typeof
             </VirtuosoMockContext.Provider>
         ),
     });
+};
+
+/** The middle of an element, in the window's coordinates. */
+const center = (element: Element): { x: number; y: number } => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 };
 
 describe("<VirtualizedRoomListView />", () => {
@@ -214,6 +220,82 @@ describe("<VirtualizedRoomListView />", () => {
             });
             expect(Sections.args.onSectionOrRoomDragStart).toHaveBeenCalled();
             expect(Sections.args.onSectionOrRoomDragEnd).toHaveBeenCalled();
+        });
+    });
+
+    describe("moving people between voice channels", () => {
+        beforeEach(() => {
+            (VoiceChannels.args.moveCallParticipant as any).mockClear?.();
+            (VoiceChannels.args.onSectionOrRoomDragStart as any).mockClear?.();
+        });
+
+        it("moves a person dragged onto another voice channel", async () => {
+            const user = userEvent.setup();
+            renderWithMockContext(<VoiceChannels />);
+            const status = screen.getByRole("status");
+            const bob = await screen.findByRole("button", { name: "Bob" });
+            const geral2 = await screen.findByRole("button", { name: "Open room Geral#2" });
+
+            const from = center(bob);
+            const to = center(geral2);
+            await user.pointer([
+                { keys: "[MouseLeft>]", target: bob, coords: from },
+                { target: bob, coords: { x: from.x, y: from.y + 10 } },
+            ]);
+            await waitFor(() => expect(status).toHaveTextContent("Dragging Bob"));
+            await user.pointer({ target: geral2, coords: to });
+            await waitFor(() => expect(status).toHaveTextContent("Bob is over Geral#2"));
+            // The channels stay as they are while someone is dragged.
+            expect(VoiceChannels.args.onSectionOrRoomDragStart).not.toHaveBeenCalled();
+            await waitFor(() => expect(geral2.className).toMatch(/callParticipantDropTarget/));
+
+            await user.pointer({ keys: "[/MouseLeft]" });
+
+            await waitFor(() =>
+                expect(VoiceChannels.args.moveCallParticipant).toHaveBeenCalledWith(
+                    "!geral1:server",
+                    "@bob:server",
+                    "!geral2:server",
+                ),
+            );
+        });
+
+        it("does not move a person dropped back on their own channel", async () => {
+            const user = userEvent.setup();
+            renderWithMockContext(<VoiceChannels />);
+            const bob = await screen.findByRole("button", { name: "Bob" });
+            const geral1 = await screen.findByRole("button", { name: "Open room Geral#1" });
+
+            const from = center(bob);
+            await user.pointer([
+                { keys: "[MouseLeft>]", target: bob, coords: from },
+                { target: bob, coords: { x: from.x, y: from.y + 10 } },
+            ]);
+            await user.pointer({ target: geral1, coords: center(geral1) });
+            await user.pointer({ keys: "[/MouseLeft]" });
+
+            expect(VoiceChannels.args.moveCallParticipant).not.toHaveBeenCalled();
+        });
+
+        it("does not let anyone without the power to move people drag them", async () => {
+            const user = userEvent.setup();
+            renderWithMockContext(<VoiceChannelsWithoutPower />);
+            const status = screen.getByRole("status");
+            const bob = await screen.findByRole("button", { name: "Bob" });
+            const geral2 = await screen.findByRole("button", { name: "Open room Geral#2" });
+
+            // Not even wired up as a draggable: no drag instructions are offered.
+            expect(bob).not.toHaveAttribute("aria-describedby");
+            const from = center(bob);
+            await user.pointer([
+                { keys: "[MouseLeft>]", target: bob, coords: from },
+                { target: bob, coords: { x: from.x, y: from.y + 10 } },
+            ]);
+            await user.pointer({ target: geral2, coords: center(geral2) });
+            await user.pointer({ keys: "[/MouseLeft]" });
+
+            expect(status).toHaveTextContent("");
+            expect(VoiceChannelsWithoutPower.args.moveCallParticipant).not.toHaveBeenCalled();
         });
     });
 

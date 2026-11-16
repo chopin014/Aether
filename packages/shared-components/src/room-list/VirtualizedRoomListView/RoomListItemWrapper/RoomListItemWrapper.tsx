@@ -14,7 +14,16 @@ import { useMergeRefs } from "react-merge-refs";
 import { RoomListItemView, type RoomListItemViewProps } from "./RoomListItemView";
 import { getItemAccessibleProps } from "../../../core/VirtualizedList";
 import { useViewModel } from "../../../core/viewmodel";
-import { dropSide, isRoomDragData, type RoomDragData, type RoomListDragData, type RoomSlotData } from "../dragAndDrop";
+import {
+    dropSide,
+    isCallParticipantDragData,
+    isRoomDragData,
+    type RoomDragData,
+    type RoomListDragData,
+    type RoomSlotData,
+    type VoiceChannelDropData,
+    voiceChannelDropId,
+} from "../dragAndDrop";
 
 export interface RoomListItemWrapperProps extends RoomListItemViewProps {
     /** Index of this room in the list */
@@ -110,6 +119,14 @@ function DraggableWrapper({ roomIndex, canDropBeside, ...props }: DraggableWrapp
     });
     const dropIndicator = isDropTarget ? dropSide(dragged, slot) : undefined;
 
+    // A voice channel takes a person dragged out of another voice channel's call, to move them here.
+    const isVoiceChannel = item.channelKind === "voice";
+    const { ref: voiceDroppableRef, isDropTarget: isCallParticipantDropTarget } = useDroppable<VoiceChannelDropData>({
+        id: voiceChannelDropId(item.id),
+        data: { type: "voiceChannel", roomId: item.id },
+        disabled: !isVoiceChannel || !isCallParticipantDragData(dragged) || dragged.roomId === item.id,
+    });
+
     const dndRef = useMergeRefs([
         ...(item.canChangeSection ? [draggableRef, handleRef] : []),
         ...(canDropBeside ? [droppableRef] : []),
@@ -122,6 +139,9 @@ function DraggableWrapper({ roomIndex, canDropBeside, ...props }: DraggableWrapp
             ref={item.canChangeSection || canDropBeside ? dndRef : undefined}
             isDragSource={isDragSource}
             dropIndicator={dropIndicator}
+            canDragCallParticipants={true}
+            callParticipantDropRef={isVoiceChannel ? voiceDroppableRef : undefined}
+            isCallParticipantDropTarget={isCallParticipantDropTarget}
         />
     );
 }

@@ -14,8 +14,26 @@ export type RoomDragData = { type: "room"; isDm: boolean; index?: number };
  * category. `index` is its position in the whole list.
  */
 export type RoomSlotData = { type: "slot"; index: number };
+/**
+ * Drag payload for a person in a voice channel's call, dragged to another voice channel to move them there. `name`
+ * and `avatarUrl` draw the person while they are dragged.
+ */
+export type CallParticipantDragData = {
+    type: "participant";
+    roomId: string;
+    userId: string;
+    name: string;
+    avatarUrl?: string;
+};
+/** A voice channel as a place to drop a person from another voice channel's call. */
+export type VoiceChannelDropData = { type: "voiceChannel"; roomId: string };
 /** Discriminated union of all drag payloads in the room list. */
-export type RoomListDragData = SectionDragData | RoomDragData | RoomSlotData;
+export type RoomListDragData =
+    | SectionDragData
+    | RoomDragData
+    | RoomSlotData
+    | CallParticipantDragData
+    | VoiceChannelDropData;
 
 /**
  * Type guard: true when the drag source is a section header. Narrows to {@link SectionDragData}.
@@ -47,7 +65,8 @@ export function rejectsDraggedRoom(accepted: AcceptedRoomKind, dragged: RoomList
         case "dm":
             return !isRoomDragData(dragged) || !dragged.isDm;
         case "any":
-            return false;
+            // A person dragged out of a call goes to a voice channel, never into a section.
+            return isCallParticipantDragData(dragged);
         case "none":
             return true;
     }
@@ -67,4 +86,30 @@ export function isRoomSlotData(data: RoomListDragData | undefined): data is Room
 export function dropSide(source: RoomListDragData | undefined, target: RoomSlotData): "before" | "after" {
     const from = isRoomDragData(source) ? (source.index ?? -1) : -1;
     return from > target.index ? "before" : "after";
+}
+
+/**
+ * Type guard: true when the drag source is a person in a voice channel's call. Narrows to
+ * {@link CallParticipantDragData}.
+ */
+export function isCallParticipantDragData(data: RoomListDragData | undefined): data is CallParticipantDragData {
+    return data?.type === "participant";
+}
+
+/**
+ * Type guard: true when the drop target is a voice channel to move a person to. Narrows to
+ * {@link VoiceChannelDropData}.
+ */
+export function isVoiceChannelDropData(data: RoomListDragData | undefined): data is VoiceChannelDropData {
+    return data?.type === "voiceChannel";
+}
+
+/** The drag-and-drop id of a person in a voice channel's call, distinct from every room's and section's id. */
+export function callParticipantDragId(roomId: string, userId: string): string {
+    return `participant:${roomId}:${userId}`;
+}
+
+/** The drop target id of a voice channel taking people from other calls, distinct from the channel's own id. */
+export function voiceChannelDropId(roomId: string): string {
+    return `voice:${roomId}`;
 }

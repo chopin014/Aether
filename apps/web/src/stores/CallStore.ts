@@ -20,6 +20,9 @@ import { Call, CallEvent, ConnectionState, ElementCall } from "../models/Call";
 import SdkConfig from "../SdkConfig.ts";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { DesktopCallHandoff } from "../models/DesktopCallHandoff";
+import { VoiceMoveFollower } from "../models/VoiceMoveFollower";
+import { Action } from "../dispatcher/actions";
+import { type FollowVoiceMovePayload } from "../dispatcher/payloads/FollowVoiceMovePayload";
 import ToastStore from "./ToastStore";
 import { GenericToast } from "@element-hq/web-shared-components";
 import { _t } from "../languageHandler";
@@ -79,6 +82,21 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
                   },
               )
             : undefined;
+        this.voiceMoves?.dispose();
+        this.voiceMoves = SettingsStore.getValue("feature_desktop_shell")
+            ? new VoiceMoveFollower(
+                  this.matrixClient,
+                  (roomId) => {
+                      const call = this.getCall(roomId);
+                      return !!call && (this._connectedCalls.has(call) || this.joiningCalls.has(call));
+                  },
+                  (room) =>
+                      defaultDispatcher.dispatch<FollowVoiceMovePayload>({
+                          action: Action.FollowVoiceMove,
+                          room_id: room.roomId,
+                      }),
+              )
+            : undefined;
         // Fetch transports, but don't await the result.
         this.matrixClient.cachedRtcTransports
             .wait()
@@ -123,6 +141,8 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
     protected async onNotReady(): Promise<any> {
         this.handoff?.dispose();
         this.handoff = undefined;
+        this.voiceMoves?.dispose();
+        this.voiceMoves = undefined;
         for (const [call, listenerMap] of this.callListeners) {
             // It's important that we remove the listeners before destroying the
             // call, because otherwise the call's onDestroy callback would fire
@@ -141,6 +161,8 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
 
     private _connectedCalls: Set<Call> = new Set();
     private handoff: DesktopCallHandoff | undefined;
+    /** Follows moderators who move the user to another voice channel. */
+    private voiceMoves: VoiceMoveFollower | undefined;
     /**
      * The calls to which the user is currently connected.
      */
