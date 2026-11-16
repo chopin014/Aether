@@ -29,6 +29,7 @@ import { RoomViewStore } from "./RoomViewStore";
 import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
 import { onServerJoined } from "../utils/servers/joinServer";
+import { NewChannelJoiner } from "./spaces/NewChannelJoiner";
 import { afterNextPaint } from "../utils/afterNextPaint";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { PosthogAnalytics } from "../PosthogAnalytics";
@@ -282,6 +283,21 @@ describe("RoomViewStore", function () {
             await vi.waitFor(() => expect(onServerJoined).toHaveBeenCalledWith(mockClient, roomId));
         } finally {
             settings.mockRestore();
+        }
+    });
+
+    it("tells the new channel joiner about a join before sending it", async () => {
+        const expectJoin = vi.spyOn(NewChannelJoiner.instance, "expectJoin");
+        try {
+            vi.mocked(mockClient.joinRoom).mockImplementationOnce(async () => {
+                expect(expectJoin).toHaveBeenCalledWith(roomId);
+                return new Room(roomId, mockClient, userId);
+            });
+            dis.dispatch({ action: Action.ViewRoom, room_id: roomId, auto_join: true });
+            await untilDispatch(Action.JoinRoomReady, dis);
+            expect(mockClient.joinRoom).toHaveBeenCalledTimes(1);
+        } finally {
+            expectJoin.mockRestore();
         }
     });
 

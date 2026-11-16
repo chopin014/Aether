@@ -72,6 +72,8 @@ declare module "matrix-js-sdk/src/types" {
         "io.aether.space.sidebar": { v?: number; hide_muted?: boolean };
         // How a room was muted and when that ends, see stores/notifications/TimedMutes.ts
         "io.aether.mute": { v?: number; until?: number; restore?: string; by?: string } | EmptyObject;
+        // The channels of a server a person was already offered, see stores/spaces/NewChannelJoiner.ts
+        "io.aether.space.known_channels": { v?: number; since?: number; rooms?: string[] };
         // A person's notification level for a whole server, see stores/notifications/ServerNotifications.ts
         "io.aether.space.notifications": {
             v?: number;
