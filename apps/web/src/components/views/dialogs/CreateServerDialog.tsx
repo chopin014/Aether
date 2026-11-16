@@ -10,7 +10,7 @@ import { CreateServerView, useCreateAutoDisposedViewModel, useViewModel } from "
 
 import BaseDialog from "./BaseDialog";
 import { CreateServerViewModel } from "../../../viewmodels/desktop/CreateServerViewModel";
-import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
+import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import { useSettingValue } from "../../../hooks/useSettings";
 import { UIFeature } from "../../../settings/UIFeature";
 import { _t } from "../../../languageHandler";
@@ -22,7 +22,9 @@ interface CreateServerDialogProps {
 
 /** Hosts the Discord-style flow for creating or joining a server, and stays open while a server is created. */
 export function CreateServerDialog({ onFinished }: CreateServerDialogProps): JSX.Element {
-    const client = useMatrixClientContext();
+    // Dialogs are rendered by Modal outside the client context, so the signed-in client comes from the peg, as in
+    // CreateRoomDialog.
+    const client = MatrixClientPeg.safeGet();
     const allowPublic = useSettingValue(UIFeature.AllowCreatingPublicSpaces);
     const vm = useCreateAutoDisposedViewModel(
         () => new CreateServerViewModel({ client, onFinished, canChooseAudience: allowPublic !== false }),
