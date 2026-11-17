@@ -691,11 +691,10 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
             if (getRoomNotifsState(client, room.roomId) === RoomNotifState.Mute) return;
         } else if (!actions?.notify) {
             return;
-        } else if (actions.tweaks.sound && this.isAudioEnabled()) {
-            // A group call does not ring, so it gets the room's notification sound instead.
-            void this.playAudioNotification(ev, room);
         }
-        void this.handleRTCNotification(ev, ToastStore.sharedInstance(), room);
+        // A group call does not ring, so it gets the room's notification sound instead.
+        const playSound = content.notification_type !== "ring" && !!actions?.tweaks.sound && this.isAudioEnabled();
+        void this.handleRTCNotification(ev, ToastStore.sharedInstance(), room, playSound);
     }
 
     /**
@@ -703,9 +702,15 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
      * @param ev The notification event.
      * @param toaster The toast store.
      * @param room The room that contains the notification
+     * @param playSound Whether to play the room's notification sound once the call is shown.
      * @returns A promise that will always resolve.
      */
-    private async handleRTCNotification(ev: MatrixEvent, toaster: ToastStore, room: Room): Promise<void> {
+    private async handleRTCNotification(
+        ev: MatrixEvent,
+        toaster: ToastStore,
+        room: Room,
+        playSound = false,
+    ): Promise<void> {
         // TODO: Use the call_id to get the *correct* call. We assume there is only one call per room here.
         const rtcSession = room && room.client.matrixRTC.getRoomSession(room);
         if (
@@ -785,8 +790,12 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
             });
         }
 
+        // Only now that the call is shown: a call the user is already in, an expired or repeated notification, or
+        // one whose call cannot be found shows nothing, and a sound on its own would come out of nowhere.
+        if (playSound) void this.playAudioNotification(ev, room);
+
         // Get the user's attention when the app is in the background: a system notification, and a flashing
-        // taskbar entry. The ring itself comes from the popup or toast, so no notification sound is played.
+        // taskbar entry. A ring comes from the popup or toast, so no notification sound is played for it.
         if (!document.hasFocus()) {
             if (this.isEnabled()) this.displayPopupNotification(ev, room);
             PlatformPeg.get()?.loudNotification(ev, room);
