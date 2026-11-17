@@ -79,6 +79,27 @@ describe("createServer", () => {
         expect(joined({ getMyMembership: () => KnownMembership.Join } as Room)).toBe(true);
     });
 
+    it("gives each channel its own room options", async () => {
+        // createRoom writes the name and room type into createOpts and only sends the request after an await, as
+        // the real one does, so both channels are in flight together.
+        const sent: Array<{ name?: string; type?: string }> = [];
+        vi.mocked(createRoom).mockImplementation(async (_client, opts) => {
+            const createOpts = opts.createOpts as { name?: string; creation_content?: { type?: string } };
+            createOpts.name = opts.name;
+            if (opts.roomType) createOpts.creation_content = { type: opts.roomType };
+            await Promise.resolve();
+            sent.push({ name: createOpts.name, type: createOpts.creation_content?.type });
+            return opts.roomType === RoomType.UnstableCall ? "!voice:x" : "!text:x";
+        });
+
+        await createServer(client, { name: "Alice's server", audience: "friends" });
+
+        expect(sent).toEqual([
+            { name: "general", type: undefined },
+            { name: "General", type: RoomType.UnstableCall },
+        ]);
+    });
+
     it("makes a community server and its channels public", async () => {
         await createServer(client, { name: "Club", audience: "community" });
         expect(createSpace).toHaveBeenCalledWith(

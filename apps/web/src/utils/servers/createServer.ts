@@ -61,7 +61,10 @@ export async function createServer(
     if (!space) throw new Error("The new server did not arrive from the homeserver");
 
     onStep?.("channels");
-    const channel: IOpts = {
+    // Each channel needs its own options: createRoom writes the name, type and initial state into createOpts, so a
+    // shared object would give both channels whichever settings were written last.
+    const channel = (opts: Pick<IOpts, "name" | "roomType">): IOpts => ({
+        ...opts,
         parentSpace: space,
         suggested: true,
         spinner: false,
@@ -74,14 +77,13 @@ export async function createServer(
         // channels already show their history to anyone.
         historyVisibility: isPublic ? undefined : HistoryVisibility.Shared,
         createOpts: { preset: isPublic ? Preset.PublicChat : Preset.PrivateChat },
-    };
+    });
     const [textChannelId, voiceChannelId] = await Promise.all([
-        createRoom(client, { ...channel, name: _t("desktop|create_server|text_channel_name") }),
-        createRoom(client, {
-            ...channel,
-            name: _t("desktop|create_server|voice_channel_name"),
-            roomType: RoomType.UnstableCall,
-        }),
+        createRoom(client, channel({ name: _t("desktop|create_server|text_channel_name") })),
+        createRoom(
+            client,
+            channel({ name: _t("desktop|create_server|voice_channel_name"), roomType: RoomType.UnstableCall }),
+        ),
     ]);
     if (!textChannelId || !voiceChannelId) throw new Error("The server's channels were not created");
 
