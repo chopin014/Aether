@@ -18,8 +18,11 @@ import { ChooseServerChannelsDialog } from "../../components/views/dialogs/Choos
 import { waitForRoom } from "../room/waitForRoom";
 import { joinChannelsUntilHeldBack, listJoinableChannels, type ServerChannel } from "./serverChannels";
 
-/** Servers with at most this many channels have them all joined at once, unless the user turned that off. */
-export const JOIN_ALL_LIMIT = 10;
+/**
+ * Servers with at most this many channels have them all joined at once, unless the user turned that off. Synapse
+ * lets a user join 10 rooms at once by default and joining the server took one, so more would make the user wait.
+ */
+export const JOIN_ALL_LIMIT = 9;
 
 /**
  * The channels ticked when the picker opens: all of a small server's, otherwise the ones the server suggests, or

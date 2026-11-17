@@ -104,6 +104,10 @@ describe("server joining", () => {
         );
     });
 
+    it("joins nine channels at most, which with the server fits the homeserver's default allowance", () => {
+        expect(JOIN_ALL_LIMIT).toBe(9);
+    });
+
     it("asks which channels to join in a large server", async () => {
         const channels = many(JOIN_ALL_LIMIT + 1);
         vi.mocked(listJoinableChannels).mockResolvedValue(channels);
