@@ -13,6 +13,8 @@ import { sleep } from "matrix-js-sdk/src/utils";
 import EventEmitter from "node:events";
 import type * as NodeEvents from "node:events";
 import { vi, describe, it, expect, beforeEach, afterEach, type MockedClass } from "vitest";
+import { render } from "test-utils-rtl";
+import type React from "react";
 import {
     flushPromises,
     getMockClientWithEventEmitter,
@@ -1120,6 +1122,22 @@ describe("RoomViewStore", function () {
         dis.dispatch({ action: Action.JoinRoom, room_id: "" });
         const result = await untilDispatch(Action.JoinRoomError, dis);
         expect(result.err.cause.message).toEqual("Cannot join room: no room ID or alias to join");
+    });
+
+    it("should say how to get into a private room instead of showing the request", async () => {
+        const error = new MatrixError(
+            { errcode: "M_FORBIDDEN", error: "You are not invited to this room." },
+            403,
+            "https://hs/_matrix/client/v3/join/!private?server_name=hs",
+        );
+        roomViewStore.showJoinRoomError(error, roomId);
+
+        const { description } = vi.mocked(Modal).createDialog.mock.calls[0][1] as { description: React.ReactElement };
+        const { container } = render(description);
+        expect(container).toHaveTextContent(
+            `You are not invited to this room.Ask someone who is in it to invite you. Your username is ${userId}.`,
+        );
+        expect(container).not.toHaveTextContent("_matrix");
     });
 
     it("should display the generic error message when the roomId doesnt match", async () => {

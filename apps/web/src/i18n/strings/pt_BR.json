@@ -1957,6 +1957,7 @@
         "edit_topic": "Editar tópico",
         "error_cancel_knock_title": "Falha ao cancelar",
         "error_join_403": "Você precisa de um convite para acessar esta sala.",
+        "error_join_403_ask_invite": "Peça a alguém que já está lá para convidar você. Seu nome de usuário é %(userId)s.",
         "error_join_404_1": "Você tentou entrar usando um ID de sala sem fornecer uma lista de servidores pelos quais ingressar. Os IDs das salas são identificadores internos e não podem ser usados para entrar em uma sala sem informações adicionais.",
         "error_join_404_2": "Se você souber o endereço de uma sala, tente entrar por lá.",
         "error_join_404_invite": "A pessoa que o convidou já saiu ou o servidor dela está offline.",

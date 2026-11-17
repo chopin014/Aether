@@ -809,6 +809,17 @@ export class RoomViewStore extends EventEmitter {
                     {_t("room|error_join_incompatible_version_2")}
                 </div>
             );
+        } else if (err.httpStatus === 403) {
+            // A private room or server turns away anyone it has not invited. Give the homeserver's reason without
+            // the request URL, and say how to get in: someone inside has to invite this username.
+            description = (
+                <div>
+                    {typeof err.data?.error === "string" && err.data.error ? err.data.error : _t("room|error_join_403")}
+                    <br />
+                    <br />
+                    {_t("room|error_join_403_ask_invite", { userId: MatrixClientPeg.safeGet().getSafeUserId() })}
+                </div>
+            );
         } else if (err.httpStatus === 404) {
             const invitingUserId = roomId && this.getInvitingUserId(roomId);
             // provide a better error message for invites
