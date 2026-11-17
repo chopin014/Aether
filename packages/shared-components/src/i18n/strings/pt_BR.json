@@ -1177,7 +1177,7 @@
             "audience_community_description": "Qualquer pessoa com o link pode entrar, e o servidor aparece entre os servidores públicos.",
             "audience_description": "Para ajudar na configuração, seu novo servidor é só para alguns amigos ou para uma comunidade maior?",
             "audience_friends": "Para mim e meus amigos",
-            "audience_friends_description": "Só quem você convidar pode entrar.",
+            "audience_friends_description": "As pessoas entram quando você convida, ou pedem com o link do servidor e esperam a aprovação.",
             "audience_skip": "Não tem certeza? Você pode <skip>pular esta pergunta</skip> por enquanto.",
             "audience_title": "Conte mais sobre o seu servidor",
             "create_own": "Criar o meu",

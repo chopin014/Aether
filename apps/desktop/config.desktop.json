@@ -9,6 +9,7 @@
     "default_theme": "dark",
     "features": {
         "feature_desktop_shell": true,
+        "feature_ask_to_join": true,
         "feature_video_rooms": true,
         "feature_element_call_video_rooms": true,
         "feature_element_call_react": true,

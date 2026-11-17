@@ -20,7 +20,7 @@ import { _t } from "../../languageHandler";
 import { privateShouldBeEncrypted } from "../rooms";
 import { waitForRoom } from "../room/waitForRoom";
 
-/** Who a new server is for: friends join by invite, a community is open to anyone with the link. */
+/** Who a new server is for: friends join by invite or ask to join with the link, a community is open to anyone. */
 export type ServerAudience = "friends" | "community";
 
 /** What the user chose for a new server. */
@@ -42,8 +42,8 @@ export type CreateServerStep = "server" | "channels";
 
 /**
  * Create a server the way Discord does: a space holding one text channel and one voice channel, ready to talk in.
- * A community server and its channels are public; a friends server is invite only and its channels are open to
- * the server's members, who can read the channels' earlier messages.
+ * A community server and its channels are public. A friends server takes people its members invite or let in when
+ * they ask to join; its channels are open to the server's members, who can read the channels' earlier messages.
  */
 export async function createServer(
     client: MatrixClient,
@@ -53,8 +53,19 @@ export async function createServer(
     const isPublic = audience === "community";
 
     onStep?.("server");
-    // No address is reserved: a taken one would fail creation, and the server's link works without it.
-    const spaceId = await createSpace(client, name, isPublic, undefined, undefined, avatar, {}, { andView: false });
+    // No address is reserved: a taken one would fail creation, and the server's link works without it. A friends
+    // server lets people who have its link ask to join, and its members let them in: anyone could join by the link
+    // only if the whole server were open, since Matrix has no per-link invites.
+    const spaceId = await createSpace(
+        client,
+        name,
+        isPublic,
+        undefined,
+        undefined,
+        avatar,
+        {},
+        { andView: false, joinRule: isPublic ? undefined : JoinRule.Knock },
+    );
     if (!spaceId) throw new Error("The server was not created");
     // Channels name their space as parent, so it has to be known locally first.
     const space = await waitForRoom(client, spaceId, (room) => room.isSpaceRoom());

@@ -57,6 +57,7 @@ describe("createServer", () => {
             {},
             {
                 andView: false,
+                joinRule: JoinRule.Knock,
             },
         );
         expect(onStep.mock.calls).toEqual([["server"], ["channels"]]);

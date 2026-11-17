@@ -337,7 +337,7 @@
             "audience_community_description": "Anyone with the link can join, and people can find it among public servers.",
             "audience_description": "To help you set it up, is your new server for just a few friends or a larger community?",
             "audience_friends": "For me and my friends",
-            "audience_friends_description": "Only people you invite can join.",
+            "audience_friends_description": "People join when you invite them, or ask with the server link and wait to be let in.",
             "audience_skip": "Not sure? You can <skip>skip this question</skip> for now.",
             "audience_title": "Tell us more about your server",
             "create_own": "Create my own",
