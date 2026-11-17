@@ -31,6 +31,11 @@ export type RoomListSection = {
     roomIds: string[];
     /** Whether the person may reorder this section's rooms by dropping one beside another, as in a server category */
     canReorder?: boolean;
+    /**
+     * The rooms listed inside an open folder of this section, drawn indented beneath it. They belong to the folder's
+     * own server, so they are never dragged or dropped beside here.
+     */
+    nestedRoomIds?: string[];
 };
 
 /**

@@ -33,6 +33,7 @@ const RoomListHeaderViewWrapperImpl = ({
     createSection,
     collapseOrExpandSections,
     closeSectionReleaseAnnouncement,
+    openParentServer,
     ...rest
 }: RoomListHeaderProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
@@ -47,6 +48,7 @@ const RoomListHeaderViewWrapperImpl = ({
         createSection,
         collapseOrExpandSections,
         closeSectionReleaseAnnouncement,
+        openParentServer,
     });
     return <RoomListHeaderView vm={vm} desktop={desktop} />;
 };
@@ -69,6 +71,7 @@ const meta = {
         createSection: fn(),
         collapseOrExpandSections: fn(),
         closeSectionReleaseAnnouncement: fn(),
+        openParentServer: fn(),
     },
     parameters: {
         design: {
@@ -156,3 +159,8 @@ export const NoComposeMenu: Story = {
 };
 
 export const DesktopSpace: Story = { args: { desktop: true, displaySpaceMenu: true, title: "Design studio" } };
+
+/** A server opened from a folder of another, with the way back to it. */
+export const DesktopNestedServer: Story = {
+    args: { desktop: true, displaySpaceMenu: true, title: "Advocacy", parentServer: { name: "Matrix Community" } },
+};

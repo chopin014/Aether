@@ -310,6 +310,15 @@
             "label": "Chamada recebida de %(name)s",
             "started_by": "%(name)s iniciou uma chamada"
         },
+        "server_folder": {
+            "back": "Voltar para %(server)s",
+            "description": "Pasta",
+            "label_mentions": {
+                "one": "%(server)s, %(count)s menção",
+                "other": "%(server)s, %(count)s menções"
+            },
+            "open": "Abrir %(server)s"
+        },
         "threads": {
             "search": "Buscar tópicos",
             "load_error": "Não foi possível carregar os tópicos. Tente novamente.",
