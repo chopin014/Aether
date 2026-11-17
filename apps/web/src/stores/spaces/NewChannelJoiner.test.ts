@@ -25,10 +25,21 @@ import { createTestClient } from "test-utils";
 
 import { KNOWN_CHANNELS_ACCOUNT_DATA_TYPE, NewChannelJoiner } from "./NewChannelJoiner";
 import { SPACE_CHILD_JOINABLE_FIELD } from "./joinableChild";
-import { listJoinableChannels, type ServerChannel } from "../../utils/servers/serverChannels";
+import { JoinRateLimit, listJoinableChannels, type ServerChannel } from "../../utils/servers/serverChannels";
 import SettingsStore from "../../settings/SettingsStore";
 
-vi.mock("../../utils/servers/serverChannels", () => ({ listJoinableChannels: vi.fn() }));
+// Each test gets a fresh rate limit, so a wait one test leaves behind doesn't hold back the next.
+const rateLimit = vi.hoisted(() => ({ current: undefined as unknown }));
+vi.mock("../../utils/servers/serverChannels", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../utils/servers/serverChannels")>();
+    return {
+        listJoinableChannels: vi.fn(),
+        JoinRateLimit: actual.JoinRateLimit,
+        get joinRateLimit() {
+            return rateLimit.current;
+        },
+    };
+});
 
 const ME = "@userId:matrix.org";
 const ADMIN = "@admin:example.org";
@@ -110,6 +121,7 @@ describe("NewChannelJoiner", () => {
 
     beforeEach(() => {
         ts = 1000;
+        rateLimit.current = new JoinRateLimit();
         rooms = new Map();
         client = createTestClient();
         vi.mocked(client.getRoom).mockImplementation((roomId) => rooms.get(roomId!) ?? null);
@@ -283,6 +295,24 @@ describe("NewChannelJoiner", () => {
         await vi.runAllTimersAsync();
         expect(joined().filter((id) => id === "!busy:example.org")).toHaveLength(3);
         expect(joined().filter((id) => id === "!refused:example.org")).toHaveLength(1);
+    });
+
+    it("joins every channel of a burst, waiting as long as the homeserver asks however often it does", async () => {
+        vi.useFakeTimers();
+        sync(SyncState.Prepared);
+        // Like Synapse's default: a few joins at once, then one per wait.
+        let allowance = 3;
+        vi.mocked(client.joinRoom).mockImplementation(async (roomId) => {
+            if (allowance-- <= 0) throw new MatrixError({ errcode: "M_LIMIT_EXCEEDED", retry_after_ms: 10_000 }, 429);
+            return { roomId } as Room;
+        });
+        const replenish = setInterval(() => (allowance = Math.max(allowance, 0) + 1), 10_000);
+        for (let i = 0; i < 12; i++) addChild(`!c${i}:example.org`, { [SPACE_CHILD_JOINABLE_FIELD]: true });
+        sync();
+        await vi.advanceTimersByTimeAsync(200_000);
+        clearInterval(replenish);
+        const succeeded = vi.mocked(client.joinRoom).mock.settledResults.filter((r) => r.type === "fulfilled");
+        expect(new Set(succeeded.map((r) => (r.value as Room).roomId)).size).toBe(12);
     });
 
     it("joins nothing when an unusual number of channels arrive at once", () => {

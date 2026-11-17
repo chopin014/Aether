@@ -21,7 +21,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 
 import SettingsStore from "../../settings/SettingsStore";
-import { listJoinableChannels } from "../../utils/servers/serverChannels";
+import { joinRateLimit, listJoinableChannels } from "../../utils/servers/serverChannels";
 import { readJoinableHint } from "./joinableChild";
 
 /**
@@ -87,7 +87,7 @@ function hasMembership(client: MatrixClient, roomId: string): boolean {
 
 function isPassingFailure(error: unknown): boolean {
     if (!(error instanceof MatrixError)) return true; // the request never reached the server
-    return error.httpStatus === 429 || (error.httpStatus ?? 0) >= 500;
+    return (error.httpStatus ?? 0) >= 500;
 }
 
 /**
@@ -305,17 +305,24 @@ export class NewChannelJoiner {
     }
 
     private async join(client: MatrixClient, channel: NewChannel, generation: number): Promise<void> {
-        for (let attempt = 0; ; attempt++) {
+        let failures = 0;
+        for (;;) {
+            // Checked first so that a join that doesn't have to wait starts straight away.
+            if (joinRateLimit.holding) {
+                await joinRateLimit.wait();
+                if (generation !== this.generation) return;
+            }
             try {
                 await client.joinRoom(channel.roomId, { viaServers: channel.via });
                 return;
             } catch (error) {
-                if (attempt >= JOIN_RETRIES || !isPassingFailure(error) || generation !== this.generation) {
+                // A join refused for coming too soon waits its turn however long that takes, and is not a failure.
+                if (joinRateLimit.hold(error)) continue;
+                if (failures >= JOIN_RETRIES || !isPassingFailure(error) || generation !== this.generation) {
                     logger.warn(`Could not join the new channel ${channel.roomId}`, error);
                     return;
                 }
-                const retryAfter = error instanceof MatrixError ? error.getRetryAfterMs() : null;
-                await new Promise((resolve) => setTimeout(resolve, retryAfter ?? 1000 * 3 ** attempt));
+                await new Promise((resolve) => setTimeout(resolve, 1000 * 3 ** failures++));
                 if (generation !== this.generation) return;
             }
         }
