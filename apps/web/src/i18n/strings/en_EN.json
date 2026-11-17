@@ -842,6 +842,9 @@
             "settings_description": "Delete this server and every channel and nested server inside it, removing all members.",
             "title": "Delete server?"
         },
+        "join_requests": {
+            "error": "That didn't work. Try again."
+        },
         "keybinds": {
             "browser_description": "In a browser, shortcuts work while Aether is focused. Letter keys without Ctrl, Alt or Meta do not trigger shortcuts while typing.",
             "conflict": "This key is already in use. Choose another combination.",

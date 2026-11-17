@@ -1361,6 +1361,15 @@
             "unmute": "Ativar som para mim",
             "up_next": "Fila",
             "volume": "Volume para mim"
+        },
+        "join_requests": {
+            "approve": "Deixar %(name)s entrar",
+            "decline": "Recusar %(name)s",
+            "label": "Pedidos para entrar",
+            "title": {
+                "one": "%(count)s pessoa quer entrar",
+                "other": "%(count)s pessoas querem entrar"
+            }
         }
     },
     "threads": {

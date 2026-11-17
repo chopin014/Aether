@@ -9,9 +9,10 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, afterEach } from "vitest";
+import { type RoomMember, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 import React from "react";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, getByTestId, render, screen } from "test-utils-rtl";
+import { act, fireEvent, getByTestId, render, screen } from "test-utils-rtl";
 import { clientAndSDKContextRenderOptions, mkRoom, stubClient } from "test-utils";
 
 import DMRoomMap from "../../../utils/DMRoomMap";
@@ -27,6 +28,7 @@ import SettingsStore from "../../../settings/SettingsStore";
 import { useSpaceVoiceActivity } from "../../../hooks/useSpaceVoiceActivity";
 import { PageTypeContext } from "../../../contexts/PageTypeContext";
 import PageType from "../../../PageTypes";
+import * as joinRequests from "../../../utils/servers/joinRequests";
 
 vi.mock("../../../hooks/useSpaceVoiceActivity", () => ({ useSpaceVoiceActivity: vi.fn().mockReturnValue([]) }));
 
@@ -244,6 +246,38 @@ describe("SpaceItem", () => {
             expect(screen.queryByText("Server home")).not.toBeInTheDocument();
         } finally {
             settings.mockRestore();
+        }
+    });
+
+    it("counts the people asking to join on the server's badge, ahead of unread messages", () => {
+        vi.mocked(SDKContextClass.instance.spaceStore.getChildSpaces).mockReturnValue([]);
+        vi.mocked(SDKContextClass.instance.spaceStore.getNotificationState).mockReturnValue(
+            // Only the badge's count and level matter here.
+            StaticNotificationState.forCount(5, NotificationLevel.Notification) as unknown as SpaceNotificationState,
+        );
+        const pending = vi.spyOn(joinRequests, "pendingJoinRequests").mockReturnValue([]);
+        try {
+            const { container } = render(
+                <SpaceItem space={space} activeSpaces={[]} isPanelCollapsed />,
+                clientAndSDKContextRenderOptions(cli, SDKContextClass.instance),
+            );
+            const badge = (): Element | null => container.querySelector(".mx_SpacePanel_notificationBadge");
+            expect(badge()).toHaveTextContent("5");
+
+            pending.mockReturnValue([{} as RoomMember, {} as RoomMember]);
+            act(() => {
+                space.emit(RoomStateEvent.Update, space.currentState);
+            });
+            expect(badge()).toHaveTextContent("2");
+            expect(badge()).toHaveAttribute("data-notification-level", "highlight");
+
+            pending.mockReturnValue([]);
+            act(() => {
+                space.emit(RoomStateEvent.Update, space.currentState);
+            });
+            expect(badge()).toHaveTextContent("5");
+        } finally {
+            pending.mockRestore();
         }
     });
 

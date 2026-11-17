@@ -433,6 +433,15 @@
             "label": "Incoming call from %(name)s",
             "started_by": "%(name)s started a call"
         },
+        "join_requests": {
+            "approve": "Let %(name)s in",
+            "decline": "Decline %(name)s",
+            "label": "Requests to join",
+            "title": {
+                "one": "%(count)s person wants to join",
+                "other": "%(count)s people want to join"
+            }
+        },
         "keybinds": {
             "clear_action": "Clear %(action)s keybind",
             "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",

@@ -18,7 +18,7 @@ import React, {
     useContext,
 } from "react";
 import classNames from "classnames";
-import { type Room, RoomEvent } from "matrix-js-sdk/src/matrix";
+import { type Room, RoomEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { type DraggableProvidedDragHandleProps } from "react-beautiful-dnd";
 import { ServerVoiceActivity } from "@element-hq/web-shared-components";
@@ -44,6 +44,7 @@ import AccessibleButton, {
 } from "../elements/AccessibleButton";
 import { StaticNotificationState } from "../../../stores/notifications/StaticNotificationState";
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
+import { pendingJoinRequests } from "../../../utils/servers/joinRequests";
 import { getKeyBindingsManager } from "../../../KeyBindingsManager";
 import { type NotificationState } from "../../../stores/notifications/NotificationState";
 import SpaceContextMenu from "../context_menus/SpaceContextMenu";
@@ -231,6 +232,8 @@ interface IItemState {
     name: string;
     collapsed: boolean;
     childSpaces: Room[];
+    /** How many people are asking to join, counted only for someone who can let them in. */
+    joinRequests: number;
 }
 
 export class SpaceItem extends React.PureComponent<IItemProps, IItemState> {
@@ -252,18 +255,25 @@ export class SpaceItem extends React.PureComponent<IItemProps, IItemState> {
             name: this.props.space.name,
             collapsed,
             childSpaces: this.childSpaces,
+            joinRequests: pendingJoinRequests(props.space).length,
         };
     }
 
     public componentDidMount(): void {
         this.context.spaceStore.on(this.props.space.roomId, this.onSpaceUpdate);
         this.props.space.on(RoomEvent.Name, this.onRoomNameChange);
+        this.props.space.on(RoomStateEvent.Update, this.onStateUpdate);
     }
 
     public componentWillUnmount(): void {
         this.context.spaceStore.off(this.props.space.roomId, this.onSpaceUpdate);
         this.props.space.off(RoomEvent.Name, this.onRoomNameChange);
+        this.props.space.off(RoomStateEvent.Update, this.onStateUpdate);
     }
+
+    private onStateUpdate = (): void => {
+        this.setState({ joinRequests: pendingJoinRequests(this.props.space).length });
+    };
 
     private onSpaceUpdate = (): void => {
         this.setState({
@@ -368,9 +378,12 @@ export class SpaceItem extends React.PureComponent<IItemProps, IItemState> {
 
         const isInvite = space.getMyMembership() === KnownMembership.Invite;
 
+        // People waiting to be let in need an answer, so their count outranks unread messages, as a mention does.
         const notificationState = isInvite
             ? StaticNotificationState.forSymbol("!", NotificationLevel.Highlight)
-            : this.context.spaceStore.getNotificationState(space.roomId);
+            : this.state.joinRequests > 0
+              ? StaticNotificationState.forCount(this.state.joinRequests, NotificationLevel.Highlight)
+              : this.context.spaceStore.getNotificationState(space.roomId);
 
         const hasChildren = this.state.childSpaces?.length;
 

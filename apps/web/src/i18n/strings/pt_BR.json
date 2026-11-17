@@ -4217,6 +4217,9 @@
         }
     },
     "desktop": {
+        "join_requests": {
+            "error": "Não deu certo. Tente de novo."
+        },
         "threads": {
             "close": "Fechar tópico",
             "removed": "Mensagem removida",

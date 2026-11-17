@@ -22,6 +22,7 @@ import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext
 import { useSettingValue } from "../../../../hooks/useSettings";
 import { DesktopContactsContainer } from "../../../structures/DesktopContactsContainer";
 import { SDKContext } from "../../../../contexts/SDKContext.ts";
+import { JoinRequests } from "./JoinRequests";
 
 type RoomListPanelProps = {
     /**
@@ -66,6 +67,7 @@ export const RoomListPanel: React.FC<RoomListPanelProps> = ({ activeSpace }) => 
     );
 
     const matrixClient = useMatrixClientContext();
+    const server = isChannelList ? matrixClient.getRoom(activeSpace) : null;
     const vm = useCreateAutoDisposedViewModel(
         () => new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore }),
     );
@@ -82,6 +84,7 @@ export const RoomListPanel: React.FC<RoomListPanelProps> = ({ activeSpace }) => 
             onKeyDown={onKeyDown}
         >
             {desktopShellEnabled && isChannelList && <RoomListHeaderView vm={vm} desktop />}
+            {server && <JoinRequests key={server.roomId} space={server} />}
             {displayRoomSearch && !isChannelList && <RoomListSearch activeSpace={activeSpace} />}
             {!desktopShellEnabled && <RoomListHeaderView vm={vm} />}
             {desktopShellEnabled && !isChannelList && <DesktopContactsContainer navigation />}
