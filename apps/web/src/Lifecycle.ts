@@ -85,6 +85,7 @@ import { createPresenceHints } from "./presence/createPresenceHints";
 import { ModuleApi } from "./modules/Api.ts";
 import { stopDesktopVoiceSound } from "./audio/DesktopVoiceSounds";
 import { markStartup } from "./performance/StartupTimings";
+import { joinWhenLetIn } from "./utils/servers/joinWhenLetIn";
 
 const HOMESERVER_URL_KEY = "mx_hs_url";
 const ID_SERVER_URL_KEY = "mx_is_url";
@@ -1172,6 +1173,9 @@ async function startMatrixClient(
 
     // Now that we have a MatrixClientPeg, update the Jitsi info
     Jitsi.getInstance().start();
+
+    // In the desktop shell, someone who asked to join a server is taken in as soon as a member lets them in.
+    if (SettingsStore.getValue("feature_desktop_shell")) joinWhenLetIn(client);
 
     // dispatch that we finished starting up to wire up any other bits
     // of the matrix client that cannot be set prior to starting up.
