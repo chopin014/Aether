@@ -62,6 +62,7 @@ import { DMRoomTile } from "./invite/DMRoomTile.tsx";
 import { logErrorAndShowErrorDialog } from "../../../utils/ErrorUtils.tsx";
 import UnknownIdentityUsersWarningDialog from "./invite/UnknownIdentityUsersWarningDialog.tsx";
 import { AddressType, getAddressType } from "../../../UserAddress.ts";
+import { userIdFromUsername } from "../../../utils/users/userIdFromUsername.ts";
 
 interface Result {
     userId: string;
@@ -535,17 +536,24 @@ export default class InviteDialog extends React.PureComponent<Props, IInviteDial
                     if (!r.results) r.results = [];
 
                     // While we're here, try and autocomplete a search result for the mxid itself
-                    // if there's no matches (and the input looks like a mxid).
-                    if (term[0] === "@" && term.indexOf(":") > 1) {
+                    // if there's no matches (and the input looks like a mxid). A bare username such as
+                    // "alice" is looked up on our own homeserver: the directory only lists people who
+                    // already share a room with us, so it would not find a new friend by name.
+                    const userId =
+                        term[0] === "@" && term.indexOf(":") > 1
+                            ? term
+                            : userIdFromUsername(term, MatrixClientPeg.safeGet().getDomain() ?? "");
+                    if (userId && !r.results.some((result) => result.user_id === userId)) {
                         try {
-                            const profile = await this.profilesStore.getOrFetchProfile(term, { shouldThrow: true });
+                            const profile = await this.profilesStore.getOrFetchProfile(userId, { shouldThrow: true });
+                            if (term !== this.state.filterText) return;
 
                             if (profile) {
                                 // If we have a profile, we have enough information to assume that
                                 // the mxid can be invited - add it to the list. We stick it at the
                                 // top so it is most obviously presented to the user.
                                 r.results.splice(0, 0, {
-                                    user_id: term,
+                                    user_id: userId,
                                     display_name: profile["displayname"],
                                     avatar_url: profile["avatar_url"],
                                 });

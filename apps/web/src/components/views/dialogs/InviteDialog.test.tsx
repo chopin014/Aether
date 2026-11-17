@@ -417,6 +417,30 @@ describe("InviteDialog", () => {
         await expect(screen.findAllByText(bobId, { selector: "a" })).resolves.toHaveLength(1);
     });
 
+    it("should find someone by their username alone, on our own homeserver", async () => {
+        // The user directory only lists people who already share a room with us, so it finds nobody here.
+        render(<InviteDialog kind={InviteKind.Dm} onFinished={vi.fn()} />);
+
+        const input = screen.getByTestId("invite-dialog-input");
+        input.focus();
+        await userEvent.keyboard("alice");
+
+        await screen.findByRole("option", { name: aliceId });
+        expect(mockClient.getProfileInfo).toHaveBeenCalledWith(aliceId);
+    });
+
+    it("should not suggest a username that has no account", async () => {
+        render(<InviteDialog kind={InviteKind.Dm} onFinished={vi.fn()} />);
+
+        const input = screen.getByTestId("invite-dialog-input");
+        input.focus();
+        await userEvent.keyboard("nobody");
+        await flushPromises();
+
+        expect(mockClient.getProfileInfo).toHaveBeenCalledWith("@nobody:example.org");
+        expect(screen.queryByRole("option", { name: "@nobody:example.org" })).not.toBeInTheDocument();
+    });
+
     it("should add to selection on click of user tile", async () => {
         render(<InviteDialog kind={InviteKind.Invite} roomId={roomId} onFinished={vi.fn()} />);
 
