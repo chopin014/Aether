@@ -206,6 +206,16 @@ describe("<RoomPreviewBar />", () => {
         expect(onForgetClick).toHaveBeenCalled();
     });
 
+    it("names a room the user is not in from what is known of it when offering to ask to join", () => {
+        const component = getComponent({ room: undefined, promptAskToJoin: true, oobData: { name: "frank's server" } });
+        expect(getMessage(component)).toHaveTextContent("Ask to join frank's server?");
+    });
+
+    it("asks to join without a name when nothing is known of the room", () => {
+        const component = getComponent({ room: undefined, promptAskToJoin: true });
+        expect(getMessage(component)).toHaveTextContent("Ask to join?");
+    });
+
     it("renders banned message", () => {
         const room = createRoom(roomId, otherUserId);
         vi.spyOn(room, "getMember").mockReturnValue(makeMockRoomMember({ membership: KnownMembership.Ban }));

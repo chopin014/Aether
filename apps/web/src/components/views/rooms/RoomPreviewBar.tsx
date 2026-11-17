@@ -590,8 +590,10 @@ class RoomPreviewBar extends React.Component<IProps, IState> {
                 break;
             }
             case MessageCase.PromptAskToJoin: {
-                if (roomName) {
-                    title = _t("room|knock_prompt_name", { roomName });
+                // A room the user is not in yet is named by its summary.
+                const knockName = roomName || this.props.oobData?.name;
+                if (knockName) {
+                    title = _t("room|knock_prompt_name", { roomName: knockName });
                 } else {
                     title = _t("room|knock_prompt");
                 }

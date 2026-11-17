@@ -1118,6 +1118,16 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         return joinRule === JoinRule.Knock;
     }
 
+    /**
+     * What is known of a room the user is not in: what the link carried, or else its public summary, so that asking
+     * to join names the room or server and shows its avatar.
+     */
+    private get oobDataOrSummary(): IOOBData | undefined {
+        const summary = this.state.roomSummary;
+        if (this.props.oobData || !summary) return this.props.oobData;
+        return { name: summary.name, avatarUrl: summary.avatar_url, roomType: summary.room_type };
+    }
+
     private shouldShowApps(room: Room): boolean {
         if (!BROWSER_SUPPORTS_SANDBOX || !room) return false;
         if (this.props.hideWidgets) return false;
@@ -2577,7 +2587,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                 joining={this.state.joining}
                                 inviterName={inviterName}
                                 invitedEmail={invitedEmail}
-                                oobData={this.props.oobData}
+                                oobData={this.oobDataOrSummary}
                                 signUrl={this.props.threepidInvite?.signUrl}
                                 roomId={this.state.roomId}
                                 promptAskToJoin={this.canAskToJoin || this.state.promptAskToJoin}
