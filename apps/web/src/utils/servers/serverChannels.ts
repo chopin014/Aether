@@ -22,6 +22,12 @@ export interface ServerChannel {
     suggested: boolean;
     /** Servers that can be asked to join the channel through. */
     via: string[];
+    /** The mxc:// URL of the channel's icon, if it has one. */
+    avatarUrl?: string;
+    /** The Matrix room type, such as a call room's. */
+    roomType?: string;
+    /** When the channel was added to the server. */
+    addedAt?: number;
 }
 
 /** Stop after this many hierarchy pages; channels past them can still be joined from the server's overview. */
@@ -80,6 +86,9 @@ export async function listJoinableChannels(client: MatrixClient, spaceId: string
             memberCount: entry.num_joined_members,
             suggested: !!child.content.suggested,
             via: Array.isArray(child.content.via) ? child.content.via : [],
+            avatarUrl: entry.avatar_url,
+            roomType: entry.room_type,
+            addedAt: child.origin_server_ts,
         });
     }
     return channels;

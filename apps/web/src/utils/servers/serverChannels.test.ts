@@ -64,7 +64,7 @@ describe("listJoinableChannels", () => {
                             ],
                         }),
                         entry("!voice:x", { room_type: RoomType.UnstableCall, join_rule: "restricted" }),
-                        entry("!general:x", { join_rule: "public", topic: "Say hi" }),
+                        entry("!general:x", { join_rule: "public", topic: "Say hi", avatar_url: "mxc://x/icon" }),
                         entry("!sub:x", { room_type: RoomType.Space }),
                         entry("!secret:x", { join_rule: "invite" }),
                         entry("!members:x", { join_rule: "restricted", allowed_room_ids: [SPACE] }),
@@ -95,7 +95,11 @@ describe("listJoinableChannels", () => {
             memberCount: 3,
             suggested: true,
             via: ["x"],
+            avatarUrl: "mxc://x/icon",
+            roomType: undefined,
+            addedAt: 1,
         });
+        expect(channels[1].roomType).toBe(RoomType.UnstableCall);
     });
 
     it("returns nothing when the hierarchy leaves out the server", async () => {
