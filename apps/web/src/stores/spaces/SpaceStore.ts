@@ -65,6 +65,7 @@ import { type AfterLeaveRoomPayload } from "../../dispatcher/payloads/AfterLeave
 import { type SDKContextClass } from "../../contexts/SDKContextClass";
 import { ModuleApi } from "../../modules/Api.ts";
 import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
+import { SpaceChildRepair } from "./SpaceChildRepair";
 
 const ACTIVE_SPACE_LS_KEY = "mx_active_space";
 
@@ -124,6 +125,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     };
     // The space currently selected in the Space Panel
     private _activeSpace: SpaceKey = MetaSpace.Home; // set properly by onReady
+    /** Restores Space links that creating a channel left out. */
+    private childRepair?: SpaceChildRepair;
     private cancelMemberPreparation?: () => void;
     // The remembered channel opened before it arrived, and what stops following it.
     private followedChannel?: string;
@@ -1158,6 +1161,9 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             return;
         }
         const membership = newMembership || roomMembership;
+        // A Space arriving after its channels lets their missing links be checked.
+        if (room.isSpaceRoom()) this.childRepair?.checkAll();
+        else this.childRepair?.check(room);
 
         if (!room.isSpaceRoom()) {
             this.onRoomsChanged();
@@ -1228,6 +1234,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         switch (ev.getType()) {
             case EventType.SpaceChild: {
                 const target = this.matrixClient.getRoom(ev.getStateKey());
+                if (target) this.childRepair?.check(target);
 
                 if (room.isSpaceRoom()) {
                     if (target?.isSpaceRoom()) {
@@ -1251,6 +1258,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             }
 
             case EventType.SpaceParent:
+                this.childRepair?.check(room);
                 // TODO rebuild the space parent and not the room - check permissions?
                 // TODO confirm this after implementing parenting behaviour
                 if (room.isSpaceRoom()) {
@@ -1370,6 +1378,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         }
         this.stopHoldingForBatches?.();
         this.stopHoldingForBatches = undefined;
+        this.childRepair?.stop();
+        this.childRepair = undefined;
         await this.reset();
     }
 
@@ -1396,6 +1406,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         this.sendUserProperties();
 
         this.rebuildSpaceHierarchy(); // trigger an initial update
+        this.childRepair = new SpaceChildRepair(this.matrixClient);
+        this.childRepair.checkAll();
         // rebuildSpaceHierarchy will only send an update if the spaces have changed.
         // If only the meta spaces have changed, we need to send an update ourselves.
         if (arrayHasDiff(oldMetaSpaces, this._enabledMetaSpaces)) {

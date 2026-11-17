@@ -24,7 +24,10 @@ import {
     Direction,
     RoomStateEvent,
     type RoomState,
+    ConnectionError,
+    MatrixError,
 } from "matrix-js-sdk/src/matrix";
+import { sleep } from "matrix-js-sdk/src/utils";
 import { logger } from "matrix-js-sdk/src/logger";
 import { type RoomEncryptionEventContent } from "matrix-js-sdk/src/types";
 
@@ -399,12 +402,7 @@ export default async function createRoom(client: MatrixClient, opts: IOpts): Pro
         })
         .then(() => {
             if (opts.parentSpace) {
-                return SDKContextClass.instance.spaceStore.addRoomToSpace(
-                    opts.parentSpace,
-                    roomId,
-                    [client.getDomain()!],
-                    opts.suggested,
-                );
+                return addToParentSpace(client, opts.parentSpace, roomId, opts.suggested);
             }
         })
         .then(async (): Promise<void> => {
@@ -463,6 +461,36 @@ export default async function createRoom(client: MatrixClient, opts: IOpts): Pro
                 return null;
             },
         );
+}
+
+/** How many times a new room's link from its Space is sent before giving up. */
+const PARENT_LINK_ATTEMPTS = 4;
+
+/**
+ * Link a new room from its Space. The room already names the Space as its parent, but people outside the room see it
+ * in the Space only through this link, so a dropped connection or a busy server is retried rather than leaving a
+ * channel only its members can find.
+ */
+async function addToParentSpace(client: MatrixClient, space: Room, roomId: string, suggested?: boolean): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            await SDKContextClass.instance.spaceStore.addRoomToSpace(space, roomId, [client.getDomain()!], suggested);
+            return;
+        } catch (error) {
+            if (attempt >= PARENT_LINK_ATTEMPTS || !isTransientError(error)) throw error;
+            logger.warn(`Failed to add ${roomId} to ${space.roomId}, attempt ${attempt}; retrying`, error);
+            await sleep(1000 * 2 ** (attempt - 1));
+        }
+    }
+}
+
+/** Whether a request failed for a reason that sending it again may fix. */
+function isTransientError(error: unknown): boolean {
+    if (error instanceof ConnectionError) return true;
+    if (error instanceof MatrixError) {
+        return error.httpStatus === 429 || (error.httpStatus !== undefined && error.httpStatus >= 500);
+    }
+    return false;
 }
 
 async function enableStateEventEncryption(client: MatrixClient, room: Room, opts: IOpts): Promise<void> {
