@@ -14,7 +14,9 @@ export interface ServerInvite {
     viaServers: string[];
 }
 
-const ADDRESS = /^[#!][^:\s]+:\S+$/;
+const ALIAS = /^#[^:\s]+:\S+$/;
+// Room IDs from room version 12 on are a bare hash with no server part, such as "!G3ja…Pb0".
+const ROOM_ID = /^![^:\s]+(?::\S+)?$/;
 
 /**
  * Read what someone pasted into "Join a server": a matrix.to or Aether link, an address such as #aether:matrix.org,
@@ -37,6 +39,7 @@ export function parseServerInvite(input: string): ServerInvite | null {
         address = `#${address}`;
     }
 
-    if (!ADDRESS.test(address)) return null;
-    return address.startsWith("!") ? { roomId: address, viaServers } : { roomAlias: address, viaServers };
+    if (ROOM_ID.test(address)) return { roomId: address, viaServers };
+    if (ALIAS.test(address)) return { roomAlias: address, viaServers };
+    return null;
 }

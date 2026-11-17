@@ -21,6 +21,16 @@ describe("parseServerInvite", () => {
         });
     });
 
+    it("reads links to rooms whose IDs have no server part", () => {
+        // Room version 12 and later, the default on current homeservers.
+        const roomId = "!G3jaGKmOmguv9HrbvQfcAr4KOi8cXEoqpbR-DMlaPb0";
+        expect(parseServerInvite(`https://matrix.to/#/${roomId}?via=matrix.org`)).toEqual({
+            roomId,
+            viaServers: ["matrix.org"],
+        });
+        expect(parseServerInvite(roomId)).toEqual({ roomId, viaServers: [] });
+    });
+
     it("reads addresses, with or without the leading #", () => {
         expect(parseServerInvite("#aether:matrix.org")).toEqual({ roomAlias: "#aether:matrix.org", viaServers: [] });
         expect(parseServerInvite("aether:matrix.org")).toEqual({ roomAlias: "#aether:matrix.org", viaServers: [] });
@@ -30,6 +40,8 @@ describe("parseServerInvite", () => {
     it("rejects anything else", () => {
         expect(parseServerInvite("")).toBeNull();
         expect(parseServerInvite("hello")).toBeNull();
+        expect(parseServerInvite("#aether")).toBeNull();
+        expect(parseServerInvite("! spaced")).toBeNull();
         expect(parseServerInvite("https://example.org/page")).toBeNull();
         expect(parseServerInvite("https://matrix.to/#/@bob:matrix.org")).toBeNull();
     });
