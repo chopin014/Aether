@@ -15,14 +15,8 @@ import {
     _t,
     type ToastType,
 } from "@element-hq/web-shared-components";
-import {
-    EventType,
-    MatrixEvent,
-    Room,
-    type MatrixClient,
-    PendingEventOrdering,
-    RoomType,
-} from "matrix-js-sdk/src/matrix";
+import { KnownMembership, Room, type MatrixClient, PendingEventOrdering, RoomType } from "matrix-js-sdk/src/matrix";
+import { logger } from "matrix-js-sdk/src/logger";
 
 import {
     categoryIdOfTag,
@@ -50,6 +44,7 @@ import { type ViewRoomDeltaPayload } from "../../dispatcher/payloads/ViewRoomDel
 import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
 import { type RoomListSectionsCollapseStateChangedPayload } from "../../dispatcher/payloads/RoomListSectionsCollapseStateChangedPayload";
 import type SpaceStore from "../../stores/spaces/SpaceStore";
+import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import RoomListStoreV3, {
     RoomListStoreV3Event,
     type RoomsResult,
@@ -63,6 +58,16 @@ import {
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
 import { PreviewRoomListItemViewModel, type PreviewRoomListItemProps } from "./PreviewRoomListItemViewModel";
 import { UnjoinedChannelItemViewModel } from "./UnjoinedChannelItemViewModel";
+import { ServerFolderItemViewModel } from "./ServerFolderItemViewModel";
+import {
+    type FolderLayout,
+    type FolderPlan,
+    isFolderExpanded,
+    planFolders,
+    setFolderExpanded,
+    standInRoom,
+} from "./serverFolders";
+import { waitForRoom } from "../../utils/room/waitForRoom";
 import { UnjoinedChannelsStore, UnjoinedChannelsStoreEvent } from "../../stores/spaces/UnjoinedChannelsStore";
 import { type ServerChannel } from "../../utils/servers/serverChannels";
 import { hasCreateRoomRights } from "./utils";
@@ -242,8 +247,16 @@ export class RoomListViewModel
      * The channels of the open server that the user is not in, in the server's order, each with an empty `Room` used
      * only to place it by the server's layout. See {@link updateUnjoinedChannels}.
      */
-    private unjoinedChannels = new Map<string, { channel: ServerChannel; room: Room }>();
+    private unjoinedChannels = new Map<string, UnjoinedChannel>();
     private readonly unjoinedItems = new Map<string, UnjoinedChannelItemViewModel>();
+
+    /** The servers nested in the open one, shown as folders. See {@link updateUnjoinedChannels}. */
+    private folderLayout?: FolderLayout;
+    private readonly folderItems = new Map<string, ServerFolderItemViewModel>();
+    /** Folders opened or closed on this device whose new state is still being saved. */
+    private readonly folderOverrides = new Map<string, boolean>();
+    /** The rooms each section lists inside its open folders. */
+    private nestedRoomIds = new Map<string, string[]>();
 
     public constructor(props: RoomListViewModelProps) {
         const activeSpace = props.spaceStore.activeSpaceRoom;
@@ -313,6 +326,9 @@ export class RoomListViewModel
             this.onSpaceLayoutChanged as (...args: unknown[]) => void,
         );
 
+        // Folder states waiting to be saved belong to the server that was open
+        this.disposables.trackListener(props.spaceStore, UPDATE_SELECTED_SPACE, this.onSelectedSpaceChanged);
+
         // Subscribe to section creation
         this.disposables.trackListener(
             RoomListStoreV3.instance,
@@ -361,6 +377,8 @@ export class RoomListViewModel
             this.previewItem?.dispose();
             for (const viewModel of this.unjoinedItems.values()) viewModel.dispose();
             this.unjoinedItems.clear();
+            for (const viewModel of this.folderItems.values()) viewModel.dispose();
+            this.folderItems.clear();
             for (const viewModel of this.roomSectionHeaderViewModels.values()) {
                 viewModel.dispose();
             }
@@ -374,7 +392,13 @@ export class RoomListViewModel
     }
 
     private readonly onSpaceLayoutChanged = (spaceId: string): void => {
-        if (spaceId === this.roomsResult.spaceId) void this.updateRoomListData();
+        // A folder's server changing changes what the folder holds.
+        if (spaceId === this.roomsResult.spaceId || this.folderLayout?.byId.has(spaceId))
+            void this.updateRoomListData();
+    };
+
+    private readonly onSelectedSpaceChanged = (): void => {
+        this.folderOverrides.clear();
     };
 
     /** The sections of a room list result, arranged by the server's layout when it lists a server's channels. */
@@ -436,24 +460,42 @@ export class RoomListViewModel
      */
     private updateUnjoinedChannels(): void {
         const { spaceId } = this.roomsResult;
-        const channels =
-            isDesktopChannelList(spaceId) && this.activeFilter === undefined
-                ? UnjoinedChannelsStore.instance.getChannels(spaceId)
-                : [];
+        const showsServer = isDesktopChannelList(spaceId) && this.activeFilter === undefined;
+        const channels = showsServer ? UnjoinedChannelsStore.instance.getChannels(spaceId) : [];
         const listed = new Set(
             this.roomsResult.sections.flatMap((section) => section.rooms.map((room) => room.roomId)),
         );
 
-        const next = new Map<string, { channel: ServerChannel; room: Room }>();
+        // Pinned rooms and invitations keep their own sections, so only the server's channels go in folders.
+        const channelRooms = this.roomsResult.sections
+            .filter((section) => section.tag !== DefaultTagID.Invite && section.tag !== DefaultTagID.Favourite)
+            .flatMap((section) => section.rooms);
+        const space = showsServer ? this.props.client.getRoom(spaceId) : null;
+        this.folderLayout = space
+            ? planFolders(this.folderSource(spaceId), space, channelRooms, listed, this.folderLayout)
+            : undefined;
+
+        const next = new Map<string, UnjoinedChannel>();
+        const keep = (roomId: string, entry: UnjoinedChannel): void => {
+            const previous = this.unjoinedChannels.get(roomId);
+            const same =
+                previous?.channel === entry.channel &&
+                previous.inFolder === entry.inFolder &&
+                previous.serverToJoin?.roomId === entry.serverToJoin?.roomId;
+            next.set(roomId, same ? previous : entry);
+        };
         for (const channel of channels) {
             if (listed.has(channel.roomId)) continue;
-            const previous = this.unjoinedChannels.get(channel.roomId);
-            next.set(
-                channel.roomId,
-                previous?.channel === channel
-                    ? previous
-                    : { channel, room: unjoinedChannelRoom(this.props.client, channel) },
-            );
+            const room = this.unjoinedChannels.get(channel.roomId)?.room;
+            keep(channel.roomId, {
+                channel,
+                room: room && room.name === channel.name ? room : standInRoom(this.props.client, channel),
+                inFolder: false,
+            });
+        }
+        for (const [roomId, entry] of this.folderLayout?.unjoined ?? []) {
+            if (listed.has(roomId) || next.has(roomId)) continue;
+            keep(roomId, { ...entry, inFolder: true });
         }
         // Rows whose channel changed or went get a fresh view model when next shown.
         for (const [roomId, item] of this.unjoinedItems) {
@@ -462,13 +504,151 @@ export class RoomListViewModel
             this.unjoinedItems.delete(roomId);
         }
         this.unjoinedChannels = next;
+        this.updateFolderItems();
     }
 
-    /** Add the channels of the open server that the user is not in, to be placed by the server's layout. */
+    /** What the folders of the open server are worked out from. */
+    private folderSource(spaceId: string): Parameters<typeof planFolders>[0] {
+        return {
+            client: this.props.client,
+            isRoomInSpace: (folderId, roomId) => this.props.spaceStore.isRoomInSpace(folderId, roomId, true),
+            getChannels: (folderId) => UnjoinedChannelsStore.instance.getChannels(folderId),
+            getSubservers: (folderId) => UnjoinedChannelsStore.instance.getSubservers(folderId),
+            isExpanded: (folderId) => this.folderOverrides.get(folderId) ?? isFolderExpanded(spaceId, folderId),
+        };
+    }
+
+    /** Keep a view model for each folder drawn, following what its server holds. */
+    private updateFolderItems(): void {
+        const plans = this.folderLayout?.byId ?? new Map<string, FolderPlan>();
+        const canMove = canEditLayout(this.props.client, this.roomsResult.spaceId);
+        for (const [roomId, item] of this.folderItems) {
+            if (plans.has(roomId)) continue;
+            item.dispose();
+            this.folderItems.delete(roomId);
+        }
+        for (const [roomId, plan] of plans) {
+            const state = {
+                folder: plan.folder,
+                expanded: plan.canExpand && this.isFolderOpen(roomId),
+                canExpand: plan.canExpand,
+                // Only the open server's own folders sit in its layout.
+                canMove: canMove && plan.canExpand,
+            };
+            let item = this.folderItems.get(roomId);
+            if (item) {
+                item.update(state);
+            } else {
+                item = new ServerFolderItemViewModel({
+                    ...state,
+                    onToggle: () => this.toggleFolder(roomId),
+                    onOpen: () => void this.openFolder(roomId),
+                });
+                this.folderItems.set(roomId, item);
+            }
+            item.setRooms(plan.joinedRooms);
+        }
+    }
+
+    private isFolderOpen(folderId: string): boolean {
+        return this.folderOverrides.get(folderId) ?? isFolderExpanded(this.roomsResult.spaceId, folderId);
+    }
+
+    /** Show or hide a folder's channels, and remember it on this device. */
+    private toggleFolder(folderId: string): void {
+        const spaceId = this.roomsResult.spaceId;
+        const expanded = !this.isFolderOpen(folderId);
+        this.folderOverrides.set(folderId, expanded);
+        void setFolderExpanded(spaceId, folderId, expanded).finally(() => {
+            if (this.folderOverrides.get(folderId) === expanded) this.folderOverrides.delete(folderId);
+        });
+        void this.updateRoomListData();
+    }
+
+    /** Open the server a folder stands for, joining it first if the user isn't in it yet. */
+    private async openFolder(folderId: string): Promise<void> {
+        const plan = this.folderLayout?.byId.get(folderId);
+        if (!plan) return;
+        const { client, spaceStore } = this.props;
+        if (!plan.joined) {
+            try {
+                await client.joinRoom(folderId, { viaServers: plan.via });
+            } catch (error) {
+                logger.warn(`Could not join the server ${folderId}`, error);
+                return;
+            }
+            const joined = await waitForRoom(
+                client,
+                folderId,
+                (room) => room.isSpaceRoom() && room.getMyMembership() === KnownMembership.Join,
+                10_000,
+            );
+            if (!joined || this.isDisposed) return;
+        }
+        spaceStore.setActiveSpace(folderId);
+    }
+
+    /**
+     * Whether a row stays in a collapsed category: a channel the user is not in has nothing new to show, and a folder
+     * stays while a channel inside it would.
+     */
+    private keepInCollapsedCategory(room: Room, selectedRoomId: string | null | undefined): boolean {
+        if (this.unjoinedChannels.has(room.roomId)) return false;
+        const plan = this.folderLayout?.byId.get(room.roomId);
+        if (plan) return plan.joinedRooms.some((joined) => keepInCollapsedCategory(joined, selectedRoomId));
+        return keepInCollapsedCategory(room, selectedRoomId);
+    }
+
+    /**
+     * Add each open folder's contents beneath it, and the open channel inside a closed one. A collapsed category only
+     * shows what needs attention, so a folder there only shows the open channel too.
+     */
+    private withFolderContents(sections: Section[], selectedRoomId: string | null | undefined): Section[] {
+        this.nestedRoomIds = new Map();
+        const layout = this.folderLayout;
+        if (!layout?.folders.length) return sections;
+        return sections.map((section) => {
+            const sectionOpen =
+                section.tag === DESKTOP_UNCATEGORIZED ||
+                (this.roomSectionHeaderViewModels.get(section.tag)?.isExpanded ?? true);
+            const nested: string[] = [];
+            const rooms: Room[] = [];
+            for (const room of section.rooms) {
+                rooms.push(room);
+                const plan = layout.byId.get(room.roomId);
+                if (!plan?.canExpand) continue;
+                const inside =
+                    sectionOpen && this.isFolderOpen(room.roomId)
+                        ? plan.contents
+                        : plan.joinedRooms.filter((joined) => joined.roomId === selectedRoomId);
+                for (const child of inside) {
+                    rooms.push(child);
+                    nested.push(child.roomId);
+                }
+            }
+            if (nested.length) this.nestedRoomIds.set(section.tag, nested);
+            return nested.length ? { ...section, rooms } : section;
+        });
+    }
+
+    /**
+     * Add the channels and nested servers of the open server that the user is not in, and its folders, to be placed by
+     * the server's layout, and leave out the rooms that only show inside folders.
+     */
     private withUnjoinedChannels(roomsResult: RoomsResult): RoomsResult {
-        if (this.unjoinedChannels.size === 0 || roomsResult.spaceId !== this.roomsResult.spaceId) return roomsResult;
-        const rooms = [...this.unjoinedChannels.values()].map(({ room }) => room);
-        return { ...roomsResult, sections: [...roomsResult.sections, { tag: UNJOINED_CHANNELS_TAG, rooms }] };
+        if (roomsResult.spaceId !== this.roomsResult.spaceId) return roomsResult;
+        const hidden = this.folderLayout?.insideFolders;
+        const added = [
+            ...[...this.unjoinedChannels.values()].filter((entry) => !entry.inFolder).map((entry) => entry.room),
+            ...(this.folderLayout?.folders.map((plan) => plan.room) ?? []),
+        ];
+        if (!hidden?.size && added.length === 0) return roomsResult;
+        const sections = roomsResult.sections.map((section) =>
+            hidden?.size && section.tag !== DefaultTagID.Invite && section.tag !== DefaultTagID.Favourite
+                ? { ...section, rooms: section.rooms.filter((room) => !hidden.has(room.roomId)) }
+                : section,
+        );
+        return { ...roomsResult, sections: [...sections, { tag: UNJOINED_CHANNELS_TAG, rooms: added }] };
     }
 
     private getUnjoinedItem(roomId: string): UnjoinedChannelItemViewModel | undefined {
@@ -476,7 +656,11 @@ export class RoomListViewModel
         if (!unjoined) return undefined;
         let item = this.unjoinedItems.get(roomId);
         if (!item) {
-            item = new UnjoinedChannelItemViewModel({ client: this.props.client, channel: unjoined.channel });
+            item = new UnjoinedChannelItemViewModel({
+                client: this.props.client,
+                channel: unjoined.channel,
+                serverToJoin: unjoined.serverToJoin,
+            });
             this.unjoinedItems.set(roomId, item);
         }
         return item;
@@ -601,7 +785,11 @@ export class RoomListViewModel
      * Get the ordered list of room IDs.
      */
     public get roomIds(): string[] {
-        return this.channelSections(this.withPreviewRoom(this.withUnjoinedChannels(this.roomsResult)))
+        const selected = this.props.roomViewStore.getRoomId();
+        return this.withFolderContents(
+            this.channelSections(this.withPreviewRoom(this.withUnjoinedChannels(this.roomsResult))),
+            selected,
+        )
             .flatMap((section) => section.rooms)
             .map((room) => room.roomId);
     }
@@ -615,8 +803,15 @@ export class RoomListViewModel
      */
     public getRoomItemViewModel(
         roomId: string,
-    ): RoomListItemViewModel | PreviewRoomListItemViewModel | UnjoinedChannelItemViewModel | undefined {
+    ):
+        | RoomListItemViewModel
+        | PreviewRoomListItemViewModel
+        | UnjoinedChannelItemViewModel
+        | ServerFolderItemViewModel
+        | undefined {
         if (this.previewItem?.roomId === roomId) return this.previewItem;
+        const folder = this.folderItems.get(roomId);
+        if (folder) return folder;
         const unjoined = this.getUnjoinedItem(roomId);
         if (unjoined) return unjoined;
 
@@ -1150,11 +1345,10 @@ export class RoomListViewModel
             roomsResult,
             this.channelSections(roomsResult),
             (tag) => this.roomSectionHeaderViewModels.get(tag)?.isExpanded ?? true,
-            // A channel the user is not in has nothing new to show.
-            (room) => !this.unjoinedChannels.has(room.roomId) && keepInCollapsedCategory(room, roomId),
+            (room) => this.keepInCollapsedCategory(room, roomId),
             emptyCategoryFilter(this.roomsResult, canEdit),
         );
-        this.sections = sections;
+        this.sections = this.withFolderContents(sections, roomId);
 
         // Calculate the active room index from the computed sections (which exclude collapsed sections' rooms)
         const activeRoomIndex = this.getActiveRoomIndex(roomId);
@@ -1162,7 +1356,7 @@ export class RoomListViewModel
         // Update filter keys - only update if they have actually changed to prevent unnecessary re-renders of the room list
         const previousFilterKeys = this.snapshot.current.roomListState.filterKeys;
         const newFilterKeys = this.roomsResult.filterKeys?.map((k) => String(k));
-        const viewSections = toRoomListSection(this.sections, canEdit);
+        const viewSections = toRoomListSection(this.sections, canEdit, this.nestedRoomIds);
 
         const resolvedScrollToSectionTag =
             scrollToSectionTag && viewSections.some((s) => s.id === scrollToSectionTag)
@@ -1445,38 +1639,35 @@ function computeSections(
 /** The section the channels of a server the user is not in come in, before the server's layout places them. */
 const UNJOINED_CHANNELS_TAG = "desktop.unjoined";
 
-/**
- * An empty room standing in for a channel the user is not in, so the server's layout can place it. Its creation event
- * carries the channel's type, which decides its built-in category, and the time it was added to the server, close to
- * when it was made for most channels, which orders the channels nobody placed.
- */
-function unjoinedChannelRoom(client: MatrixClient, channel: ServerChannel): Room {
-    const room = new Room(channel.roomId, client, client.getSafeUserId(), {
-        pendingEventOrdering: PendingEventOrdering.Detached,
-    });
-    room.name = channel.name;
-    room.currentState.setStateEvents([
-        new MatrixEvent({
-            type: EventType.RoomCreate,
-            state_key: "",
-            room_id: channel.roomId,
-            origin_server_ts: channel.addedAt,
-            content: channel.roomType ? { type: channel.roomType } : {},
-        }),
-    ]);
-    return room;
+/** A channel the user is not in, listed in the open server or inside one of its folders. */
+interface UnjoinedChannel {
+    channel: ServerChannel;
+    /** The empty room standing in for it, placed by the server's layout. */
+    room: Room;
+    /** Whether it shows inside a folder rather than in the open server's own list. */
+    inFolder: boolean;
+    /** The folder's server, to join first when the user is not in it either. */
+    serverToJoin?: { roomId: string; via: string[] };
 }
 
 /**
  * Convert from the internal Section type used in the view model to the RoomListSection type used in the snapshot.
  */
-function toRoomListSection(sections: Section[], canEditLayout: boolean): RoomListSection[] {
-    return sections.map(({ tag, rooms }) => ({
-        id: tag,
-        roomIds: rooms.map((room) => room.roomId),
-        // The people who may edit a server's layout reorder its channels by dropping one beside another.
-        ...(canEditLayout && isDesktopChannelSection(tag) ? { canReorder: true } : {}),
-    }));
+function toRoomListSection(
+    sections: Section[],
+    canEditLayout: boolean,
+    nestedRoomIds?: Map<string, string[]>,
+): RoomListSection[] {
+    return sections.map(({ tag, rooms }) => {
+        const nested = nestedRoomIds?.get(tag);
+        return {
+            id: tag,
+            roomIds: rooms.map((room) => room.roomId),
+            // The people who may edit a server's layout reorder its channels by dropping one beside another.
+            ...(canEditLayout && isDesktopChannelSection(tag) ? { canReorder: true } : {}),
+            ...(nested ? { nestedRoomIds: nested } : {}),
+        };
+    });
 }
 
 /**

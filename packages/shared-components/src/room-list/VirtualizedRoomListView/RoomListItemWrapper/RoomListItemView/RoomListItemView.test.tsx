@@ -42,6 +42,10 @@ const {
     DesktopUnreadChannel,
     DesktopChannelWithMentions,
     DesktopSelectedChannel,
+    DesktopServerFolder,
+    DesktopOpenServerFolder,
+    DesktopServerFolderWithMention,
+    DesktopChannelInFolder,
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
@@ -536,5 +540,54 @@ describe("<RoomListItemView />", () => {
         option.blur();
         await waitFor(() => expect(option.className).not.toMatch(/keyboardActive/));
         expect(moreButton).not.toBeVisible();
+    });
+});
+
+describe("<RoomListItemView /> for a nested server", () => {
+    it("draws a closed folder named by its server, which opens in place", async () => {
+        const onOpenRoom = vi.fn();
+        render(<DesktopServerFolder onOpenRoom={onOpenRoom} />);
+        const row = screen.getByRole("option", { name: "Advocacy" });
+        expect(row).toHaveAttribute("aria-expanded", "false");
+        expect(row).toHaveAccessibleDescription("Folder");
+        expect(screen.getByTestId("server-folder-closed")).toBeInTheDocument();
+        await userEvent.click(row);
+        expect(onOpenRoom).toHaveBeenCalled();
+    });
+
+    it("draws an open folder", () => {
+        render(<DesktopOpenServerFolder />);
+        expect(screen.getByRole("option", { name: "Advocacy" })).toHaveAttribute("aria-expanded", "true");
+        expect(screen.getByTestId("server-folder-open")).toBeInTheDocument();
+    });
+
+    it("opens the server itself from its button, without opening or closing the folder", async () => {
+        const onOpenRoom = vi.fn();
+        const onOpenFolder = vi.fn();
+        const { container } = render(<DesktopServerFolder onOpenRoom={onOpenRoom} onOpenFolder={onOpenFolder} />);
+        // The button shows while the folder is pointed at.
+        await userEvent.hover(screen.getByRole("option", { name: "Advocacy" }));
+        await userEvent.click(container.querySelector('[aria-label="Open Advocacy"]')!);
+        expect(onOpenFolder).toHaveBeenCalled();
+        expect(onOpenRoom).not.toHaveBeenCalled();
+    });
+
+    it("has no expand state for a folder that only opens as its own server", () => {
+        render(<DesktopServerFolder folder={{ expanded: false, canExpand: false }} />);
+        expect(screen.getByRole("option", { name: "Advocacy" })).not.toHaveAttribute("aria-expanded");
+    });
+
+    it("shows the news and mentions inside a folder", () => {
+        render(<DesktopServerFolderWithMention />);
+        expect(screen.getByRole("option", { name: "Advocacy, 2 mentions" })).toBeInTheDocument();
+        expect(screen.getByTestId("channel-mentions")).toHaveTextContent("2");
+        expect(screen.getByTestId("channel-unread")).toBeInTheDocument();
+    });
+
+    it("indents a channel inside an open folder", () => {
+        render(<DesktopChannelInFolder />);
+        expect(screen.getByRole("option").className).toMatch(/nested/);
+        render(<Default channelKind="text" />);
+        expect(screen.getAllByRole("option")[1].className).not.toMatch(/nested/);
     });
 });

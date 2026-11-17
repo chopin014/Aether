@@ -52,11 +52,27 @@ function isJoinable(entry: HierarchyEntry, spaceId: string): boolean {
     }
 }
 
+/** What a server holds directly that the user could join but has not. */
+export interface ServerChildren {
+    /** Its channels, in the server's order. */
+    channels: ServerChannel[];
+    /** The servers nested in it, in the server's order. Their `kind` is always "text". */
+    subservers: ServerChannel[];
+}
+
 /**
  * List the channels directly inside a server that the user could join but has not, in the server's own order.
  * Nested servers are left out: they are joined on their own.
  */
 export async function listJoinableChannels(client: MatrixClient, spaceId: string): Promise<ServerChannel[]> {
+    return (await listServerChildren(client, spaceId)).channels;
+}
+
+/**
+ * List the channels and nested servers directly inside a server that the user could join but has not, each in the
+ * server's own order.
+ */
+export async function listServerChildren(client: MatrixClient, spaceId: string): Promise<ServerChildren> {
     const entries = new Map<string, HierarchyEntry>();
     let from: string | undefined;
     for (let page = 0; page < MAX_PAGES; page++) {
@@ -66,19 +82,20 @@ export async function listJoinableChannels(client: MatrixClient, spaceId: string
         if (!from) break;
     }
 
+    const result: ServerChildren = { channels: [], subservers: [] };
     const root = entries.get(spaceId);
-    if (!root) return [];
+    if (!root) return result;
     const children = sortBy(root.children_state, (event) =>
         getChildOrder(event.content.order, event.origin_server_ts, event.state_key),
     );
 
-    const channels: ServerChannel[] = [];
     for (const child of children) {
         const entry = entries.get(child.state_key);
-        if (!entry || entry.room_type === RoomType.Space || !isJoinable(entry, spaceId)) continue;
+        if (!entry || entry.room_id === spaceId || !isJoinable(entry, spaceId)) continue;
         if (client.getRoom(entry.room_id)?.getMyMembership() === KnownMembership.Join) continue;
+        const isServer = entry.room_type === RoomType.Space;
         const isVoice = entry.room_type === RoomType.UnstableCall || entry.room_type === RoomType.ElementVideo;
-        channels.push({
+        (isServer ? result.subservers : result.channels).push({
             roomId: entry.room_id,
             name: entry.name || entry.canonical_alias || entry.room_id,
             kind: isVoice ? "voice" : "text",
@@ -91,7 +108,7 @@ export async function listJoinableChannels(client: MatrixClient, spaceId: string
             addedAt: child.origin_server_ts,
         });
     }
-    return channels;
+    return result;
 }
 
 /** How joining a set of channels went. */

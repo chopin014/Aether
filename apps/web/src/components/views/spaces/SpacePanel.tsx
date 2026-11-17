@@ -347,7 +347,13 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
         // While Discover is open, it is the selected item rather than the Space it was opened from.
         const onDiscover = useContext(PageTypeContext) === PageType.Discover;
         const activeSpace = onDiscover ? undefined : spaceInStore;
-        const activeSpaces = activeSpace ? [activeSpace] : [];
+        // A server opened from a folder of another lights up the top-level server it is in, as the desktop rail only
+        // lists top-level servers.
+        const activeSpaces = activeSpace
+            ? desktopShellEnabled && activeSpace.startsWith("!")
+                ? [activeSpace, ...sdkContext.spaceStore.getKnownParents(activeSpace, true)]
+                : [activeSpace]
+            : [];
 
         const moduleSpaceItems = useModuleSpacePanelItems(ModuleApi.instance.extras);
 

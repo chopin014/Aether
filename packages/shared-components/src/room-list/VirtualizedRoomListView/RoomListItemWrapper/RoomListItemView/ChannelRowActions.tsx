@@ -8,7 +8,11 @@ Please see LICENSE in the repository root for full details.
 import React, { type JSX, type MouseEvent } from "react";
 import classNames from "classnames";
 import { IconButton } from "@vector-im/compound-web";
-import { SettingsSolidIcon, UserAddSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import {
+    ArrowRightIcon,
+    SettingsSolidIcon,
+    UserAddSolidIcon,
+} from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { _t } from "../../../../core/i18n/i18n";
@@ -29,8 +33,9 @@ export interface ChannelRowActionsProps {
  * Discord. Everything else about the channel is in its context menu.
  */
 export function ChannelRowActions({ vm, hasDecoration }: ChannelRowActionsProps): JSX.Element | null {
-    const { canInvite, canEditChannel, name } = useViewModel(vm);
-    if (!canInvite && !(canEditChannel && vm.onEditChannel)) return null;
+    const { canInvite, canEditChannel, name, folder } = useViewModel(vm);
+    const canOpenFolder = !!folder && !!vm.onOpenFolder;
+    if (!canInvite && !(canEditChannel && vm.onEditChannel) && !canOpenFolder) return null;
 
     // The row itself opens the channel, so a click on one of its buttons must not reach it.
     const run =
@@ -58,6 +63,17 @@ export function ChannelRowActions({ vm, hasDecoration }: ChannelRowActionsProps)
                     onClick={run(vm.onInvite)}
                 >
                     <UserAddSolidIcon />
+                </IconButton>
+            )}
+            {canOpenFolder && (
+                <IconButton
+                    size="20px"
+                    style={{ padding: "2px" }}
+                    tooltip={_t("desktop|server_folder|open", { server: name })}
+                    aria-label={_t("desktop|server_folder|open", { server: name })}
+                    onClick={run(vm.onOpenFolder!)}
+                >
+                    <ArrowRightIcon />
                 </IconButton>
             )}
             {canEditChannel && vm.onEditChannel && (

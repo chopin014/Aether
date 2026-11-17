@@ -45,7 +45,10 @@ describe("UnjoinedChannelItemViewModel", () => {
     let joined: Room;
 
     beforeEach(() => {
-        client = { joinRoom: vi.fn().mockResolvedValue({}) } as unknown as MatrixClient;
+        client = {
+            joinRoom: vi.fn().mockResolvedValue({}),
+            getRoom: vi.fn().mockReturnValue(null),
+        } as unknown as MatrixClient;
         joined = { roomId: lounge.roomId, getMyMembership: () => KnownMembership.Join } as Room;
         vi.mocked(waitForRoom).mockResolvedValue(joined);
         vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
@@ -127,6 +130,28 @@ describe("UnjoinedChannelItemViewModel", () => {
         await Promise.resolve();
         expect(joinCall).not.toHaveBeenCalled();
         expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    });
+
+    it("joins the channel's server first when the user isn't in it, and tries the channel even if that fails", async () => {
+        const serverToJoin = { roomId: "!bridges:example.org", via: ["example.org"] };
+        new UnjoinedChannelItemViewModel({ client, channel: channel(), serverToJoin }).onOpenRoom();
+        await vi.waitFor(() => expect(dispatcher.dispatch).toHaveBeenCalled());
+        expect(client.joinRoom).toHaveBeenCalledWith("!bridges:example.org", { viaServers: ["example.org"] });
+
+        vi.mocked(client.joinRoom).mockClear().mockRejectedValueOnce(new Error("forbidden"));
+        vi.mocked(dispatcher.dispatch).mockClear();
+        new UnjoinedChannelItemViewModel({ client, channel: channel(), serverToJoin }).onOpenRoom();
+        await vi.waitFor(() =>
+            expect(dispatcher.dispatch).toHaveBeenCalledWith(expect.objectContaining({ auto_join: true })),
+        );
+    });
+
+    it("doesn't join a server the user is in already", async () => {
+        vi.mocked(client.getRoom).mockReturnValue({ getMyMembership: () => KnownMembership.Join } as Room);
+        const serverToJoin = { roomId: "!bridges:example.org", via: ["example.org"] };
+        new UnjoinedChannelItemViewModel({ client, channel: channel(), serverToJoin }).onOpenRoom();
+        await vi.waitFor(() => expect(dispatcher.dispatch).toHaveBeenCalled());
+        expect(client.joinRoom).not.toHaveBeenCalled();
     });
 
     it("does nothing for the actions of the hidden menus", () => {
