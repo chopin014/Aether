@@ -15,7 +15,7 @@ import {
     RoomType,
 } from "matrix-js-sdk/src/matrix";
 
-import { getChildOrder } from "../../stores/spaces/SpaceStore";
+import { getChildOrder } from "../../stores/spaces/childOrder";
 
 /** A channel of a server that the user has not joined yet. */
 export interface ServerChannel {

@@ -2077,4 +2077,28 @@ describe("SpaceStore", () => {
             expect(store.isRoomInSpace(MetaSpace.Home, orphan1)).toBeTruthy();
         });
     });
+
+    describe("addRoomToSpace", () => {
+        it("says whether the Space's members can join the room, when the caller knows", async () => {
+            mkSpace(space1);
+            await run();
+            const space = client.getRoom(space1)!;
+
+            await store.addRoomToSpace(space, room1, ["example.org"], true, true);
+            expect(client.sendStateEvent).toHaveBeenLastCalledWith(
+                space1,
+                EventType.SpaceChild,
+                { "via": ["example.org"], "suggested": true, "io.aether.joinable": true },
+                room1,
+            );
+
+            await store.addRoomToSpace(space, room1, ["example.org"]);
+            expect(client.sendStateEvent).toHaveBeenLastCalledWith(
+                space1,
+                EventType.SpaceChild,
+                { via: ["example.org"], suggested: false },
+                room1,
+            );
+        });
+    });
 });

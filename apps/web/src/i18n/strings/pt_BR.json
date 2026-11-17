@@ -3071,8 +3071,8 @@
             "help_description": "Versão, ajuda e solução de problemas.",
             "help_keywords": "ajuda faq versão relatar bug cache servidor créditos"
         },
-        "join_all_channels": "Entrar em todos os canais de servidores pequenos",
-        "join_all_channels_description": "Ao entrar em um servidor com até 9 canais, entra em todos de uma vez. Servidores maiores sempre deixam você escolher."
+        "join_all_channels": "Entrar nos canais dos servidores automaticamente",
+        "join_all_channels_description": "Entra em todos os canais de um servidor com até 9 canais quando você entra nele, e em todo canal adicionado aos seus servidores depois. Em servidores maiores, você escolhe os canais ao entrar."
     },
     "share": {
         "link_copied": "Link copiado",

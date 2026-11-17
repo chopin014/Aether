@@ -31,6 +31,7 @@ import { RichProfileStore } from "./profile/RichProfileStore";
 import { AetherPresenceService } from "./presence/AetherPresenceService";
 import dis from "./dispatcher/dispatcher";
 import DMRoomMap from "./utils/DMRoomMap";
+import { NewChannelJoiner } from "./stores/spaces/NewChannelJoiner";
 import Modal from "./Modal";
 import ActiveWidgetStore from "./stores/ActiveWidgetStore";
 import PlatformPeg from "./PlatformPeg";
@@ -1134,6 +1135,8 @@ async function startMatrixClient(
     SDKContextClass.instance.notifier.start();
     UserActivity.sharedInstance().start();
     DMRoomMap.makeShared(client).start();
+    // Before the first sync, so that channels added to the user's servers while they were away are noticed.
+    NewChannelJoiner.instance.start(client);
     IntegrationManagers.sharedInstance().startWatching();
     ActiveWidgetStore.instance.start();
     SDKContextClass.instance.legacyCallHandler.start();
@@ -1331,6 +1334,7 @@ export function stopMatrixClient(unsetClient = true): void {
     DeviceListener.sharedInstance().stop();
     CallStatusListener.sharedInstance().stop();
     DMRoomMap.shared()?.stop();
+    NewChannelJoiner.instance.stop();
     EventIndexPeg.stop();
     const cli = MatrixClientPeg.get();
     if (cli) {
