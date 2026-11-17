@@ -7,7 +7,13 @@ Please see LICENSE in the repository root for full details.
 
 import { sortBy } from "lodash";
 import { logger } from "matrix-js-sdk/src/logger";
-import { type HierarchyRoom, KnownMembership, type MatrixClient, RoomType } from "matrix-js-sdk/src/matrix";
+import {
+    type HierarchyRoom,
+    KnownMembership,
+    type MatrixClient,
+    MatrixError,
+    RoomType,
+} from "matrix-js-sdk/src/matrix";
 
 import { getChildOrder } from "../../stores/spaces/SpaceStore";
 
@@ -85,26 +91,79 @@ export async function listJoinableChannels(client: MatrixClient, spaceId: string
     return channels;
 }
 
+/** How long to wait when the homeserver refuses a join for coming too soon but doesn't say how long. */
+const DEFAULT_RATE_LIMIT_WAIT_MS = 5_000;
+
+/**
+ * Holds joins back while the homeserver refuses them for coming too quickly. Synapse lets a user join 10 rooms at
+ * once by default, then one every 10 seconds, so a join past that has to wait rather than fail.
+ */
+export class JoinRateLimit {
+    private resumeAt = 0;
+
+    /** Whether the homeserver is still refusing joins for now. */
+    public get holding(): boolean {
+        return this.resumeAt > Date.now();
+    }
+
+    /** Wait until the homeserver accepts joins again. */
+    public async wait(): Promise<void> {
+        for (let delay = this.resumeAt - Date.now(); delay > 0; delay = this.resumeAt - Date.now()) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+    }
+
+    /** Whether a join failed only for coming too soon; later joins then wait for the time the homeserver asked. */
+    public hold(error: unknown): boolean {
+        if (!(error instanceof MatrixError) || error.httpStatus !== 429) return false;
+        const wait = error.getRetryAfterMs() ?? DEFAULT_RATE_LIMIT_WAIT_MS;
+        this.resumeAt = Math.max(this.resumeAt, Date.now() + wait);
+        return true;
+    }
+}
+
+/** Shared by every join of channels, as the homeserver counts them all against the same allowance. */
+export const joinRateLimit = new JoinRateLimit();
+
 /** How joining a set of channels went. */
 export interface JoinChannelsResult {
     joined: string[];
     failed: ServerChannel[];
 }
 
-/** Join channels a few at a time so a large selection does not flood the homeserver. */
+export interface JoinChannelsOptions {
+    /** Joins sent at once. */
+    concurrency?: number;
+    /** Called once, when the homeserver first makes the rest of the joins wait. */
+    onRateLimited?: () => void;
+}
+
+/**
+ * Join channels a few at a time so a large selection does not flood the homeserver. A join refused for coming too
+ * soon waits and tries again, so a large selection takes a while but every channel still gets joined.
+ */
 export async function joinChannels(
     client: MatrixClient,
     channels: ServerChannel[],
-    concurrency = 4,
+    { concurrency = 4, onRateLimited }: JoinChannelsOptions = {},
 ): Promise<JoinChannelsResult> {
     const result: JoinChannelsResult = { joined: [], failed: [] };
     const queue = [...channels];
+    let rateLimited = false;
     const worker = async (): Promise<void> => {
         for (let channel = queue.shift(); channel; channel = queue.shift()) {
+            await joinRateLimit.wait();
             try {
                 await client.joinRoom(channel.roomId, { viaServers: channel.via });
                 result.joined.push(channel.roomId);
             } catch (error) {
+                if (joinRateLimit.hold(error)) {
+                    // Put it back first in line, so channels still join in the server's order.
+                    queue.unshift(channel);
+                    if (!rateLimited) onRateLimited?.();
+                    rateLimited = true;
+                    continue;
+                }
                 logger.warn(`Could not join channel ${channel.roomId}`, error);
                 result.failed.push(channel);
             }
@@ -115,4 +174,17 @@ export async function joinChannels(
     const order = new Map(channels.map((channel, index) => [channel.roomId, index]));
     result.joined.sort((a, b) => order.get(a)! - order.get(b)!);
     return result;
+}
+
+/**
+ * Join channels and report how it went, or report nothing once the homeserver starts holding the joins back: each
+ * then waits several seconds, so the caller moves on while the rest are joined in the background.
+ */
+export async function joinChannelsUntilHeldBack(
+    client: MatrixClient,
+    channels: ServerChannel[],
+    join: typeof joinChannels = joinChannels,
+): Promise<JoinChannelsResult | undefined> {
+    const { promise: heldBack, resolve: onRateLimited } = Promise.withResolvers<undefined>();
+    return Promise.race([join(client, channels, { onRateLimited: () => onRateLimited(undefined) }), heldBack]);
 }

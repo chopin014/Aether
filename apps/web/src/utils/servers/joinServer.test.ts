@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KnownMembership, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import { defaultChannelSelection, JOIN_ALL_LIMIT, onServerJoined, openFirstChannel } from "./joinServer";
-import { joinChannels, listJoinableChannels, type ServerChannel } from "./serverChannels";
+import { joinChannelsUntilHeldBack, listJoinableChannels, type ServerChannel } from "./serverChannels";
 import { waitForRoom } from "../room/waitForRoom";
 import Modal from "../../Modal";
 import SettingsStore from "../../settings/SettingsStore";
@@ -20,7 +20,7 @@ import { Action } from "../../dispatcher/actions";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { ChooseServerChannelsDialog } from "../../components/views/dialogs/ChooseServerChannelsDialog";
 
-vi.mock("./serverChannels", () => ({ listJoinableChannels: vi.fn(), joinChannels: vi.fn() }));
+vi.mock("./serverChannels", () => ({ listJoinableChannels: vi.fn(), joinChannelsUntilHeldBack: vi.fn() }));
 vi.mock("../room/waitForRoom", () => ({ waitForRoom: vi.fn() }));
 vi.mock("../../Modal", () => ({ default: { createDialog: vi.fn() } }));
 vi.mock("../../components/views/dialogs/ChooseServerChannelsDialog", () => ({ ChooseServerChannelsDialog: vi.fn() }));
@@ -71,7 +71,7 @@ describe("server joining", () => {
         vi.mocked(waitForRoom).mockImplementation(async (_client, roomId, ready) =>
             roomId === SPACE && ready(space) ? space : ({ roomId } as Room),
         );
-        vi.mocked(joinChannels).mockImplementation(async (_client, channels) => ({
+        vi.mocked(joinChannelsUntilHeldBack).mockImplementation(async (_client, channels) => ({
             joined: channels.map((c) => c.roomId),
             failed: [],
         }));
@@ -85,8 +85,20 @@ describe("server joining", () => {
 
         await onServerJoined(client, SPACE);
 
-        expect(joinChannels).toHaveBeenCalledWith(client, channels);
+        expect(joinChannelsUntilHeldBack).toHaveBeenCalledWith(client, channels);
         expect(Modal.createDialog).not.toHaveBeenCalled();
+        expect(defaultDispatcher.dispatch).toHaveBeenCalledWith(
+            expect.objectContaining({ action: Action.ViewRoom, room_id: "!general" }),
+        );
+    });
+
+    it("still opens the first text channel when the homeserver holds the joins back", async () => {
+        const channels = [channel("!voice", "voice"), channel("!general"), channel("!memes")];
+        vi.mocked(listJoinableChannels).mockResolvedValue(channels);
+        vi.mocked(joinChannelsUntilHeldBack).mockResolvedValue(undefined);
+
+        await onServerJoined(client, SPACE);
+
         expect(defaultDispatcher.dispatch).toHaveBeenCalledWith(
             expect.objectContaining({ action: Action.ViewRoom, room_id: "!general" }),
         );
@@ -96,7 +108,7 @@ describe("server joining", () => {
         const channels = many(JOIN_ALL_LIMIT + 1);
         vi.mocked(listJoinableChannels).mockResolvedValue(channels);
         await onServerJoined(client, SPACE);
-        expect(joinChannels).not.toHaveBeenCalled();
+        expect(joinChannelsUntilHeldBack).not.toHaveBeenCalled();
         expect(Modal.createDialog).toHaveBeenCalledWith(ChooseServerChannelsDialog, { client, space, channels });
     });
 
@@ -104,7 +116,7 @@ describe("server joining", () => {
         vi.mocked(SettingsStore.getValue).mockReturnValue(false);
         vi.mocked(listJoinableChannels).mockResolvedValue(many(2));
         await onServerJoined(client, SPACE);
-        expect(joinChannels).not.toHaveBeenCalled();
+        expect(joinChannelsUntilHeldBack).not.toHaveBeenCalled();
         expect(Modal.createDialog).toHaveBeenCalled();
     });
 
@@ -117,7 +129,7 @@ describe("server joining", () => {
         await onServerJoined(client, SPACE);
         vi.mocked(listJoinableChannels).mockRejectedValueOnce(new Error("offline"));
         await onServerJoined(client, SPACE);
-        expect(joinChannels).not.toHaveBeenCalled();
+        expect(joinChannelsUntilHeldBack).not.toHaveBeenCalled();
         expect(Modal.createDialog).not.toHaveBeenCalled();
     });
 

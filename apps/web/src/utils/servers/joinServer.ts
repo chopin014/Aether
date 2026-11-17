@@ -16,7 +16,7 @@ import SettingsStore from "../../settings/SettingsStore";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { ChooseServerChannelsDialog } from "../../components/views/dialogs/ChooseServerChannelsDialog";
 import { waitForRoom } from "../room/waitForRoom";
-import { joinChannels, listJoinableChannels, type ServerChannel } from "./serverChannels";
+import { joinChannelsUntilHeldBack, listJoinableChannels, type ServerChannel } from "./serverChannels";
 
 /** Servers with at most this many channels have them all joined at once, unless the user turned that off. */
 export const JOIN_ALL_LIMIT = 10;
@@ -84,7 +84,9 @@ export async function onServerJoined(client: MatrixClient, spaceId: string): Pro
     if (channels.length === 0) return;
 
     if (channels.length <= JOIN_ALL_LIMIT && SettingsStore.getValue("Spaces.joinAllChannels")) {
-        const { joined } = await joinChannels(client, channels);
+        const outcome = await joinChannelsUntilHeldBack(client, channels);
+        // When joins are held back, the first text channel still joins first, as joins go in the server's order.
+        const joined = outcome?.joined ?? channels.map((channel) => channel.roomId);
         await openFirstChannel(client, spaceId, channels, joined);
         return;
     }
