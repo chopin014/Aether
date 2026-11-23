@@ -9,7 +9,7 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mocked } from "vitest";
+import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mocked, type MockInstance } from "vitest";
 import {
     type MatrixClient,
     type Device,
@@ -20,6 +20,8 @@ import {
     RoomType,
     JoinRule,
     RoomVersionStability,
+    ConnectionError,
+    MatrixError,
 } from "matrix-js-sdk/src/matrix";
 import { type CryptoApi } from "matrix-js-sdk/src/crypto-api";
 import { act } from "test-utils-rtl";
@@ -47,6 +49,7 @@ import DMRoomMap from "./utils/DMRoomMap";
 import { PreferredRoomVersions } from "./utils/PreferredRoomVersions";
 import SdkConfig from "./SdkConfig";
 import { SDKContextClass } from "./contexts/SDKContextClass";
+import type SpaceStore from "./stores/spaces/SpaceStore";
 
 /**
  * This should be the same as
@@ -263,6 +266,48 @@ describe("createRoom", () => {
                 { type: "m.room.history_visibility", content: { history_visibility: "shared" } },
             ],
             power_level_content_override: { events: POWER_LEVELS_WITH_CALL_MEMBER },
+        });
+    });
+
+    describe("linking a new channel from its server", () => {
+        let parentSpace: Room;
+        let addRoomToSpace: MockInstance<SpaceStore["addRoomToSpace"]>;
+        beforeEach(async () => {
+            const roomId = await createRoom(client, { roomType: RoomType.Space });
+            parentSpace = client.getRoom(roomId!)!;
+            addRoomToSpace = vi.spyOn(SDKContextClass.instance.spaceStore, "addRoomToSpace");
+            vi.useFakeTimers();
+        });
+        afterEach(() => {
+            addRoomToSpace.mockRestore();
+            vi.useRealTimers();
+        });
+
+        const create = async (): Promise<string | null> => {
+            const created = createRoom(client, { parentSpace, spinner: false, createOpts: {} });
+            await vi.runAllTimersAsync();
+            return created;
+        };
+
+        it("retries a dropped connection until the link is sent", async () => {
+            addRoomToSpace
+                .mockRejectedValueOnce(new ConnectionError("connection lost"))
+                .mockRejectedValueOnce(new MatrixError({ errcode: "M_UNKNOWN" }, 502))
+                .mockResolvedValueOnce({ event_id: "$child" });
+            expect(await create()).not.toBeNull();
+            expect(addRoomToSpace).toHaveBeenCalledTimes(3);
+        });
+
+        it("does not retry a refusal", async () => {
+            addRoomToSpace.mockRejectedValue(new MatrixError({ errcode: "M_FORBIDDEN" }, 403));
+            expect(await create()).toBeNull();
+            expect(addRoomToSpace).toHaveBeenCalledOnce();
+        });
+
+        it("gives up after a few attempts", async () => {
+            addRoomToSpace.mockRejectedValue(new ConnectionError("connection lost"));
+            expect(await create()).toBeNull();
+            expect(addRoomToSpace).toHaveBeenCalledTimes(4);
         });
     });
 
