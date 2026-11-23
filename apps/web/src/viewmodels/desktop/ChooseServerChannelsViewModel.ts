@@ -13,7 +13,11 @@ import {
 import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import { _t } from "../../languageHandler";
-import { joinChannels as defaultJoinChannels, type ServerChannel } from "../../utils/servers/serverChannels";
+import {
+    joinChannels as defaultJoinChannels,
+    joinChannelsUntilHeldBack,
+    type ServerChannel,
+} from "../../utils/servers/serverChannels";
 
 interface Props {
     client: MatrixClient;
@@ -95,8 +99,18 @@ export class ChooseServerChannelsViewModel
         const chosen = channels.filter((channel) => this.selection.has(channel.roomId));
 
         this.snapshot.merge({ busy: true, error: undefined });
-        const { joined, failed } = await joinChannels(client, chosen);
+        // Past the homeserver's allowance each join waits several seconds, so once that starts the dialog closes and
+        // the rest of the channels show up in the sidebar as they are joined.
+        const outcome = await joinChannelsUntilHeldBack(client, chosen, joinChannels);
         if (this.isDisposed) return;
+        if (!outcome) {
+            this.props.onFinished();
+            // Joins go in the server's order, so the first chosen text channel is among the first joined.
+            const chosenIds = chosen.map((channel) => channel.roomId);
+            await this.props.openFirstChannel(client, space.roomId, channels, chosenIds);
+            return;
+        }
+        const { joined, failed } = outcome;
         if (joined.length === 0) {
             this.snapshot.merge({ busy: false, error: _t("desktop|choose_channels|error") });
             return;

@@ -2906,7 +2906,7 @@
             "default_label": "Allow users to invite you to rooms"
         },
         "join_all_channels": "Join every channel of small servers",
-        "join_all_channels_description": "When you join a server with up to 10 channels, join them all at once. Larger servers always let you pick.",
+        "join_all_channels_description": "When you join a server with up to 9 channels, join them all at once. Larger servers always let you pick.",
         "jump_to_bottom_on_send": "Jump to the bottom of the timeline when you send a message",
         "key_backup": {
             "setup_secure_backup": {
