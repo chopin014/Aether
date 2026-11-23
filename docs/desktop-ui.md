@@ -230,6 +230,15 @@ both channels. It then leaves the call without asking and joins the new one, joi
 Someone watching the old call watches the new one. Other Matrix clients ignore the event, so the mover is told when the
 person has not turned up in the new call within 20 seconds.
 
+### Disconnecting people
+
+The same power lets someone disconnect a person from a voice channel's call, as Discord's "Disconnect" does: the red
+entry at the end of the person's menu. It sends the same event without `to`, a move to no channel, and the person's
+Aether leaves the call. If the person is still in the call 20 seconds later (their app is not Aether), someone who may
+also kick them from the channel is offered "Remove from channel". That ends their call on any app, because MatrixRTC
+ignores members who left the room and gives the call a new key, and they can join the channel again. Anyone else is
+told that only people using Aether can be disconnected.
+
 ## Channel menu and topic
 
 Clicking a channel's name in the header opens an anchored menu beneath it, and right-clicking a channel in the room

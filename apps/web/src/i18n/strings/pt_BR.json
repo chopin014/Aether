@@ -4415,8 +4415,13 @@
             "youtube_video": "Vídeo do YouTube"
         },
         "voice_move": {
+            "disconnect_failed_title": "Não foi possível desconectar %(name)s",
             "failed_title": "Não foi possível mover %(name)s",
-            "not_followed": "%(name)s não acompanhou a mudança. Só quem usa o Aether pode ser movido para outro canal."
+            "not_disconnected": "O app de %(name)s não saiu da chamada. Só quem usa o Aether pode ser desconectado.",
+            "not_followed": "%(name)s não acompanhou a mudança. Só quem usa o Aether pode ser movido para outro canal.",
+            "remove_button": "Remover do canal",
+            "remove_description": "O app de %(name)s não saiu da chamada: talvez não seja o Aether. Remover a pessoa do canal encerra a chamada dela em qualquer app. Ela pode entrar no canal de novo.",
+            "remove_title": "Remover %(name)s do canal?"
         }
     },
     "create_section_dialog": {

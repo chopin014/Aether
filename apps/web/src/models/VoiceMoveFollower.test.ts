@@ -30,6 +30,7 @@ describe("VoiceMoveFollower", () => {
     let rooms: Map<string, Room>;
     let inCall: Set<string>;
     let follow: Mock<(room: Room) => void>;
+    let disconnect: Mock<(room: Room) => void>;
     let follower: VoiceMoveFollower;
     let sessions: Map<string, MatrixRTCSession>;
 
@@ -115,7 +116,8 @@ describe("VoiceMoveFollower", () => {
         });
         inCall = new Set([GERAL1]);
         follow = vi.fn();
-        follower = new VoiceMoveFollower(client, (roomId) => inCall.has(roomId), follow);
+        disconnect = vi.fn();
+        follower = new VoiceMoveFollower(client, (roomId) => inCall.has(roomId), follow, disconnect);
     });
 
     afterEach(() => {
@@ -138,6 +140,19 @@ describe("VoiceMoveFollower", () => {
         await receive(request({ to: GERAL2, id: "a" }));
         expect(client.joinRoom).toHaveBeenCalledWith(GERAL2, { viaServers: ["example.org"] });
         expect(follow).toHaveBeenCalledWith(destination);
+    });
+
+    it("leaves the call when a moderator disconnects this user", async () => {
+        await receive(request({ id: "a" }));
+        expect(disconnect).toHaveBeenCalledWith(rooms.get(GERAL1));
+        expect(follow).not.toHaveBeenCalled();
+    });
+
+    it("ignores a disconnect from someone without the power, or about a call this device is not in", async () => {
+        await receive(request({ id: "a" }, { sender: BOB }));
+        inCall.clear();
+        await receive(request({ id: "b" }));
+        expect(disconnect).not.toHaveBeenCalled();
     });
 
     it("follows each request once", async () => {

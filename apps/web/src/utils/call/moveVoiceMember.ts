@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import defaultDispatcher from "../../dispatcher/dispatcher";
@@ -13,8 +13,16 @@ import { Action } from "../../dispatcher/actions";
 import { type FollowVoiceMovePayload } from "../../dispatcher/payloads/FollowVoiceMovePayload";
 import Modal from "../../Modal";
 import ErrorDialog from "../../components/views/dialogs/ErrorDialog";
+import QuestionDialog from "../../components/views/dialogs/QuestionDialog";
+import { CallStore } from "../../stores/CallStore";
 import { _t } from "../../languageHandler";
-import { mayMoveVoiceMembers, requestVoiceMove, voiceMoveDestinations, waitForCallMember } from "./voiceMove";
+import {
+    mayMoveVoiceMembers,
+    requestVoiceDisconnect,
+    requestVoiceMove,
+    voiceMoveDestinations,
+    waitForCallMember,
+} from "./voiceMove";
 
 /**
  * How long the moved person's app has to join the other channel's call before the user is told it did not. Joining a
@@ -60,6 +68,69 @@ export async function moveVoiceMember(
         Modal.createDialog(ErrorDialog, {
             title: _t("desktop|voice_move|failed_title", { name }),
             description: _t("desktop|voice_move|not_followed", { name }),
+        });
+    }
+}
+
+/** Whether `userId` may remove `targetId` from a room, as Matrix allows: with the kick level and above them. */
+function mayKick(room: Room, userId: string, targetId: string): boolean {
+    const level = room.getMember(userId)?.powerLevel ?? 0;
+    const targetLevel = room.getMember(targetId)?.powerLevel ?? 0;
+    return room.currentState.hasSufficientPowerLevelFor("kick", level) && level > targetLevel;
+}
+
+/**
+ * Disconnects someone from a voice channel's call, as Discord's "Disconnect" does. The user must be allowed to move
+ * people in the channel. The user's own call is left here; anyone else's app is asked to leave. When it does not,
+ * someone who may also remove people from the channel is offered that instead: it ends the person's call on any app,
+ * and they can join the channel again.
+ */
+export async function disconnectVoiceMember(client: MatrixClient, roomId: string, userId: string): Promise<void> {
+    const me = client.getSafeUserId();
+    const room = client.getRoom(roomId);
+    if (!room || !mayMoveVoiceMembers(room, me)) return;
+    if (!client.matrixRTC.getRoomSession(room).memberships.some((membership) => membership.userId === userId)) return;
+
+    if (userId === me) {
+        await CallStore.instance.getCall(roomId)?.disconnect();
+        return;
+    }
+
+    const name = room.getMember(userId)?.name ?? userId;
+    try {
+        await requestVoiceDisconnect(client, roomId, userId);
+    } catch (error) {
+        logger.warn(`Could not disconnect ${userId} from ${roomId}`, error);
+        Modal.createDialog(ErrorDialog, {
+            title: _t("desktop|voice_move|disconnect_failed_title", { name }),
+            description: error instanceof Error ? error.message : String(error),
+        });
+        return;
+    }
+    if (await waitForCallMember(client, room, userId, false, VOICE_MOVE_FOLLOW_TIMEOUT_MS)) return;
+
+    if (!mayKick(room, me, userId)) {
+        Modal.createDialog(ErrorDialog, {
+            title: _t("desktop|voice_move|disconnect_failed_title", { name }),
+            description: _t("desktop|voice_move|not_disconnected", { name }),
+        });
+        return;
+    }
+    const { finished } = Modal.createDialog(QuestionDialog, {
+        title: _t("desktop|voice_move|remove_title", { name }),
+        description: _t("desktop|voice_move|remove_description", { name }),
+        button: _t("desktop|voice_move|remove_button"),
+        danger: true,
+    });
+    const [confirmed] = await finished;
+    if (!confirmed) return;
+    try {
+        await client.kick(roomId, userId);
+    } catch (error) {
+        logger.warn(`Could not remove ${userId} from ${roomId}`, error);
+        Modal.createDialog(ErrorDialog, {
+            title: _t("desktop|voice_move|disconnect_failed_title", { name }),
+            description: error instanceof Error ? error.message : String(error),
         });
     }
 }

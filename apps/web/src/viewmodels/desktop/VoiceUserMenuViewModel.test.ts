@@ -24,12 +24,12 @@ import { findDMRoom } from "../../utils/dm/findDMRoom";
 import { startDmOnFirstMessage } from "../../utils/direct-messages";
 import { verifyUser } from "../../verification";
 import { confirmAndIgnoreUser } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
-import { moveVoiceMember } from "../../utils/call/moveVoiceMember";
+import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
 
 vi.mock("../../Modal");
 vi.mock("../../utils/dm/findDMRoom", () => ({ findDMRoom: vi.fn(() => null) }));
 vi.mock("../../verification", () => ({ verifyUser: vi.fn() }));
-vi.mock("../../utils/call/moveVoiceMember", () => ({ moveVoiceMember: vi.fn() }));
+vi.mock("../../utils/call/moveVoiceMember", () => ({ moveVoiceMember: vi.fn(), disconnectVoiceMember: vi.fn() }));
 vi.mock("../../utils/direct-messages", async (importOriginal) => ({
     ...(await importOriginal<typeof import("../../utils/direct-messages")>()),
     startDmOnFirstMessage: vi.fn().mockResolvedValue("!dm:example.org"),
@@ -287,9 +287,14 @@ describe("VoiceUserMenuViewModel", () => {
             vm.moveTo("!geral2:example.org");
             expect(moveVoiceMember).toHaveBeenCalledWith(client, voice.roomId, BOB, "!geral2:example.org");
 
+            expect(vm.getSnapshot().canDisconnect).toBe(true);
+            vm.disconnect();
+            expect(disconnectVoiceMember).toHaveBeenCalledWith(client, voice.roomId, BOB);
+
             // They left the call meanwhile: there is nobody to move.
             inCall();
             expect(vm.getSnapshot().moveDestinations).toEqual([]);
+            expect(vm.getSnapshot().canDisconnect).toBe(false);
             vm.dispose();
         });
 
@@ -311,6 +316,7 @@ describe("VoiceUserMenuViewModel", () => {
                 spaceStore: { spacePanelSpaces: [] },
             });
             expect(vm.getSnapshot().moveDestinations).toEqual([]);
+            expect(vm.getSnapshot().canDisconnect).toBe(false);
             vm.dispose();
         });
     });
