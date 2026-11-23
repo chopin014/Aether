@@ -115,6 +115,8 @@ export class VoiceMoveFollower {
         // The homeserver only takes the request from someone allowed to move people; check it as well, in case the
         // room's permissions changed since.
         if (!mayMoveVoiceMembers(from, sender)) return;
+        // Someone removed from the room may keep their power level, and could still reach us with a to-device message.
+        if (from.getMember(sender)?.membership !== KnownMembership.Join) return;
         // A request sent before this device joined the call was meant for an earlier visit.
         const own = this.client.matrixRTC
             .getRoomSession(from)
@@ -122,20 +124,24 @@ export class VoiceMoveFollower {
                 (membership) => membership.userId === userId && membership.deviceId === this.client.getDeviceId(),
             );
         if (own && own.createdTs() > ts) return;
+        // Counted as seen only once it can be followed (see `seen`); before anything that waits.
         const request = `${from.roomId}|${id}`;
-        if (this.seen.has(request)) return;
-        this.seen.add(request);
 
         if (to === undefined) {
+            if (this.seen.has(request)) return;
+            this.seen.add(request);
             logger.info(`${sender} disconnected us from ${from.roomId}`);
             await this.disconnect(from);
             return;
         }
         const via = voiceMoveDestinationVia(this.client, from.roomId, to);
         if (!via) {
+            // The channel may be one this device does not know yet; the request's other copy may come after it does.
             logger.info(`Not following a move to ${to}: it is not a channel of the same server`);
             return;
         }
+        if (this.seen.has(request)) return;
+        this.seen.add(request);
         let destination = this.client.getRoom(to);
         if (destination?.getMyMembership() !== KnownMembership.Join) {
             destination = await this.client.joinRoom(to, { viaServers: via });

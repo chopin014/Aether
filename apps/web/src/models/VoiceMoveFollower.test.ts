@@ -216,6 +216,40 @@ describe("VoiceMoveFollower", () => {
         expect(follow).toHaveBeenCalledOnce();
     });
 
+    it("ignores a move through the media room from a moderator removed from the room", async () => {
+        const room = rooms.get(GERAL1)!;
+        room.currentState.setStateEvents([
+            new MatrixEvent({
+                type: EventType.RoomMember,
+                state_key: MOD,
+                room_id: GERAL1,
+                sender: ME,
+                content: { membership: KnownMembership.Leave },
+            }),
+        ]);
+        await fast({ to: GERAL2, id: "a" });
+        expect(follow).not.toHaveBeenCalled();
+    });
+
+    it("follows a request to a channel it learns of only after the request's first copy", async () => {
+        const server = rooms.get(SERVER)!;
+        const link = server.currentState.getStateEvents(EventType.SpaceChild, GERAL2)!;
+        server.currentState.setStateEvents([
+            new MatrixEvent({
+                type: EventType.SpaceChild,
+                state_key: GERAL2,
+                room_id: SERVER,
+                sender: ME,
+                content: {},
+            }),
+        ]);
+        await fast({ to: GERAL2, id: "a" });
+        expect(follow).not.toHaveBeenCalled();
+        server.currentState.setStateEvents([link]);
+        await receive(request({ to: GERAL2, id: "a" }));
+        expect(follow).toHaveBeenCalledOnce();
+    });
+
     it("lets nobody without the power to move people use up a request's id", async () => {
         await fast({ to: GERAL2, id: "a" }, { sender: BOB });
         await receive(request({ to: GERAL2, id: "a" }));
