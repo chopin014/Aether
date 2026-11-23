@@ -2447,3 +2447,22 @@ index 6295781..abec57b 100644
              const outboundSessionList = newOutboundEncryptionSession.sharedWith
                  .map((m) => `${m.userId}:${m.deviceId}`)
                  .join(",");
+diff --git a/src/http-api/index.ts b/src/http-api/index.ts
+index 9f60401..6c1800b 100644
+--- a/src/http-api/index.ts
++++ b/src/http-api/index.ts
+@@ -103,7 +103,13 @@ export class MatrixHttpApi<O extends IHttpOpts> extends FetchHttpApi<O> {
+                 callbacks.clearTimeout(timeoutTimer);
+                 upload.loaded = ev.loaded;
+                 upload.total = ev.total;
+-                timeoutTimer = callbacks.setTimeout(timeoutFn, 30000);
++                // Chromium reports the whole body as sent once it is buffered, which over HTTP/2 or HTTP/3 can be long
++                // before the server has received it, and then reports no further progress. Timing out from there
++                // would abort any upload that takes more than 30s to reach the server, so from then on the request is
++                // left to finish or fail by itself, and can still be cancelled.
++                if (!ev.lengthComputable || ev.loaded < ev.total) {
++                    timeoutTimer = callbacks.setTimeout(timeoutFn, 30000);
++                }
+                 opts.progressHandler?.({
+                     loaded: ev.loaded,
+                     total: ev.total,
