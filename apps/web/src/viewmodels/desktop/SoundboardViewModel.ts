@@ -28,6 +28,7 @@ import { CallEvent, type ElementCall } from "../../models/Call";
 import { _t } from "../../languageHandler";
 import SettingsStore from "../../settings/SettingsStore";
 import { VoiceUserPreferences } from "../../audio/desktop/VoiceUserPreferences";
+import { getServerVoiceMute } from "../../utils/call/serverVoiceMute";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import type SpaceStore from "../../stores/spaces/SpaceStore";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
@@ -264,8 +265,10 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
             !this.props.call.connected ||
             this.props.call.locallyLeaving ||
             SettingsStore.getValue("desktopDeafened") ||
-            // The person who played it may have their soundboard muted for this user only.
-            (sender !== undefined && VoiceUserPreferences.instance.get(sender).soundboardMuted)
+            // The person who played it may have their soundboard muted for this user only, or be muted by a moderator.
+            (sender !== undefined &&
+                (VoiceUserPreferences.instance.get(sender).soundboardMuted ||
+                    getServerVoiceMute(this.props.client, this.props.call.roomId, sender).muted))
         )
             return;
         const source = this.source(sound) ?? sharedSound?.url;

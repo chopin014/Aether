@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventType, MatrixEvent, Room, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { EventType, MatrixEvent, Room, RoomStateEvent, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import EventEmitter from "node:events";
 import { MatrixRTCSessionEvent, type CallMembership, type MatrixRTCSession } from "matrix-js-sdk/src/matrixrtc";
 import { KnownMembership } from "matrix-js-sdk/src/types";
@@ -25,6 +25,7 @@ import { startDmOnFirstMessage } from "../../utils/direct-messages";
 import { verifyUser } from "../../verification";
 import { confirmAndIgnoreUser } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
 import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
+import { SERVER_VOICE_MUTE_EVENT_TYPE } from "../../utils/call/serverVoiceMute";
 
 vi.mock("../../Modal");
 vi.mock("../../utils/dm/findDMRoom", () => ({ findDMRoom: vi.fn(() => null) }));
@@ -317,6 +318,109 @@ describe("VoiceUserMenuViewModel", () => {
             });
             expect(vm.getSnapshot().moveDestinations).toEqual([]);
             expect(vm.getSnapshot().canDisconnect).toBe(false);
+            vm.dispose();
+        });
+    });
+
+    describe("in a server's voice channel", () => {
+        let voice: Room;
+        let server: Room;
+
+        /** A server whose moderators (the user, unless `myLevel` says otherwise) may mute people. */
+        beforeEach(() => {
+            const make = (roomId: string, type: string, myLevel: number): Room => {
+                const created = new Room(roomId, client, ME);
+                const event = (eventType: string, content: object, stateKey = ""): MatrixEvent =>
+                    new MatrixEvent({ type: eventType, state_key: stateKey, room_id: roomId, sender: ME, content });
+                created.currentState.setStateEvents([
+                    event(EventType.RoomCreate, { creator: ME, room_version: "10", type }),
+                    join(created, ME),
+                    join(created, BOB),
+                    event(EventType.RoomPowerLevels, { users: { [ME]: myLevel }, users_default: 0, state_default: 50 }),
+                ]);
+                created.updateMyMembership(KnownMembership.Join);
+                return created;
+            };
+            server = make("!server:example.org", RoomType.Space, 50);
+            voice = make("!geral1:example.org", RoomType.UnstableCall, 0);
+            server.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.SpaceChild,
+                    state_key: voice.roomId,
+                    room_id: server.roomId,
+                    sender: ME,
+                    content: { via: ["example.org"] },
+                }),
+            ]);
+            vi.mocked(client.getRooms).mockReturnValue([server, voice]);
+            vi.mocked(client.getRoom).mockImplementation((id) => [server, voice].find((r) => r.roomId === id) ?? null);
+        });
+
+        const create = (): VoiceUserMenuViewModel =>
+            new VoiceUserMenuViewModel({ client, userId: BOB, room: voice, spaceStore: { spacePanelSpaces: [] } });
+
+        it("lets a server moderator mute and deafen the person in the whole server", async () => {
+            const vm = create();
+            expect(vm.getSnapshot().serverVoiceMute).toEqual({ muted: false, deafened: false });
+            vm.toggleServerMuted();
+            await vi.waitFor(() =>
+                expect(client.sendStateEvent).toHaveBeenCalledWith(
+                    server.roomId,
+                    SERVER_VOICE_MUTE_EVENT_TYPE,
+                    { muted: true },
+                    `u:${BOB}`,
+                ),
+            );
+
+            // The record comes back through sync.
+            const record = new MatrixEvent({
+                type: SERVER_VOICE_MUTE_EVENT_TYPE,
+                state_key: `u:${BOB}`,
+                room_id: server.roomId,
+                sender: ME,
+                content: { muted: true },
+            });
+            server.currentState.setStateEvents([record]);
+            client.emit(RoomStateEvent.Events, record, server.currentState, null);
+            expect(vm.getSnapshot().serverVoiceMute).toEqual({ muted: true, deafened: false });
+
+            vm.toggleServerDeafened();
+            await vi.waitFor(() =>
+                expect(client.sendStateEvent).toHaveBeenLastCalledWith(
+                    server.roomId,
+                    SERVER_VOICE_MUTE_EVENT_TYPE,
+                    { muted: true, deafened: true },
+                    `u:${BOB}`,
+                ),
+            );
+            vm.dispose();
+        });
+
+        it("offers nothing to someone without the power in the server", () => {
+            server.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomPowerLevels,
+                    state_key: "",
+                    room_id: server.roomId,
+                    sender: ME,
+                    content: { users: {}, users_default: 0, state_default: 50 },
+                }),
+            ]);
+            const vm = create();
+            expect(vm.getSnapshot().serverVoiceMute).toBeUndefined();
+            vm.dispose();
+        });
+
+        it("reports a change the homeserver refused", async () => {
+            vi.mocked(client.sendStateEvent).mockRejectedValue(new Error("M_FORBIDDEN"));
+            const vm = create();
+            vm.toggleServerMuted();
+            await vi.waitFor(() =>
+                expect(Modal.createDialog).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.objectContaining({ description: "M_FORBIDDEN" }),
+                ),
+            );
             vm.dispose();
         });
     });

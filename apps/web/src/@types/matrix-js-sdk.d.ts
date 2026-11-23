@@ -19,6 +19,7 @@ import { type INVITE_RULES_ACCOUNT_DATA_TYPE, type InviteConfigAccountData } fro
 import type { StoredSound } from "../audio/soundboard/Soundboard";
 import type { PublishedVoiceStateContent } from "../utils/call/publishedVoiceState";
 import type { VoiceMoveContent } from "../utils/call/voiceMove";
+import type { ServerVoiceMuteContent } from "../utils/call/serverVoiceMute";
 
 // Extend Matrix JS SDK types via Typescript declaration merging to support unspecced event fields and types
 declare module "matrix-js-sdk/src/@types/state_events" {
@@ -52,6 +53,8 @@ declare module "matrix-js-sdk/src/types" {
         "io.aether.call.voice_state": PublishedVoiceStateContent | EmptyObject;
         // A moderator moving someone to another voice channel, followed by models/VoiceMoveFollower.ts
         "io.aether.voice.move": VoiceMoveContent;
+        // A moderator muting or deafening someone in a server's voice channels, see utils/call/serverVoiceMute.ts
+        "io.aether.voice.server_mute": ServerVoiceMuteContent;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 

@@ -188,6 +188,8 @@ function makeMenu(): VoiceUserMenuViewModel & { setVolume: ReturnType<typeof vi.
         setRole: vi.fn(),
         moveTo: vi.fn(),
         disconnect: vi.fn(),
+        toggleServerMuted: vi.fn(),
+        toggleServerDeafened: vi.fn(),
     });
 }
 

@@ -124,6 +124,8 @@ describe("<RoomListItemView />", () => {
                 setRole: vi.fn(),
                 moveTo: vi.fn(),
                 disconnect: vi.fn(),
+                toggleServerMuted: vi.fn(),
+                toggleServerDeafened: vi.fn(),
             },
         );
         const openMenu = vi.fn(() => menu);
@@ -346,6 +348,35 @@ describe("<RoomListItemView />", () => {
         const participant = within(screen.getByRole("button", { name: label }));
         expect(!!participant.queryByTestId("participant-muted")).toBe(isMuted);
         expect(!!participant.queryByTestId("participant-deafened")).toBe(isDeafened);
+    });
+
+    it.each([
+        { isServerMuted: true, isServerDeafened: false, label: "Alice (muted by a moderator)" },
+        { isServerMuted: true, isServerDeafened: true, label: "Alice (deafened by a moderator)" },
+    ])("shows a moderator's mute in red for $label", ({ isServerMuted, isServerDeafened, label }) => {
+        render(
+            <Default
+                channelKind="voice"
+                callParticipants={[
+                    {
+                        userId: "@alice:example.org",
+                        name: "Alice",
+                        isMuted: true,
+                        isDeafened: true,
+                        isServerMuted,
+                        isServerDeafened,
+                    },
+                ]}
+            />,
+        );
+        const participant = within(screen.getByRole("button", { name: label }));
+        // The moderator's icon replaces the person's own, never shown twice.
+        expect(participant.getByTestId("participant-server-muted")).toBeVisible();
+        expect(participant.queryByTestId("participant-muted")).toBeNull();
+        expect(!!participant.queryByTestId("participant-server-deafened")).toBe(isServerDeafened);
+        expect(!!participant.queryByTestId("participant-deafened")).toBe(!isServerDeafened);
+        // Red, unlike the person's own grey icons.
+        expect(participant.getByTestId("participant-server-muted").getAttribute("class")).toMatch(/byModerator/);
     });
 
     it("marks the user as still connecting, and nobody else", () => {

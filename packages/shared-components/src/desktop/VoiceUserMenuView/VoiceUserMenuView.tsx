@@ -85,6 +85,11 @@ export interface VoiceUserMenuViewSnapshot {
     readonly moveDestinations: readonly VoiceUserMenuChannel[];
     /** Whether the user may disconnect the person from the call they are in, as anyone who may move them can. */
     readonly canDisconnect: boolean;
+    /**
+     * Whether a moderator muted or deafened the person in the server's voice channels. Present only when the user
+     * may do so; the entries are hidden otherwise.
+     */
+    readonly serverVoiceMute?: { readonly muted: boolean; readonly deafened: boolean };
 }
 
 /** What choosing an entry in the voice user menu does. */
@@ -109,6 +114,10 @@ export interface VoiceUserMenuViewActions {
     moveTo(roomId: string): void;
     /** Disconnects the person from the call they are in. */
     disconnect(): void;
+    /** Mutes or unmutes the person in all of the server's voice channels. */
+    toggleServerMuted(): void;
+    /** Deafens or undeafens the person in all of the server's voice channels. */
+    toggleServerDeafened(): void;
 }
 
 /** The view model behind the voice user menu. */
@@ -312,17 +321,20 @@ interface CheckboxItemProps {
     checked: boolean;
     onToggle: () => void;
     onHover: () => void;
+    /** Red, for what the user does to someone else as a moderator. */
+    critical?: boolean;
     testId?: string;
 }
 
 /** An entry that turns something on or off, with Discord's checkbox at its end. It keeps the menu open. */
-function CheckboxItem({ label, checked, onToggle, onHover, testId }: CheckboxItemProps): JSX.Element {
+function CheckboxItem({ label, checked, onToggle, onHover, critical, testId }: CheckboxItemProps): JSX.Element {
     return (
         <button
             type="button"
             role="menuitemcheckbox"
             aria-checked={checked}
             className={styles.item}
+            data-kind={critical ? "critical" : undefined}
             data-testid={testId}
             onPointerEnter={onHover}
             onClick={onToggle}
@@ -576,9 +588,30 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                     </SubMenu>
                 </>
             )}
+            {s.serverVoiceMute && (
+                <>
+                    <Separator />
+                    <CheckboxItem
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|server_mute")}
+                        checked={s.serverVoiceMute.muted}
+                        onToggle={vm.toggleServerMuted}
+                        critical
+                        testId="voice-user-menu-server-mute"
+                    />
+                    <CheckboxItem
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|server_deafen")}
+                        checked={s.serverVoiceMute.deafened}
+                        onToggle={vm.toggleServerDeafened}
+                        critical
+                        testId="voice-user-menu-server-deafen"
+                    />
+                </>
+            )}
             {s.moveDestinations.length > 0 && (
                 <>
-                    {s.roles.length === 0 && <Separator />}
+                    {s.roles.length === 0 && !s.serverVoiceMute && <Separator />}
                     <SubMenu
                         label={_t("desktop|voice_user_menu|move_to")}
                         testId="voice-user-menu-move"
@@ -601,7 +634,7 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
             )}
             {s.canDisconnect && (
                 <>
-                    {s.roles.length === 0 && s.moveDestinations.length === 0 && <Separator />}
+                    {s.roles.length === 0 && !s.serverVoiceMute && s.moveDestinations.length === 0 && <Separator />}
                     <Item
                         onHover={closeSubMenu}
                         label={_t("desktop|voice_user_menu|disconnect")}
