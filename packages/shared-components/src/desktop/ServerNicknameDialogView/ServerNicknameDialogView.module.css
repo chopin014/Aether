@@ -1,0 +1,71 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.dialog {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-4x);
+    min-width: 320px;
+    max-width: 440px;
+    padding: var(--cpd-space-2x) 0;
+}
+
+.title {
+    margin: 0;
+    color: var(--cpd-color-text-primary);
+}
+
+/* Discord's caution before changing someone else's nickname. */
+.warning {
+    margin: 0;
+    padding: var(--cpd-space-3x) var(--cpd-space-4x);
+    border-radius: var(--cpd-space-2x);
+    background-color: var(--cpd-color-bg-subtle-secondary);
+    border-inline-start: var(--cpd-space-1x) solid var(--cpd-color-border-critical-primary);
+    color: var(--cpd-color-text-primary);
+}
+
+.note {
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+}
+
+.label {
+    color: var(--cpd-color-text-primary);
+}
+
+.reset {
+    align-self: flex-start;
+    margin-top: calc(-1 * var(--cpd-space-2x));
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--cpd-color-text-link-external);
+    font: var(--cpd-font-body-sm-regular);
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        text-decoration: underline;
+    }
+}
+
+.error {
+    margin: 0;
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--cpd-space-2x);
+}

@@ -39,6 +39,8 @@ export interface DesktopProfileAvailability {
     isIgnored: boolean;
     /** The current user may moderate this member, which hands over to the room info panel. */
     canModerate: boolean;
+    /** The current user may change this person's nickname in the server of the room being viewed. */
+    canChangeNickname?: boolean;
 }
 
 /** Everything the popout card renders. */
@@ -58,6 +60,8 @@ export interface DesktopProfilePopoutViewActions {
     copyLink(this: void): void;
     toggleIgnore(this: void): void;
     moderate(this: void): void;
+    /** Open the dialog that changes the person's nickname in the server. Offered when `canChangeNickname`. */
+    changeNickname?(this: void): void;
     openFullProfile(this: void): void;
     /** Open a room, such as the voice channel the person is in. */
     openRoom(this: void, id: string): void;
@@ -154,6 +158,9 @@ export function DesktopProfilePopoutView({ vm }: DesktopProfilePopoutViewProps):
                                 }
                                 onSelect={vm.toggleIgnore}
                             />
+                        )}
+                        {snapshot.canChangeNickname && vm.changeNickname && (
+                            <MenuItem label={_t("desktop|profile|change_nickname")} onSelect={vm.changeNickname} />
                         )}
                         {snapshot.canModerate && (
                             <MenuItem label={_t("desktop|profile|moderate")} onSelect={vm.moderate} />

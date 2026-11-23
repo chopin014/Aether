@@ -61,6 +61,8 @@ import {
     setServerVoiceMute,
     type ServerVoiceMute,
 } from "../../utils/call/serverVoiceMute";
+import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
 
 /** The person a voice user menu is about, and where they were found. */
 export interface VoiceUserMenuViewModelProps {
@@ -138,6 +140,7 @@ export class VoiceUserMenuViewModel
                 room && serverForVoiceMute(client, room.roomId, client.getSafeUserId())
                     ? getServerVoiceMute(client, room.roomId, userId)
                     : undefined,
+            canChangeNickname: VoiceUserMenuViewModel.canChangeNickname(client, room, userId),
         };
     }
 
@@ -151,6 +154,12 @@ export class VoiceUserMenuViewModel
     private static moveDestinations(client: MatrixClient, room: Room, userId: string): VoiceUserMenuChannel[] {
         if (!VoiceUserMenuViewModel.mayMoveFromCall(client, room, userId)) return [];
         return voiceMoveDestinations(client, room).map((channel) => ({ id: channel.roomId, name: channel.name }));
+    }
+
+    /** Whether the user may change the person's nickname in the server the room belongs to. */
+    private static canChangeNickname(client: MatrixClient, room: Room | undefined, userId: string): boolean {
+        const server = room && serverOfRoom(client, room);
+        return !!server && mayChangeNickname(server, client.getSafeUserId(), userId);
     }
 
     private static displayName({ client, userId, room }: VoiceUserMenuViewModelProps): string {
@@ -368,6 +377,12 @@ export class VoiceUserMenuViewModel
             });
         }
     }
+
+    public changeNickname = (): void => {
+        const { client, room, userId } = this.props;
+        const server = room && serverOfRoom(client, room);
+        if (server) showServerNicknameDialog(client, server, userId);
+    };
 
     /** Changes the person's power level in the room, with Element's warnings for changes that cannot be undone. */
     public setRole = async (level: number): Promise<void> => {

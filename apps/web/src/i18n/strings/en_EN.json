@@ -863,6 +863,9 @@
         "members": {
             "invited": "Invited"
         },
+        "nickname": {
+            "change": "Change nickname"
+        },
         "profile_editor": {
             "error_forbidden": "Your homeserver does not allow this change.",
             "error_generic": "Your profile could not be saved. What went through is kept, so you can try again.",

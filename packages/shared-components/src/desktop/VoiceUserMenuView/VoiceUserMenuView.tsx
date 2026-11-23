@@ -85,10 +85,13 @@ export interface VoiceUserMenuViewSnapshot {
     readonly moveDestinations: readonly VoiceUserMenuChannel[];
     /** Whether the user may disconnect the person from the call they are in, as anyone who may move them can. */
     readonly canDisconnect: boolean;
+    /**
      * Whether a moderator muted or deafened the person in the server's voice channels. Present only when the user
      * may do so; the entries are hidden otherwise.
      */
     readonly serverVoiceMute?: { readonly muted: boolean; readonly deafened: boolean };
+    /** Whether the user may change the person's nickname in the channel's server: their own, or as a moderator. */
+    readonly canChangeNickname: boolean;
 }
 
 /** What choosing an entry in the voice user menu does. */
@@ -117,6 +120,8 @@ export interface VoiceUserMenuViewActions {
     toggleServerMuted(): void;
     /** Deafens or undeafens the person in all of the server's voice channels. */
     toggleServerDeafened(): void;
+    /** Opens the dialog that changes the person's nickname in the server. */
+    changeNickname(): void;
 }
 
 /** The view model behind the voice user menu. */
@@ -545,6 +550,14 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                         </SubMenu>
                     )}
                 </>
+            )}
+            {s.canChangeNickname && (
+                <Item
+                    onHover={closeSubMenu}
+                    label={_t("desktop|voice_user_menu|change_nickname")}
+                    onSelect={select(vm.changeNickname)}
+                    testId="voice-user-menu-change-nickname"
+                />
             )}
             <Item
                 onHover={closeSubMenu}

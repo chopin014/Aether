@@ -43,6 +43,7 @@ import { leaveSpace } from "../../utils/leave-behaviour";
 import { shouldShowSpaceSettings, showCreateNewRoom, showSpaceInvite, showSpaceSettings } from "../../utils/space";
 import { hasCreateRoomRights } from "../room-list/utils";
 import { reportLayoutError, showCreateCategory } from "../room-list/serverCategories";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
 
 interface Props {
     /** The server whose menu this is. */
@@ -144,6 +145,11 @@ export class ServerMenuViewModel extends BaseViewModel<ServerMenuViewSnapshot, P
     };
 
     public openSettings = (): void => showSpaceSettings(this.props.space);
+
+    public changeNickname = (): void => {
+        const { client, space } = this.props;
+        showServerNicknameDialog(client, space, client.getSafeUserId());
+    };
 
     public createChannel = (): void => {
         void showCreateNewRoom(this.props.space);

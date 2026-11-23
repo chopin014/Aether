@@ -20,6 +20,7 @@ import type { StoredSound } from "../audio/soundboard/Soundboard";
 import type { PublishedVoiceStateContent } from "../utils/call/publishedVoiceState";
 import type { VoiceMoveContent } from "../utils/call/voiceMove";
 import type { ServerVoiceMuteContent } from "../utils/call/serverVoiceMute";
+import type { MemberNickContent, ServerNicknamesContent } from "../utils/serverNickname";
 
 // Extend Matrix JS SDK types via Typescript declaration merging to support unspecced event fields and types
 declare module "matrix-js-sdk/src/@types/state_events" {
@@ -55,6 +56,8 @@ declare module "matrix-js-sdk/src/types" {
         "io.aether.voice.move": VoiceMoveContent;
         // A moderator muting or deafening someone in a server's voice channels, see utils/call/serverVoiceMute.ts
         "io.aether.voice.server_mute": ServerVoiceMuteContent;
+        // A moderator's nickname for someone in a server, see utils/serverNickname.ts
+        "io.aether.member.nick": MemberNickContent;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 
@@ -104,6 +107,8 @@ declare module "matrix-js-sdk/src/types" {
         };
     }
     export interface AccountDataEvents {
+        // The user's per-server nicknames, see utils/serverNickname.ts
+        "io.aether.server_nicknames": ServerNicknamesContent;
         // Analytics account data event
         "im.vector.analytics": {
             id: string;

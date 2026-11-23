@@ -16,6 +16,7 @@ import {
     SettingsIcon,
     UserAddIcon,
     CodeIcon,
+    EditIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../core/i18n/i18n";
@@ -60,6 +61,8 @@ export interface ServerMenuViewActions {
     setNotificationLevel: (level: ServerNotificationLevel) => void;
     toggleHideMutedChannels: () => void;
     openSettings: () => void;
+    /** Change the user's own nickname in the server. */
+    changeNickname: () => void;
     /** Create a channel, choosing whether it is a text or a voice channel. */
     createChannel: () => void;
     createCategory: () => void;
@@ -145,17 +148,21 @@ export function ServerMenuView({ vm }: { vm: ServerMenuViewModel }): JSX.Element
                 checked={s.hideMutedChannels}
                 onSelect={vm.toggleHideMutedChannels}
             />
+            <Separator />
             {s.canOpenSettings && (
-                <>
-                    <Separator />
-                    <MenuItem
-                        Icon={SettingsIcon}
-                        label={_t("desktop|server_menu|settings")}
-                        onSelect={vm.openSettings}
-                        hideChevron
-                    />
-                </>
+                <MenuItem
+                    Icon={SettingsIcon}
+                    label={_t("desktop|server_menu|settings")}
+                    onSelect={vm.openSettings}
+                    hideChevron
+                />
             )}
+            <MenuItem
+                Icon={EditIcon}
+                label={_t("desktop|server_menu|change_nickname")}
+                onSelect={vm.changeNickname}
+                hideChevron
+            />
             {canCreate && <Separator />}
             {s.canCreateChannel && (
                 <MenuItem

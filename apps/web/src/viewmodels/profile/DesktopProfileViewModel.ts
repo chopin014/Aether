@@ -70,6 +70,8 @@ import {
 import { wornSpaceTag } from "../../profile/spaceTag";
 import { getUserNote, setUserNote } from "../../profile/userNotes";
 import { VoiceActivityIndex, voiceActivity } from "../../profile/voiceActivity";
+import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
 
 /** One snapshot serves both the popout card and the full profile. */
 export type DesktopProfileViewSnapshot = DesktopFullProfileViewSnapshot & DesktopProfilePopoutViewSnapshot;
@@ -255,6 +257,7 @@ export class DesktopProfileViewModel
                 member?.membership === KnownMembership.Join,
             isIgnored: client.isUserIgnored(userId),
             canModerate,
+            canChangeNickname: DesktopProfileViewModel.canChangeNickname(client, room, userId),
             busy: extra.busy ?? false,
             error: extra.error ?? false,
             memberSince,
@@ -452,6 +455,20 @@ export class DesktopProfileViewModel
         const { client, member } = this.props;
         if (client.isUserIgnored(member.userId)) void unignoreUser(client, member.userId);
         else void confirmAndIgnoreUser(client, member);
+    };
+
+    /** Whether the user may change the person's nickname in the server of the room being viewed. */
+    private static canChangeNickname(client: MatrixClient, room: Room | undefined, userId: string): boolean {
+        const server = room && serverOfRoom(client, room);
+        return !!server && mayChangeNickname(server, client.getSafeUserId(), userId);
+    }
+
+    public changeNickname = (): void => {
+        const { client, room, member } = this.props;
+        const server = room && serverOfRoom(client, room);
+        if (!server) return;
+        this.props.onClose();
+        showServerNicknameDialog(client, server, member.userId);
     };
 
     /** Moderation (kick, ban, power level) lives in the room info panel; this hands the member over to it. */

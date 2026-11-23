@@ -42,6 +42,7 @@ function makeVm(snapshot: Partial<DesktopProfilePopoutViewSnapshot> = {}) {
             copyLink: vi.fn(),
             toggleIgnore: vi.fn(),
             moderate: vi.fn(),
+            changeNickname: vi.fn(),
             openFullProfile: vi.fn(),
             openRoom: vi.fn(),
             editProfile: vi.fn(),
@@ -179,6 +180,18 @@ describe("DesktopProfilePopoutView", () => {
         expect(screen.queryByRole("menuitem", { name: "Moderate in room info" })).toBeNull();
         await userEvent.click(screen.getByRole("menuitem", { name: "Unignore" }));
         expect(vm.toggleIgnore).toHaveBeenCalled();
+    });
+
+    it("offers changing the person's nickname only when the viewer may", async () => {
+        const vm = makeVm({ canChangeNickname: true });
+        const { unmount } = render(<DesktopProfilePopoutView vm={vm} />);
+        await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+        await userEvent.click(screen.getByRole("menuitem", { name: "Change nickname" }));
+        expect(vm.changeNickname).toHaveBeenCalledOnce();
+        unmount();
+        render(<DesktopProfilePopoutView vm={makeVm()} />);
+        await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+        expect(screen.queryByRole("menuitem", { name: "Change nickname" })).toBeNull();
     });
 
     it("places the portalled menu above a positioned profile host", async () => {

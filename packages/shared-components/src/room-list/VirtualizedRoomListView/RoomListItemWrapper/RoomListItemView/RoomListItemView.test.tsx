@@ -104,6 +104,7 @@ describe("<RoomListItemView />", () => {
                 roles: [],
                 moveDestinations: [],
                 canDisconnect: false,
+                canChangeNickname: false,
             }),
             {
                 viewProfile: vi.fn(),
@@ -126,6 +127,7 @@ describe("<RoomListItemView />", () => {
                 disconnect: vi.fn(),
                 toggleServerMuted: vi.fn(),
                 toggleServerDeafened: vi.fn(),
+                changeNickname: vi.fn(),
             },
         );
         const openMenu = vi.fn(() => menu);

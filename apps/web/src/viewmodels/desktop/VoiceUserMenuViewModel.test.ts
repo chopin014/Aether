@@ -26,6 +26,14 @@ import { verifyUser } from "../../verification";
 import { confirmAndIgnoreUser } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
 import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
 import { SERVER_VOICE_MUTE_EVENT_TYPE } from "../../utils/call/serverVoiceMute";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
+import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
+
+vi.mock("../../components/views/desktop/DesktopServerNicknameDialog", () => ({ showServerNicknameDialog: vi.fn() }));
+vi.mock("../../utils/serverNickname", () => ({
+    serverOfRoom: vi.fn(),
+    mayChangeNickname: vi.fn(() => false),
+}));
 
 vi.mock("../../Modal");
 vi.mock("../../utils/dm/findDMRoom", () => ({ findDMRoom: vi.fn(() => null) }));
@@ -423,5 +431,19 @@ describe("VoiceUserMenuViewModel", () => {
             );
             vm.dispose();
         });
+    });
+
+    it("offers changing the person's nickname in the channel's server when the user may", () => {
+        expect(create().getSnapshot().canChangeNickname).toBe(false);
+        vi.mocked(serverOfRoom).mockReturnValue(space);
+        vi.mocked(mayChangeNickname).mockReturnValue(true);
+        const vm = create();
+        expect(vm.getSnapshot().canChangeNickname).toBe(true);
+        expect(mayChangeNickname).toHaveBeenCalledWith(space, ME, BOB);
+        vm.changeNickname();
+        expect(showServerNicknameDialog).toHaveBeenCalledWith(client, space, BOB);
+        vm.dispose();
+        vi.mocked(serverOfRoom).mockReturnValue(undefined);
+        vi.mocked(mayChangeNickname).mockReturnValue(false);
     });
 });
