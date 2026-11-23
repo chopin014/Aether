@@ -65,6 +65,7 @@ import { type AfterLeaveRoomPayload } from "../../dispatcher/payloads/AfterLeave
 import { type SDKContextClass } from "../../contexts/SDKContextClass";
 import { ModuleApi } from "../../modules/Api.ts";
 import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
+import { SPACE_CHILD_JOINABLE_FIELD } from "./joinableChild";
 
 const ACTIVE_SPACE_LS_KEY = "mx_active_space";
 
@@ -545,13 +546,25 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         return [];
     };
 
-    public addRoomToSpace(space: Room, roomId: string, via: string[], suggested = false): Promise<ISendEventResponse> {
+    /**
+     * Add a room to a Space.
+     * @param joinable - whether every member of the Space can join the room, when known: their clients then join a
+     *     new channel without asking the server about it first.
+     */
+    public addRoomToSpace(
+        space: Room,
+        roomId: string,
+        via: string[],
+        suggested = false,
+        joinable?: boolean,
+    ): Promise<ISendEventResponse> {
         return this.matrixClient!.sendStateEvent(
             space.roomId,
             EventType.SpaceChild,
             {
                 via,
                 suggested,
+                ...(joinable === undefined ? {} : { [SPACE_CHILD_JOINABLE_FIELD]: joinable }),
             },
             roomId,
         );
