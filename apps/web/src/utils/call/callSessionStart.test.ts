@@ -90,6 +90,34 @@ describe("getCallSessionStart", () => {
         expect(getCallSessionStart(room, [membership(3_000)])).toBe(1_000);
     });
 
+    describe("a membership left behind by a client that quit without leaving", () => {
+        const DAY = 24 * 60 * 60 * 1000;
+        const staleJoin = 1_000;
+        // The device only cleans its membership up when it joins again, days later, just before this call.
+        const cleanedUp = 18 * DAY;
+        const stale = { ...joined("opon"), expires: 4 * 60 * 60 * 1000 };
+        // A refreshed membership, as a leave's previous content, says when it began.
+        const staleRefreshed = { ...stale, created_ts: staleJoin };
+
+        it("ends at its expiry, not at the device's next event", () => {
+            const join = memberEvent("opon", staleJoin, stale);
+            const leave = memberEvent("opon", cleanedUp, {});
+            room.getLiveTimeline().addEvent(join, { toStartOfTimeline: false, addToState: true });
+            room.getLiveTimeline().addEvent(leave, { toStartOfTimeline: false, addToState: true });
+            expect(getCallSessionStart(room, [membership(cleanedUp - 1_000)])).toBe(cleanedUp - 1_000);
+        });
+
+        it("ends at its expiry when only the leave that cleans it up is loaded", () => {
+            room.currentState.setStateEvents([memberEvent("opon", cleanedUp, {}, staleRefreshed)]);
+            expect(getCallSessionStart(room, [membership(cleanedUp - 1_000)])).toBe(cleanedUp - 1_000);
+        });
+
+        it("still counts while it had not yet expired", () => {
+            room.currentState.setStateEvents([memberEvent("opon", cleanedUp, {}, staleRefreshed)]);
+            expect(getCallSessionStart(room, [membership(staleJoin + stale.expires)])).toBe(staleJoin);
+        });
+    });
+
     it("ignores memberships of other applications", () => {
         room.currentState.setStateEvents([
             memberEvent("alice", 4_000, {}, { application: "m.other", device_id: "ALICE", created_ts: 1_000 }),
