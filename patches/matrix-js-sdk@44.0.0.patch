@@ -1062,7 +1062,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -809,7 +1039,36 @@
+@@ -809,14 +1039,49 @@
              }
          } */
  
@@ -1100,7 +1100,21 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -825,6 +1084,19 @@
+ 
+         // local fields must be set before any async calls because call site assumes
+         // synchronous execution prior to emitting SlidingSyncState.Complete
+-        room.updateMyMembership(KnownMembership.Join);
++        // A room the user left, or was removed from, is sent once more with that change. It keeps the membership
++        // recalculating the room gives it, as /sync v2 does, rather than briefly becoming joined again.
++        const ownMembership = room.currentState
++            .getStateEvents(EventType.RoomMember, this.client.getUserId()!)
++            ?.getContent().membership;
++        const hasLeft = ownMembership === KnownMembership.Leave || ownMembership === KnownMembership.Ban;
++        room.updateMyMembership(hasLeft ? ownMembership : KnownMembership.Join);
+ 
+         room.setMSC4186SummaryData(roomData.heroes, roomData.joined_count, roomData.invited_count);
+ 
+@@ -825,6 +1090,19 @@
          room._unstable_addStickyEvents(timelineEvents.filter((e) => e.unstableStickyInfo !== undefined));
  
          room.recalculate();
@@ -1120,7 +1134,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.initial) {
              client.store.storeRoom(room);
              client.emit(ClientEvent.Room, room);
-@@ -832,17 +1104,15 @@
+@@ -832,17 +1110,15 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -1145,7 +1159,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -853,6 +1123,82 @@
+@@ -853,6 +1129,82 @@
          room.decryptCriticalEvents();
      }
  
@@ -1228,7 +1242,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      /**
       * Injects events into a room's model.
       * @param stateEventList - A list of state events. This is the state
-@@ -887,20 +1233,11 @@
+@@ -887,20 +1239,11 @@
              liveTimeline.initialiseState(stateEventList);
          }
  
@@ -1253,7 +1267,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.oldState.setStateEvents(stateEventList);
              room.currentState.setStateEvents(stateEventList);
          }
-@@ -931,6 +1268,13 @@
+@@ -931,6 +1274,13 @@
                  addToState: false,
              });
          }
@@ -1267,7 +1281,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          room.recalculate();
  
-@@ -991,12 +1335,192 @@
+@@ -991,12 +1341,192 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -1464,7 +1478,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1531,6 @@
+@@ -1007,9 +1537,6 @@
                  }
              }
          }
@@ -1474,7 +1488,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,7 +1538,15 @@
+@@ -1017,7 +1544,15 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -1490,7 +1504,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1099,6 +1628,22 @@
+@@ -1099,6 +1634,22 @@
      return roomData;
  }
  
