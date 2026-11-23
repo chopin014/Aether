@@ -38,6 +38,22 @@ export function samePage(a: string, b: string): boolean {
 }
 
 /**
+ * The app's own pop-up menus and lists. Any of them reaching over the player hides the embedded browser, wherever in
+ * the app it was opened from (the voice channel member menu in the sidebar, the header search, …).
+ */
+const FLOATING_UI = "[role='menu'], [role='listbox'], .mx_ContextualMenu";
+
+/** Whether one of the app's pop-up menus is shown over the given part of the window. */
+function menuOver(doc: Document, box: DOMRect): boolean {
+    for (const menu of doc.querySelectorAll(FLOATING_UI)) {
+        const r = menu.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) continue;
+        if (r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top) return true;
+    }
+    return false;
+}
+
+/**
  * A website shown in the desktop app's own embedded browser and laid over the player tile. Everyone opens the page
  * themselves, signs in and clicks through like in a browser; once the page shows a video, it is kept in sync. The
  * embedded browser always draws above the app, so it is hidden, showing a still frame instead, whenever part of the
@@ -184,7 +200,7 @@ export class SitePlayer implements WatchPlayer {
         if (!this.obscured && element.isConnected && view === window) {
             const box = element.getBoundingClientRect();
             const hidden = getComputedStyle(element).visibility === "hidden";
-            if (!hidden && box.width >= 2 && box.height >= 2) {
+            if (!hidden && box.width >= 2 && box.height >= 2 && !menuOver(element.ownerDocument, box)) {
                 bounds = { x: box.left, y: box.top, width: box.width, height: box.height };
             }
         }
