@@ -134,6 +134,9 @@ patchedDependencies:
     # Tweaks to record screenshot diffs as vitest artifacts
     vitest-plugin-vis@5: patches/vitest-plugin-vis@5.1.5.patch
     storybook-addon-vis@4: patches/storybook-addon-vis@4.3.1.patch
+    # Bundled types squash `@ts-expect-error` comments onto the line they cover, so they fail type checks
+    # https://github.com/storybookjs/storybook/issues/37336
+    "@storybook/react@10.6.7": patches/@storybook__react@10.6.7.patch
     matrix-widget-api@1.20.0: patches/matrix-widget-api@1.20.0.patch
     matrix-js-sdk@44.0.0: patches/matrix-js-sdk@44.0.0.patch
     # Closed label tooltips stay mounted: only track their position, and draw their arrow, while open
