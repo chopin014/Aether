@@ -15,7 +15,14 @@ import {
     _t,
     type ToastType,
 } from "@element-hq/web-shared-components";
-import { Room, type MatrixClient, PendingEventOrdering, RoomType } from "matrix-js-sdk/src/matrix";
+import {
+    EventType,
+    MatrixEvent,
+    Room,
+    type MatrixClient,
+    PendingEventOrdering,
+    RoomType,
+} from "matrix-js-sdk/src/matrix";
 
 import {
     categoryIdOfTag,
@@ -55,6 +62,9 @@ import {
 } from "../../stores/notifications/RoomNotificationStateStore";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
 import { PreviewRoomListItemViewModel, type PreviewRoomListItemProps } from "./PreviewRoomListItemViewModel";
+import { UnjoinedChannelItemViewModel } from "./UnjoinedChannelItemViewModel";
+import { UnjoinedChannelsStore, UnjoinedChannelsStoreEvent } from "../../stores/spaces/UnjoinedChannelsStore";
+import { type ServerChannel } from "../../utils/servers/serverChannels";
 import { hasCreateRoomRights } from "./utils";
 import { keepIfSame } from "../../utils/keepIfSame";
 import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
@@ -229,6 +239,13 @@ export class RoomListViewModel
      */
     private previewRoom?: Room;
 
+    /**
+     * The channels of the open server that the user is not in, in the server's order, each with an empty `Room` used
+     * only to place it by the server's layout. See {@link updateUnjoinedChannels}.
+     */
+    private unjoinedChannels = new Map<string, { channel: ServerChannel; room: Room }>();
+    private readonly unjoinedItems = new Map<string, UnjoinedChannelItemViewModel>();
+
     public constructor(props: RoomListViewModelProps) {
         const activeSpace = props.spaceStore.activeSpaceRoom;
 
@@ -242,6 +259,7 @@ export class RoomListViewModel
         SpaceLayoutStore.instance.watch(props.client);
         TimedMutes.instance.watch(props.client);
         ServerNotificationDefaults.instance.watch(props.client);
+        UnjoinedChannelsStore.instance.watch(props.client);
         const selectedRoomId = props.roomViewStore.getRoomId();
         const { sections, isFlatList } = computeSections(
             roomsResult,
@@ -286,6 +304,13 @@ export class RoomListViewModel
         this.disposables.trackListener(
             SpaceLayoutStore.instance,
             SpaceLayoutStoreEvent.Changed,
+            this.onSpaceLayoutChanged as (...args: unknown[]) => void,
+        );
+
+        // The channels of a server the user is not in, listed with the rest
+        this.disposables.trackListener(
+            UnjoinedChannelsStore.instance,
+            UnjoinedChannelsStoreEvent.Changed,
             this.onSpaceLayoutChanged as (...args: unknown[]) => void,
         );
 
@@ -335,6 +360,8 @@ export class RoomListViewModel
             }
             this.roomItemViewModels.clear();
             this.previewItem?.dispose();
+            for (const viewModel of this.unjoinedItems.values()) viewModel.dispose();
+            this.unjoinedItems.clear();
             for (const viewModel of this.roomSectionHeaderViewModels.values()) {
                 viewModel.dispose();
             }
@@ -404,6 +431,59 @@ export class RoomListViewModel
     }
 
     /**
+     * Pick up the channels of the open server that the user is not in, for a server's channel list without a filter.
+     * A channel in the list already, such as one just joined, is left out; its row is kept until then, so a channel
+     * being joined never drops out of the list.
+     */
+    private updateUnjoinedChannels(): void {
+        const { spaceId } = this.roomsResult;
+        const channels =
+            isDesktopChannelList(spaceId) && this.activeFilter === undefined
+                ? UnjoinedChannelsStore.instance.getChannels(spaceId)
+                : [];
+        const listed = new Set(
+            this.roomsResult.sections.flatMap((section) => section.rooms.map((room) => room.roomId)),
+        );
+
+        const next = new Map<string, { channel: ServerChannel; room: Room }>();
+        for (const channel of channels) {
+            if (listed.has(channel.roomId)) continue;
+            const previous = this.unjoinedChannels.get(channel.roomId);
+            next.set(
+                channel.roomId,
+                previous?.channel === channel
+                    ? previous
+                    : { channel, room: unjoinedChannelRoom(this.props.client, channel) },
+            );
+        }
+        // Rows whose channel changed or went get a fresh view model when next shown.
+        for (const [roomId, item] of this.unjoinedItems) {
+            if (next.get(roomId) === this.unjoinedChannels.get(roomId)) continue;
+            item.dispose();
+            this.unjoinedItems.delete(roomId);
+        }
+        this.unjoinedChannels = next;
+    }
+
+    /** Add the channels of the open server that the user is not in, to be placed by the server's layout. */
+    private withUnjoinedChannels(roomsResult: RoomsResult): RoomsResult {
+        if (this.unjoinedChannels.size === 0 || roomsResult.spaceId !== this.roomsResult.spaceId) return roomsResult;
+        const rooms = [...this.unjoinedChannels.values()].map(({ room }) => room);
+        return { ...roomsResult, sections: [...roomsResult.sections, { tag: UNJOINED_CHANNELS_TAG, rooms }] };
+    }
+
+    private getUnjoinedItem(roomId: string): UnjoinedChannelItemViewModel | undefined {
+        const unjoined = this.unjoinedChannels.get(roomId);
+        if (!unjoined) return undefined;
+        let item = this.unjoinedItems.get(roomId);
+        if (!item) {
+            item = new UnjoinedChannelItemViewModel({ client: this.props.client, channel: unjoined.channel });
+            this.unjoinedItems.set(roomId, item);
+        }
+        return item;
+    }
+
+    /**
      * Work out what to show for the open room if it isn't in the list and the user isn't a member of it.
      * The client has the room if the user has left it; otherwise all we have is its summary, which RoomView
      * only gets for rooms the client doesn't know.
@@ -413,6 +493,8 @@ export class RoomListViewModel
         if (!roomId || this.roomsResult.sections.some((s) => s.rooms.some((room) => room.roomId === roomId))) {
             return undefined;
         }
+        // A channel of the open server the user is not in already has its row.
+        if (this.unjoinedChannels.has(roomId)) return undefined;
 
         let props: PreviewRoomListItemProps | undefined;
         const room = this.props.client.getRoom(roomId);
@@ -520,7 +602,7 @@ export class RoomListViewModel
      * Get the ordered list of room IDs.
      */
     public get roomIds(): string[] {
-        return this.channelSections(this.withPreviewRoom(this.roomsResult))
+        return this.channelSections(this.withPreviewRoom(this.withUnjoinedChannels(this.roomsResult)))
             .flatMap((section) => section.rooms)
             .map((room) => room.roomId);
     }
@@ -532,8 +614,12 @@ export class RoomListViewModel
      * The view should call this only for visible rooms from the roomIds list.
      * @throws Error if room is not found in roomsMap (indicates a programming error)
      */
-    public getRoomItemViewModel(roomId: string): RoomListItemViewModel | PreviewRoomListItemViewModel | undefined {
+    public getRoomItemViewModel(
+        roomId: string,
+    ): RoomListItemViewModel | PreviewRoomListItemViewModel | UnjoinedChannelItemViewModel | undefined {
         if (this.previewItem?.roomId === roomId) return this.previewItem;
+        const unjoined = this.getUnjoinedItem(roomId);
+        if (unjoined) return unjoined;
 
         // Check if we have a view model for this room
         let viewModel = this.roomItemViewModels.get(roomId);
@@ -1035,6 +1121,7 @@ export class RoomListViewModel
         // Rebuild roomsMap with the reordered rooms
         this.updateRoomsMap(this.roomsResult);
 
+        this.updateUnjoinedChannels();
         this.updatePreviewItem();
 
         // Track the current active room position for future sticky calculations
@@ -1059,12 +1146,13 @@ export class RoomListViewModel
         }
 
         // Build the complete state atomically to ensure consistency
-        const roomsResult = this.withPreviewRoom(this.roomsResult);
+        const roomsResult = this.withPreviewRoom(this.withUnjoinedChannels(this.roomsResult));
         const { sections, isFlatList } = computeSections(
             roomsResult,
             this.channelSections(roomsResult),
             (tag) => this.roomSectionHeaderViewModels.get(tag)?.isExpanded ?? true,
-            (room) => keepInCollapsedCategory(room, roomId),
+            // A channel the user is not in has nothing new to show.
+            (room) => !this.unjoinedChannels.has(room.roomId) && keepInCollapsedCategory(room, roomId),
             emptyCategoryFilter(this.roomsResult, canEdit),
         );
         this.sections = sections;
@@ -1359,6 +1447,31 @@ function computeSections(
     });
 
     return { sections, isFlatList };
+}
+
+/** The section the channels of a server the user is not in come in, before the server's layout places them. */
+const UNJOINED_CHANNELS_TAG = "desktop.unjoined";
+
+/**
+ * An empty room standing in for a channel the user is not in, so the server's layout can place it. Its creation event
+ * carries the channel's type, which decides its built-in category, and the time it was added to the server, close to
+ * when it was made for most channels, which orders the channels nobody placed.
+ */
+function unjoinedChannelRoom(client: MatrixClient, channel: ServerChannel): Room {
+    const room = new Room(channel.roomId, client, client.getSafeUserId(), {
+        pendingEventOrdering: PendingEventOrdering.Detached,
+    });
+    room.name = channel.name;
+    room.currentState.setStateEvents([
+        new MatrixEvent({
+            type: EventType.RoomCreate,
+            state_key: "",
+            room_id: channel.roomId,
+            origin_server_ts: channel.addedAt,
+            content: channel.roomType ? { type: channel.roomType } : {},
+        }),
+    ]);
+    return room;
 }
 
 /**
