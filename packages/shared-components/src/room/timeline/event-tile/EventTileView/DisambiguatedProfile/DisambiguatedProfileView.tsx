@@ -138,7 +138,7 @@ export function DisambiguatedProfileView({
             <span className={displayNameClasses} dir="auto">
                 {nameStyle ? <ProfileName nameStyle={nameStyle}>{displayName}</ProfileName> : displayName}
             </span>
-            {tag && <DesktopProfileTagChip tag={tag} />}
+            {tag && <DesktopProfileTagChip tag={tag} className={styles.tag} />}
             {userStatus && (
                 <Tooltip description={userStatus.text} maxWidth="30ch" maxLines={1}>
                     <Text

@@ -32,6 +32,22 @@
     .userStatus {
         margin-inline-start: 5px;
     }
+
+    /*
+     * Beside a name the tag is drawn as Discord draws a server tag there: a small flat chip on a faint wash, which
+     * reads on a nameplate as well as on the plain list, without the outline it has on a profile card.
+     */
+    .tag {
+        margin-inline-start: var(--cpd-space-1x);
+        padding: 0 var(--cpd-space-1x);
+        gap: 2px;
+        border-radius: 4px;
+        background: var(--cpd-color-alpha-gray-400);
+        box-shadow: none;
+        font: var(--cpd-font-body-xs-semibold);
+        line-height: 16px;
+        vertical-align: middle;
+    }
 }
 
 .disambiguatedProfile[data-event-density="compact"] {

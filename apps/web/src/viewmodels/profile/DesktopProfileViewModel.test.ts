@@ -489,6 +489,10 @@ describe("DesktopProfileViewModel", () => {
         });
 
         it("shows the voice channel the person is in, and follows them as they move", () => {
+            const merged = vi.spyOn(presenceModule, "getMergedPresence").mockReturnValue({
+                state: "online",
+                source: "aether",
+            } as ReturnType<typeof presenceModule.getMergedPresence>);
             const index = VoiceActivityIndex.instance;
             const roomOf = vi.spyOn(index, "roomOf").mockReturnValue(undefined);
             const activity = vi.spyOn(voiceActivityModule, "voiceActivity");
@@ -506,6 +510,13 @@ describe("DesktopProfileViewModel", () => {
             (index as unknown as { listeners: Set<() => void> }).listeners.forEach((listener) => listener());
             expect(activity).toHaveBeenLastCalledWith(client, "!lounge:example.org");
             expect(vm.getSnapshot().activity?.channelName).toBe("Lounge");
+
+            // Someone who appears offline, such as an invisible person, shows no voice channel.
+            merged.mockReturnValue({ state: "offline", source: "aether" } as ReturnType<
+                typeof presenceModule.getMergedPresence
+            >);
+            (index as unknown as { listeners: Set<() => void> }).listeners.forEach((listener) => listener());
+            expect(vm.getSnapshot().activity).toBeUndefined();
         });
 
         it("opens a mutual room and closes", () => {
