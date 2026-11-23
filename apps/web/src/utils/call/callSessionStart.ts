@@ -6,7 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { EventType, type MatrixEvent, type Room } from "matrix-js-sdk/src/matrix";
-import { type CallMembership } from "matrix-js-sdk/src/matrixrtc";
+import { type CallMembership, DEFAULT_EXPIRE_DURATION } from "matrix-js-sdk/src/matrixrtc";
 
 /**
  * How long a call may sit empty and still count as the same call, so that a reconnect, or someone leaving just
@@ -39,9 +39,23 @@ function joinedAt(content: Record<string, unknown>, fallback: number): number {
 }
 
 /**
+ * When the membership in a call member event's content stopped being valid. A client that quits without leaving
+ * leaves its membership in the room state, and it only goes away when that device sends its next membership event,
+ * which can be days later.
+ */
+function expiresAt(content: Record<string, unknown>, joined: number): number {
+    return joined + (typeof content.expires === "number" ? content.expires : DEFAULT_EXPIRE_DURATION);
+}
+
+/** A device's stretch of presence for a membership that began at `from` and was replaced or left at `endedAt`. */
+function presenceOf(content: Record<string, unknown>, from: number, endedAt: number): Presence {
+    return { from, until: Math.min(endedAt, expiresAt(content, from)) };
+}
+
+/**
  * Every stretch of call presence the room's state and loaded timeline tell us about, including people who have
- * since left. A device's later membership events end its earlier ones, and a leave event's previous content says
- * when the membership it ends began.
+ * since left. A device's later membership events end its earlier ones, a leave event's previous content says
+ * when the membership it ends began, and no membership outlasts its expiry.
  */
 function knownPresence(room: Room): Presence[] {
     const events = new Map<string, MatrixEvent>();
@@ -67,10 +81,11 @@ function knownPresence(room: Room): Presence[] {
             const content = event.getContent();
             const next = deviceEvents[index + 1];
             if (isJoined(content)) {
-                presence.push({ from: joinedAt(content, event.getTs()), until: next?.getTs() ?? event.getTs() });
+                presence.push(presenceOf(content, joinedAt(content, event.getTs()), next?.getTs() ?? event.getTs()));
             } else if (index === 0 && isJoined(event.getPrevContent())) {
                 // The join this leave ends is not loaded, but its content came along with the leave.
-                presence.push({ from: joinedAt(event.getPrevContent(), event.getTs()), until: event.getTs() });
+                const prev = event.getPrevContent();
+                presence.push(presenceOf(prev, joinedAt(prev, event.getTs()), event.getTs()));
             }
         });
     }
