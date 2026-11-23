@@ -73,6 +73,8 @@ describe("planFolders", () => {
             getUserId: () => ME,
             supportsThreads: () => false,
             store: { getPendingEvents: async () => [] },
+            // Stand-in rooms read their pending events back through the event mapper.
+            getEventMapper: () => () => undefined,
         } as unknown as MatrixClient;
         unjoinedChannels = {};
         unjoinedServers = {};
