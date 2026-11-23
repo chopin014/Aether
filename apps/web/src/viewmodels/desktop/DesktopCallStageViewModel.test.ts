@@ -35,6 +35,18 @@ import { RichProfileStore } from "../../profile/RichProfileStore";
 import * as RoomInvite from "../../RoomInvite";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { VoiceUserMenuViewModel } from "./VoiceUserMenuViewModel";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
+
+vi.mock("../../utils/call/serverVoiceMute", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/call/serverVoiceMute")>()),
+    getServerVoiceMute: vi.fn(() => ({ muted: false, deafened: false })),
+    onServerVoiceMutesChanged: vi.fn(() => () => {}),
+}));
+
+// Nobody is muted by a moderator unless a test says so.
+beforeEach(() => {
+    vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+});
 
 vi.mock("../../utils/DMRoomMap", () => ({ default: { shared: vi.fn() } }));
 vi.mock("../../profile/RichProfileStore", () => ({
@@ -548,6 +560,44 @@ describe("DesktopCallStageViewModel", () => {
         chosen = { ...chosen, muted: false };
         preferences.emit(VoiceUserPreferencesEvent.Changed);
         expect(controller.setVolume).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not play someone a moderator muted, whatever their own app does", () => {
+        vi.spyOn(VoiceUserPreferences.instance, "effectiveVolume").mockReturnValue(1);
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
+        const controller = createVolumeController(1, false);
+        const bob = {
+            id: "bob",
+            userId: "@bob:example.org",
+            displayName: "Bob",
+            local: false,
+            speaking: true,
+            audioEnabled: true,
+            videoEnabled: false,
+            deafened: false,
+            mirror: false,
+            waitingForMedia: false,
+            unencryptedWarning: false,
+            encryptionStatus: "okay",
+            handRaisedAt: null,
+            reactionEmoji: null,
+            video: null,
+            microphoneVolume: controller,
+        } as AetherParticipantMediaItem;
+        const vm = new DesktopCallStageViewModel({
+            client: mockClient,
+            call: mockCall,
+            bridge: createBridge({ participants: [bob] }),
+        });
+        expect(controller.setVolume).toHaveBeenLastCalledWith(0);
+        expect(getServerVoiceMute).toHaveBeenCalledWith(mockClient, mockCall.roomId, "@bob:example.org");
+
+        // The moderator lifts the mute.
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+        expect(controller.setVolume).toHaveBeenLastCalledWith(1);
+        vm.dispose();
     });
 
     it("opens a person's menu for their tile and closes it with other menus", () => {

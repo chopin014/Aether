@@ -35,6 +35,7 @@ import { customizeDesktopVoiceProfile } from "../../audio/desktop/DesktopVoicePr
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
 
 interface Props {
     client: MatrixClient;
@@ -127,6 +128,7 @@ export class DesktopVoiceControlsViewModel
         props.callStore.on(CallStoreEvent.JoiningCalls, this.onCallsChanged);
         this.disposables.track(() => props.callStore.off(CallStoreEvent.JoiningCalls, this.onCallsChanged));
         this.disposables.trackListener(props.client, RoomEvent.Name, this.refresh);
+        this.disposables.track(onServerVoiceMutesChanged(props.client, this.refresh));
         for (const setting of [
             "audioInputMuted",
             "desktopDeafened",
@@ -220,6 +222,14 @@ export class DesktopVoiceControlsViewModel
         return cleanup;
     };
 
+    /** Whether a moderator muted or deafened the user in the server of the call they are in. */
+    private serverVoiceMute(call: ElementCall | undefined): { serverMuted: boolean; serverDeafened: boolean } {
+        const mute = call
+            ? getServerVoiceMute(this.props.client, call.roomId, this.props.client.getSafeUserId())
+            : undefined;
+        return { serverMuted: mute?.muted ?? false, serverDeafened: mute?.deafened ?? false };
+    }
+
     private readonly refresh = (): void => {
         if (this.isDisposed) return;
         const call = this.call?.locallyLeaving ? undefined : this.call;
@@ -241,6 +251,7 @@ export class DesktopVoiceControlsViewModel
                 ? !call.deviceMuteState.audio_enabled
                 : SettingsStore.getValue("audioInputMuted"),
             deafened: SettingsStore.getValue("desktopDeafened"),
+            ...this.serverVoiceMute(call),
             microphoneVolume: SettingsStore.getValue("desktopMicrophoneVolume"),
             speakerVolume: SettingsStore.getValue("desktopSpeakerVolume"),
             videoEnabled: call?.deviceMuteState?.video_enabled ?? false,
@@ -643,6 +654,8 @@ export class DesktopVoiceControlsViewModel
     };
 
     public toggleMicrophone = async (): Promise<void> => {
+        // A moderator's mute keeps the microphone off; the push to talk and shortcut paths end here too.
+        if (this.snapshot.current.serverMuted) return;
         await this.stopMicrophoneTest();
         await this.perform(async () => {
             if (this.snapshot.current.deafened) await this.setDeafened(false, true);
@@ -651,6 +664,8 @@ export class DesktopVoiceControlsViewModel
         });
     };
     public toggleDeafened = async (): Promise<void> => {
+        // A moderator's deafen keeps the call silent.
+        if (this.snapshot.current.serverDeafened) return;
         await this.stopMicrophoneTest();
         await this.perform(async () => {
             await this.setDeafened(!this.snapshot.current.deafened);

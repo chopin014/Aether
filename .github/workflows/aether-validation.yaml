@@ -76,6 +76,7 @@ jobs:
                   src/models/VoiceMoveFollower.test.ts
                   src/stores/CallStore.test.ts
                   src/stores/RoomViewStore.test.ts
+                  src/models/ServerVoiceMuteEnforcer.test.ts
             - name: Component tests in Chromium
               working-directory: packages/shared-components
               run: >-

@@ -54,6 +54,13 @@ import { _t } from "../../languageHandler";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { mayMoveVoiceMembers, voiceMoveDestinations } from "../../utils/call/voiceMove";
 import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
+import {
+    getServerVoiceMute,
+    onServerVoiceMutesChanged,
+    serverForVoiceMute,
+    setServerVoiceMute,
+    type ServerVoiceMute,
+} from "../../utils/call/serverVoiceMute";
 
 /** The person a voice user menu is about, and where they were found. */
 export interface VoiceUserMenuViewModelProps {
@@ -93,6 +100,7 @@ export class VoiceUserMenuViewModel
                 this.disposables.trackListener(session, MatrixRTCSessionEvent.MembershipsChanged, this.refresh);
             }
         }
+        this.disposables.track(onServerVoiceMutesChanged(props.client, this.refresh));
         void this.loadVerification();
     }
 
@@ -126,6 +134,10 @@ export class VoiceUserMenuViewModel
             roles: room ? VoiceUserMenuViewModel.roles(client, room, userId) : [],
             moveDestinations: room ? VoiceUserMenuViewModel.moveDestinations(client, room, userId) : [],
             canDisconnect: !!room && VoiceUserMenuViewModel.mayMoveFromCall(client, room, userId),
+            serverVoiceMute:
+                room && serverForVoiceMute(client, room.roomId, client.getSafeUserId())
+                    ? getServerVoiceMute(client, room.roomId, userId)
+                    : undefined,
         };
     }
 
@@ -332,6 +344,30 @@ export class VoiceUserMenuViewModel
         const { client, room, userId } = this.props;
         if (room) void disconnectVoiceMember(client, room.roomId, userId);
     };
+
+    public toggleServerMuted = (): void => {
+        const current = this.snapshot.current.serverVoiceMute;
+        if (current) void this.changeServerVoiceMute({ muted: !current.muted });
+    };
+
+    public toggleServerDeafened = (): void => {
+        const current = this.snapshot.current.serverVoiceMute;
+        if (current) void this.changeServerVoiceMute({ deafened: !current.deafened });
+    };
+
+    private async changeServerVoiceMute(change: Partial<ServerVoiceMute>): Promise<void> {
+        const { client, room, userId } = this.props;
+        if (!room) return;
+        try {
+            await setServerVoiceMute(client, room.roomId, userId, change);
+        } catch (error) {
+            logger.warn("Could not change the server mute", error);
+            Modal.createDialog(ErrorDialog, {
+                title: _t("common|error"),
+                description: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
 
     /** Changes the person's power level in the room, with Element's warnings for changes that cannot be undone. */
     public setRole = async (level: number): Promise<void> => {

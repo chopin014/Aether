@@ -31,6 +31,8 @@ const actions: VoiceUserMenuViewActions = {
     setRole: fn(),
     moveTo: fn(),
     disconnect: fn(),
+    toggleServerMuted: fn(),
+    toggleServerDeafened: fn(),
 };
 
 function MenuStory(snapshot: VoiceUserMenuViewSnapshot): JSX.Element {
@@ -92,6 +94,9 @@ export const Moderator: Story = {
         canDisconnect: true,
     },
 };
+
+/** Seen by a moderator, who has muted the person in the whole server. */
+export const ServerMuted: Story = { args: { serverVoiceMute: { muted: true, deafened: false } } };
 /** The user's own menu offers their microphone and deafen instead of a volume. */
 export const Self: Story = {
     args: { isSelf: true, canCall: false, canMessage: false, inviteServers: [], roles: [], microphoneMuted: true },

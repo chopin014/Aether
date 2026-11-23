@@ -137,6 +137,10 @@ export interface RoomListItemViewSnapshot {
         isDeafened?: boolean;
         /** Whether this user muted the participant for themselves only. */
         isLocallyMuted?: boolean;
+        /** Whether a moderator muted the participant in the server: nobody using Aether hears them. */
+        isServerMuted?: boolean;
+        /** Whether a moderator deafened the participant in the server. */
+        isServerDeafened?: boolean;
         /** Whether this is the user, still connecting to the call: shown dimmed until their media is up. */
         isConnecting?: boolean;
     }[];
@@ -267,7 +271,16 @@ type CallParticipant = NonNullable<RoomListItemViewSnapshot["callParticipants"]>
  * A participant's accessible name. Their state is folded into it rather than announced through a live
  * region, so screen readers only hear it when the participant is focused.
  */
-function participantLabel({ name, isSpeaking, isMuted, isDeafened }: CallParticipant): string {
+function participantLabel({
+    name,
+    isSpeaking,
+    isMuted,
+    isDeafened,
+    isServerMuted,
+    isServerDeafened,
+}: CallParticipant): string {
+    if (isServerDeafened) return _t("desktop|voice|participant_server_deafened", { name });
+    if (isServerMuted) return _t("desktop|voice|participant_server_muted", { name });
     if (isMuted && isDeafened) return _t("desktop|voice|participant_muted_and_deafened", { name });
     if (isDeafened) return _t("desktop|voice|participant_deafened", { name });
     if (isMuted) return _t("desktop|voice|participant_muted", { name });
@@ -275,22 +288,37 @@ function participantLabel({ name, isSpeaking, isMuted, isDeafened }: CallPartici
     return name;
 }
 
-/** Show each active voice status at the end of the participant's row. */
+/**
+ * Show each active voice status at the end of the participant's row. A moderator's mute or deafen is red, as red is
+ * kept for what others did, and replaces the person's own.
+ */
 function ParticipantVoiceStatus({
     muted,
     deafened,
     locallyMuted,
+    serverMuted,
+    serverDeafened,
 }: {
     muted?: boolean;
     deafened?: boolean;
     locallyMuted?: boolean;
+    serverMuted?: boolean;
+    serverDeafened?: boolean;
 }): JSX.Element | null {
-    if (!muted && !deafened && !locallyMuted) return null;
+    if (!muted && !deafened && !locallyMuted && !serverMuted && !serverDeafened) return null;
     return (
         <span className={styles.participantVoiceStatus} aria-hidden="true">
             {locallyMuted && <VolumeOffSolidIcon data-testid="participant-locally-muted" />}
-            {muted && <MicOffSolidIcon data-testid="participant-muted" />}
-            {deafened && <HeadphonesOffSolidIcon data-testid="participant-deafened" />}
+            {serverMuted ? (
+                <MicOffSolidIcon className={styles.byModerator} data-testid="participant-server-muted" />
+            ) : (
+                muted && <MicOffSolidIcon data-testid="participant-muted" />
+            )}
+            {serverDeafened ? (
+                <HeadphonesOffSolidIcon className={styles.byModerator} data-testid="participant-server-deafened" />
+            ) : (
+                deafened && <HeadphonesOffSolidIcon data-testid="participant-deafened" />
+            )}
         </span>
     );
 }
@@ -537,6 +565,8 @@ export const RoomListItemView = memo(function RoomListItemView({
                             muted={participant.isMuted}
                             deafened={participant.isDeafened}
                             locallyMuted={participant.isLocallyMuted}
+                            serverMuted={participant.isServerMuted}
+                            serverDeafened={participant.isServerDeafened}
                         />
                     </CallParticipantButton>
                 ))}

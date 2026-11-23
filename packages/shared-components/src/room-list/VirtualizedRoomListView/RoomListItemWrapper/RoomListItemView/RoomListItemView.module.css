@@ -122,6 +122,11 @@
         width: var(--cpd-space-4x);
         height: var(--cpd-space-4x);
     }
+
+    /* Muted or deafened by a moderator. */
+    .byModerator {
+        color: var(--cpd-color-icon-critical-primary);
+    }
 }
 
 /* Match the inset voice ring: two pixels of color with a one-pixel background separator. */

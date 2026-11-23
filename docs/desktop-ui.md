@@ -238,6 +238,25 @@ Aether leaves the call. If the person is still in the call 20 seconds later (the
 also kick them from the channel is offered "Remove from channel". That ends their call on any app, because MatrixRTC
 ignores members who left the room and gives the call a new key, and they can join the channel again. Anyone else is
 told that only people using Aether can be disconnected.
+## Server mute and server deafen
+
+As in Discord, a moderator can mute or deafen someone in every voice channel of a server: "Server mute" and "Server
+deafen" are the red checkboxes at the end of the person's menu, shown only to someone with the power. The power is the
+server's (Space's) power level for the `io.aether.voice.server_mute` state event, which falls back to `state_default`.
+The record is that event in the server, with the state key `u:` plus the person's user ID and the content
+`{ "muted": true }` or `{ "muted": true, "deafened": true }`; empty content lifts it. Deafening also mutes, and
+unmuting also undeafens, as in Discord. It lasts until a moderator lifts it, in every voice channel of the server.
+
+- The person's own Aether (`ServerVoiceMuteEnforcer`) turns their microphone off and turns it off again whenever
+  anything turns it on. While deafened, the call is silent. The dock locks both buttons and shows "Muted by a moderator"
+  or "Deafened by a moderator". Once the mute is lifted, the microphone stays off until they turn it on.
+- Every other Aether in the call stops playing a server-muted person's voice and soundboard sounds, whatever app that
+  person uses. Only people listening on other apps still hear them.
+- The sidebar shows a moderator's mute or deafen with red icons in place of the person's own grey ones.
+
+A deafen can only be carried out by the person's own app, so it does not hold for someone using another app. Making
+either one hold for every app needs the call's server (LiveKit) to enforce it, which needs a token service run by the
+homeserver.
 
 ## Channel menu and topic
 

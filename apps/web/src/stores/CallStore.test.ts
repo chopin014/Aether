@@ -26,8 +26,16 @@ import { SettingLevel } from "../settings/SettingLevel";
 import { VoiceMoveFollower } from "../models/VoiceMoveFollower";
 import defaultDispatcher from "../dispatcher/dispatcher";
 import { Action } from "../dispatcher/actions";
+import { ServerVoiceMuteEnforcer } from "../models/ServerVoiceMuteEnforcer";
 
 vi.mock("../models/VoiceMoveFollower");
+
+vi.mock("../models/ServerVoiceMuteEnforcer", () => ({
+    ServerVoiceMuteEnforcer: vi.fn(function (this: { update: () => void; dispose: () => void }) {
+        this.update = vi.fn();
+        this.dispose = vi.fn();
+    }),
+}));
 
 describe("CallStore", () => {
     let client: ReturnType<typeof setUpClientRoomAndStores>["client"];
@@ -93,6 +101,28 @@ describe("CallStore", () => {
         const dispatch = vi.spyOn(defaultDispatcher, "dispatch").mockImplementation(() => {});
         void follow(room);
         expect(dispatch).toHaveBeenCalledWith({ action: Action.FollowVoiceMove, room_id: room.roomId });
+    });
+
+    it("applies moderators' mutes to the calls the user is in or joining, in the desktop shell", async () => {
+        const original = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_desktop_shell" ? true : original(name, ...args),
+        );
+        await setupAsyncStoreWithClient(CallStore.instance, client);
+        const enforcer = vi.mocked(ServerVoiceMuteEnforcer).mock.instances.at(-1)!;
+        const [enforcerClient, getCalls] = vi.mocked(ServerVoiceMuteEnforcer).mock.lastCall!;
+        expect(enforcerClient).toBe(client);
+
+        ElementCall.create(room);
+        const call = CallStore.instance.getCall(room.roomId) as ElementCall;
+        try {
+            vi.mocked(enforcer.update).mockClear();
+            call.setJoinRequested(true);
+            expect(enforcer.update).toHaveBeenCalled();
+            expect([...getCalls()]).toEqual([call]);
+        } finally {
+            call.destroy();
+        }
     });
 
     it("lists a call the user asked to join as joining until it connects, and tells listeners", async () => {

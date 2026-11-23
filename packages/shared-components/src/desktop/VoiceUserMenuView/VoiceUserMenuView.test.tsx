@@ -57,6 +57,8 @@ function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
         setRole: vi.fn(),
         moveTo: vi.fn(),
         disconnect: vi.fn(),
+        toggleServerMuted: vi.fn(),
+        toggleServerDeafened: vi.fn(),
     });
 }
 
@@ -189,6 +191,32 @@ describe("VoiceUserMenuView", () => {
         expect(names()).toEqual(["Profile", "Mention", "Mute", "Deafen", "Edit profile", "Copy user ID", "Move to"]);
     });
 
+    it("lists a moderator's server mute and deafen before moving and disconnecting", () => {
+        const vm = makeVm({
+            serverVoiceMute: { muted: false, deafened: false },
+            moveDestinations: [{ id: "!geral2:example.org", name: "Geral#2" }],
+            canDisconnect: true,
+        });
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={vi.fn()} />);
+        expect(names().slice(-4)).toEqual(["Server mute", "Server deafen", "Move to", "Disconnect"]);
+    });
+
+    it("offers a moderator server mute and deafen, in red, without closing", () => {
+        const vm = makeVm({ serverVoiceMute: { muted: true, deafened: false } });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names().slice(-2)).toEqual(["Server mute", "Server deafen"]);
+        const mute = screen.getByTestId("voice-user-menu-server-mute");
+        expect(mute).toHaveAttribute("aria-checked", "true");
+        expect(mute).toHaveAttribute("data-kind", "critical");
+        expect(screen.getByTestId("voice-user-menu-server-deafen")).toHaveAttribute("aria-checked", "false");
+        fireEvent.click(mute);
+        fireEvent.click(screen.getByTestId("voice-user-menu-server-deafen"));
+        expect(vm.toggleServerMuted).toHaveBeenCalledOnce();
+        expect(vm.toggleServerDeafened).toHaveBeenCalledOnce();
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
     it("moves between entries with the arrow keys and closes on Escape, returning focus", () => {
         const trigger = document.createElement("button");
         document.body.append(trigger);
@@ -231,6 +259,7 @@ describe("VoiceUserMenuView", () => {
         expect(names()).not.toContain("Roles");
         expect(names()).not.toContain("Move to");
         expect(names()).not.toContain("Disconnect");
+        expect(names()).not.toContain("Server mute");
         expect(names()).toContain("Stop ignoring");
     });
 });
