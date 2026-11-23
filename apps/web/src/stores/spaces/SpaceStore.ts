@@ -1437,7 +1437,6 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         this.rebuildSpaceHierarchy(); // trigger an initial update
         this.childRepair = new SpaceChildRepair(this.matrixClient);
-        this.childRepair.checkAll();
         // rebuildSpaceHierarchy will only send an update if the spaces have changed.
         // If only the meta spaces have changed, we need to send an update ourselves.
         if (arrayHasDiff(oldMetaSpaces, this._enabledMetaSpaces)) {
@@ -1457,6 +1456,13 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             this.switchSpaceIfNeeded();
         }
         this._storeReadyDeferred.resolve();
+
+        // Adding missing channel links is best effort: a failure must not keep the Space list from becoming ready.
+        try {
+            this.childRepair.checkAll();
+        } catch (error) {
+            logger.warn("SpaceChildRepair: could not check the rooms", error);
+        }
     }
 
     private sendUserProperties(): void {
