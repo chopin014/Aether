@@ -43,7 +43,7 @@ export const VOICE_MOVE_MAX_AGE_MS = 60_000;
  */
 export class VoiceMoveFollower {
     private disposed = false;
-    /** Requests already followed or turned down, by id, so that seeing one again, either way, does nothing. */
+    /** Requests already followed, by room and id, so that seeing one again, either way, does nothing. */
     private readonly seen = new Set<string>();
 
     /**
@@ -106,8 +106,8 @@ export class VoiceMoveFollower {
         if (this.disposed) return;
         // A request without a channel to go to disconnects.
         if ((to !== undefined && typeof to !== "string") || typeof id !== "string") return;
-        if (this.seen.has(id)) return;
-        this.seen.add(id);
+        // Checked before the request counts as seen: a copy turned down (a sender's clock far off, for one) must not
+        // keep the other copy from being followed, and nobody who may not move people can use up a request's id.
         if (age > VOICE_MOVE_MAX_AGE_MS) return;
 
         const from = this.client.getRoom(roomId);
@@ -122,6 +122,9 @@ export class VoiceMoveFollower {
                 (membership) => membership.userId === userId && membership.deviceId === this.client.getDeviceId(),
             );
         if (own && own.createdTs() > ts) return;
+        const request = `${from.roomId}|${id}`;
+        if (this.seen.has(request)) return;
+        this.seen.add(request);
 
         if (to === undefined) {
             logger.info(`${sender} disconnected us from ${from.roomId}`);

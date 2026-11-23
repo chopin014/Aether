@@ -208,6 +208,20 @@ describe("VoiceMoveFollower", () => {
         expect(follow).not.toHaveBeenCalled();
     });
 
+    it("follows the state event of a request whose fast copy it turned down", async () => {
+        // The moderator's clock is far behind: the copy through the media room looks too old.
+        await fast({ to: GERAL2, id: "a", ts: Date.now() - VOICE_MOVE_MAX_AGE_MS - 5000 });
+        expect(follow).not.toHaveBeenCalled();
+        await receive(request({ to: GERAL2, id: "a" }));
+        expect(follow).toHaveBeenCalledOnce();
+    });
+
+    it("lets nobody without the power to move people use up a request's id", async () => {
+        await fast({ to: GERAL2, id: "a" }, { sender: BOB });
+        await receive(request({ to: GERAL2, id: "a" }));
+        expect(follow).toHaveBeenCalledOnce();
+    });
+
     it("follows a request once, whichever way it arrives first", async () => {
         await fast({ to: GERAL2, id: "a" });
         await receive(request({ to: GERAL2, id: "a" }));
