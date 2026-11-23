@@ -33,6 +33,7 @@ const base: VoiceUserMenuViewSnapshot = {
         { level: 50, label: "Moderator", selected: true },
         { level: 0, label: "Default", selected: false },
     ],
+    moveDestinations: [],
 };
 
 function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
@@ -53,6 +54,7 @@ function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
         copyUserId: vi.fn(),
         toggleIgnore: vi.fn(),
         setRole: vi.fn(),
+        moveTo: vi.fn(),
     });
 }
 
@@ -145,6 +147,34 @@ describe("VoiceUserMenuView", () => {
         expect(vm.setRole).toHaveBeenCalledWith(100);
     });
 
+    it("offers to move the person to another voice channel when the user may", () => {
+        const vm = makeVm({
+            moveDestinations: [
+                { id: "!geral2:example.org", name: "Geral#2" },
+                { id: "!afk:example.org", name: "AFK" },
+            ],
+        });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names().at(-1)).toBe("Move to");
+        fireEvent.click(screen.getByTestId("voice-user-menu-move"));
+        expect(names(screen.getByRole("menu", { name: "Move to" }))).toEqual(["Geral#2", "AFK"]);
+        fireEvent.click(screen.getByRole("menuitem", { name: "AFK" }));
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(vm.moveTo).toHaveBeenCalledWith("!afk:example.org");
+    });
+
+    it("offers moving on the user's own menu too", () => {
+        const vm = makeVm({
+            isSelf: true,
+            inviteServers: [],
+            roles: [],
+            moveDestinations: [{ id: "!geral2:example.org", name: "Geral#2" }],
+        });
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={vi.fn()} />);
+        expect(names()).toEqual(["Profile", "Mention", "Mute", "Deafen", "Edit profile", "Copy user ID", "Move to"]);
+    });
+
     it("moves between entries with the arrow keys and closes on Escape, returning focus", () => {
         const trigger = document.createElement("button");
         document.body.append(trigger);
@@ -185,6 +215,7 @@ describe("VoiceUserMenuView", () => {
         expect(names()).not.toContain("Verify");
         expect(names()).not.toContain("Invite to server");
         expect(names()).not.toContain("Roles");
+        expect(names()).not.toContain("Move to");
         expect(names()).toContain("Stop ignoring");
     });
 });

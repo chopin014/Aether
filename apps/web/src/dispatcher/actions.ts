@@ -441,4 +441,10 @@ export enum Action {
      * Asks the desktop voice controls to deafen or undeafen, as their own button does.
      */
     ToggleDesktopDeafen = "toggle_desktop_deafen",
+
+    /**
+     * A moderator moved the user to another voice channel: leave the call they are in and join that channel's call.
+     * Use with a FollowVoiceMovePayload.
+     */
+    FollowVoiceMove = "follow_voice_move",
 }

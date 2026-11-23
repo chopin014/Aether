@@ -9,7 +9,7 @@ import React, { type JSX } from "react";
 import { fn } from "storybook/test";
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { Room } from "./RoomListItemWrapper/RoomListItemView";
+import type { Room, RoomListItemViewModel, RoomListItemViewSnapshot } from "./RoomListItemWrapper/RoomListItemView";
 import { VirtualizedRoomListView, type RoomListViewState } from "./VirtualizedRoomListView";
 import type { RoomListViewSnapshot, RoomListViewActions } from "../RoomListView";
 import { useMockedViewModel } from "../../core/viewmodel";
@@ -18,6 +18,7 @@ import type { FilterId } from "../RoomListPrimaryFilters";
 import {
     renderAvatar,
     createGetRoomItemViewModel,
+    createMockRoomItemViewModel,
     mock10RoomsIds,
     createGetSectionHeaderViewModel,
     mock10RoomsSections,
@@ -43,6 +44,7 @@ const RoomListWrapperImpl = ({
     changeSectionOrder,
     onSectionOrRoomDragStart,
     onSectionOrRoomDragEnd,
+    moveCallParticipant,
     ...rest
 }: RoomListStoryProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
@@ -60,6 +62,7 @@ const RoomListWrapperImpl = ({
         changeSectionOrder,
         onSectionOrRoomDragStart,
         onSectionOrRoomDragEnd,
+        moveCallParticipant,
     });
 
     return (
@@ -106,6 +109,7 @@ const meta = {
         changeSectionOrder: fn(),
         onSectionOrRoomDragStart: fn(),
         onSectionOrRoomDragEnd: fn(),
+        moveCallParticipant: fn(),
     },
     parameters: {
         design: {
@@ -130,5 +134,51 @@ export const Default: Story = {};
 export const Sections: Story = {
     args: {
         isFlatList: false,
+    },
+};
+
+const voiceChannelIds = ["!geral1:server", "!geral2:server", "!afk:server"];
+
+/** A server's voice channels, with Bob and Carol in the first one's call. */
+function voiceChannelViewModels(canMoveCallParticipants: boolean): (roomId: string) => RoomListItemViewModel {
+    const names = ["Geral#1", "Geral#2", "AFK"];
+    const viewModels = new Map(
+        voiceChannelIds.map((roomId, index) => {
+            const vm = createMockRoomItemViewModel(roomId, names[index], index);
+            const snapshot: RoomListItemViewSnapshot = {
+                ...vm.getSnapshot(),
+                channelKind: "voice",
+                messagePreview: undefined,
+                canChangeSection: false,
+                canMoveCallParticipants,
+                callParticipants:
+                    index === 0
+                        ? [
+                              { userId: "@bob:server", name: "Bob" },
+                              { userId: "@carol:server", name: "Carol", isMuted: true },
+                          ]
+                        : undefined,
+            };
+            return [roomId, { ...vm, getSnapshot: () => snapshot }];
+        }),
+    );
+    return (roomId) => viewModels.get(roomId)!;
+}
+
+/** A moderator's view of the voice channels: the people in a call can be dragged to another channel. */
+export const VoiceChannels: Story = {
+    args: {
+        isFlatList: false,
+        sections: [{ id: "voice", roomIds: voiceChannelIds }],
+        getRoomItemViewModel: voiceChannelViewModels(true),
+        getSectionHeaderViewModel: createGetSectionHeaderViewModel(["voice"]),
+    },
+};
+
+/** The same channels for someone without the power to move people: nobody can be dragged. */
+export const VoiceChannelsWithoutPower: Story = {
+    args: {
+        ...VoiceChannels.args,
+        getRoomItemViewModel: voiceChannelViewModels(false),
     },
 };

@@ -10,7 +10,14 @@ import { configure, Plugin, type Plugins } from "@dnd-kit/abstract";
 import { Accessibility, type Draggable, type DragDropManager, type Droppable } from "@dnd-kit/dom";
 
 import { useI18n } from "../../core/i18n/i18nContext";
-import { dropSide, isRoomSlotData, isSectionDragData, type RoomListDragData } from "./dragAndDrop";
+import {
+    dropSide,
+    isCallParticipantDragData,
+    isRoomSlotData,
+    isSectionDragData,
+    isVoiceChannelDropData,
+    type RoomListDragData,
+} from "./dragAndDrop";
 import type { RoomListViewModel } from "../RoomListView";
 
 type Manager = DragDropManager;
@@ -200,10 +207,11 @@ export function useRoomListAccessibilityPlugin(
 ): (defaults: Plugins<Manager>) => Plugins<Manager> {
     const { translate: _t } = useI18n();
 
-    // Get the display name of a draggable source: the section title for a section, or the
-    // room name for a room. Returns undefined if the source can't be resolved.
+    // Get the display name of a draggable source: the section title for a section, the
+    // room name for a room, or the person's name for someone in a call. Returns undefined if the source can't be resolved.
     const getDragSourceName = useCallback(
         (source: Draggable<RoomListDragData>): string | undefined => {
+            if (isCallParticipantDragData(source.data)) return source.data.name;
             if (isSectionDragData(source.data)) {
                 return vm.getSectionHeaderViewModel(source.id as string).getSnapshot().title;
             }
@@ -212,10 +220,13 @@ export function useRoomListAccessibilityPlugin(
         [vm],
     );
 
-    // The name of a drop target: the room a room is dropped next to, or the section header it is dropped on.
+    // The name of a drop target: the room a room is dropped next to, the voice channel a person is moved to, or the
+    // section header it is dropped on.
     const getDropTargetName = useCallback(
         (target: Droppable<RoomListDragData>): string | undefined => {
             if (isRoomSlotData(target.data)) return vm.getRoomItemViewModel(target.id as string)?.getSnapshot().name;
+            if (isVoiceChannelDropData(target.data))
+                return vm.getRoomItemViewModel(target.data.roomId)?.getSnapshot().name;
             return vm.getSectionHeaderViewModel(target.id as string).getSnapshot().title;
         },
         [vm],

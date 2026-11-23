@@ -39,6 +39,13 @@ export interface VoiceUserMenuServer {
     readonly name: string;
 }
 
+/** A voice channel the person can be moved to. */
+export interface VoiceUserMenuChannel {
+    /** The channel's Matrix room ID. */
+    readonly id: string;
+    readonly name: string;
+}
+
 /** Everything the voice user menu shows about one person. */
 export interface VoiceUserMenuViewSnapshot {
     readonly userId: string;
@@ -71,6 +78,11 @@ export interface VoiceUserMenuViewSnapshot {
     readonly inviteServers: readonly VoiceUserMenuServer[];
     /** Roles the user may give the person in this channel; the entry is hidden when there are none. */
     readonly roles: readonly VoiceUserMenuRole[];
+    /**
+     * The other voice channels the user may move the person to, from the call they are in. The entry is hidden when
+     * there are none, as it is for anyone without the power to move people.
+     */
+    readonly moveDestinations: readonly VoiceUserMenuChannel[];
 }
 
 /** What choosing an entry in the voice user menu does. */
@@ -91,6 +103,8 @@ export interface VoiceUserMenuViewActions {
     copyUserId(): void;
     toggleIgnore(): void;
     setRole(level: number): void;
+    /** Moves the person to another voice channel. */
+    moveTo(roomId: string): void;
 }
 
 /** The view model behind the voice user menu. */
@@ -328,7 +342,7 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
     const s = useViewModel(vm);
     const menu = useRef<HTMLDivElement>(null);
     const placement = usePlacement(menu, position);
-    const [openSubMenu, setOpenSubMenu] = useState<"invite" | "roles" | null>(null);
+    const [openSubMenu, setOpenSubMenu] = useState<"invite" | "roles" | "move" | null>(null);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
     const doc = ownerDocument ?? document;
@@ -553,6 +567,29 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                                 <span className={styles.checkbox} aria-hidden="true">
                                     {role.selected && <CheckIcon />}
                                 </span>
+                            </button>
+                        ))}
+                    </SubMenu>
+                </>
+            )}
+            {s.moveDestinations.length > 0 && (
+                <>
+                    {s.roles.length === 0 && <Separator />}
+                    <SubMenu
+                        label={_t("desktop|voice_user_menu|move_to")}
+                        testId="voice-user-menu-move"
+                        open={openSubMenu === "move"}
+                        onOpenChange={(open) => setOpenSubMenu(open ? "move" : null)}
+                    >
+                        {s.moveDestinations.map((channel) => (
+                            <button
+                                key={channel.id}
+                                type="button"
+                                role="menuitem"
+                                className={styles.item}
+                                onClick={select(() => vm.moveTo(channel.id))}
+                            >
+                                <span className={styles.label}>{channel.name}</span>
                             </button>
                         ))}
                     </SubMenu>
