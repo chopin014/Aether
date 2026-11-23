@@ -5,6 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
     ClientEvent,
@@ -175,6 +176,89 @@ describe("ToDeviceKeyTransport with a carrier", () => {
         await transport.sendKeySealed("a2V5", 3, [{ userId: "@bob:x", deviceId: "BOB", membershipTs: 1 }]);
         expect(client.encryptAndSendToDevice).toHaveBeenCalledOnce();
         expect(lane.sent.map(({ to }) => to)).toEqual(["@bob:x|BOB"]);
+    });
+});
+
+describe("the order of a sender's keys", () => {
+    const own = { userId: "@alice:x", deviceId: "ALICE", memberId: "@alice:x:ALICE" };
+    const bob = { userId: "@bob:x", deviceId: "BOB", memberId: "@bob:x:BOB" };
+
+    it("travels with each key and is passed on to whoever takes it", async () => {
+        const c = crypto();
+        const client = Object.assign(new EventEmitter(), {
+            getCrypto: () => c,
+            encryptAndSendToDevice: vi.fn(async (_type: string, _devices: Device[], _content: object) => {}),
+        });
+        const transport = new ToDeviceKeyTransport(
+            own,
+            "!r:x",
+            client as never,
+            {
+                counters: { roomEventEncryptionKeysSent: 0, roomEventEncryptionKeysReceived: 0 },
+                totals: { roomEventEncryptionKeysReceivedTotalAge: 0 },
+            } as never,
+        );
+        const lane = carrier(["@bob:x|BOB"]);
+        transport.setCarrier(lane);
+        await transport.sendKey("a2V5", 1, [{ userId: "@bob:x", deviceId: "BOB", membershipTs: 1 }], {
+            epoch: "e",
+            seq: 7,
+        });
+        expect(client.encryptAndSendToDevice.mock.calls[0]![2]).toMatchObject({
+            "io.aether.key_order": { epoch: "e", seq: 7 },
+        });
+
+        const received = vi.fn();
+        transport.on(KeyTransportEvents.ReceivedKeys, received);
+        transport.start();
+        const event = new MatrixEvent({
+            type: EventType.CallEncryptionKeysPrefix,
+            sender: "@bob:x",
+            content: {
+                "room_id": "!r:x",
+                "member_id": "@bob:x:BOB",
+                "media_key": { index: 1, key: "a2V5" },
+                "member": { claimed_device_id: "BOB" },
+                "io.aether.key_order": { epoch: "f", seq: 3 },
+            },
+        });
+        event.makeEncrypted(EventType.RoomMessageEncrypted, {}, "curve", "ed");
+        client.emit(ClientEvent.ToDeviceEvent, event);
+        expect(received).toHaveBeenCalledWith(expect.anything(), "a2V5", 1, expect.any(Number), { epoch: "f", seq: 3 });
+        transport.stop();
+    });
+
+    it("keeps a newer key of a sender's join when an older one for the same index arrives after it", () => {
+        const keysChanged = vi.fn();
+        const transport = Object.assign(new TypedEventEmitter<KeyTransportEvents, KeyTransportEventsHandlerMap>(), {
+            start: vi.fn(),
+            stop: vi.fn(),
+            sendKey: vi.fn(async () => {}),
+        });
+        const memberships = [
+            {
+                userId: bob.userId,
+                deviceId: bob.deviceId,
+                sender: bob.userId,
+                memberId: bob.memberId,
+                backendIdentities: [bob.memberId],
+                createdTs: () => 1,
+            } as unknown as CallMembership,
+        ];
+        const manager = new RTCEncryptionManager(own, () => memberships, transport, keysChanged);
+        manager.join({ manageMediaKeys: true }, []);
+        const now = Date.now();
+        manager.onNewKeyReceived(bob, "a2V5Mg==", 0, now, { epoch: "join1", seq: 3 });
+        manager.onNewKeyReceived(bob, "a2V5MQ==", 0, now + 1, { epoch: "join1", seq: 2 });
+        const fromBob = (): string[] =>
+            keysChanged.mock.calls
+                .filter(([, , m]) => m.userId === bob.userId)
+                .map(([key]) => new TextDecoder().decode(key));
+        expect(fromBob()).toEqual(["key2"]);
+        // A key of a later join of the same device counts, whatever its counter.
+        manager.onNewKeyReceived(bob, "a2V5Mw==", 0, now + 2, { epoch: "join2", seq: 1 });
+        expect(fromBob()).toEqual(["key2", "key3"]);
+        manager.leave();
     });
 });
 

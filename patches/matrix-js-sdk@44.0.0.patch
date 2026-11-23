@@ -1,12 +1,20 @@
 diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryptionManager.ts
-index f2c46a1..6847caa 100644
+index f2c46a1..a62f9ae 100644
 --- a/src/matrixrtc/RTCEncryptionManager.ts
 +++ b/src/matrixrtc/RTCEncryptionManager.ts
-@@ -35,6 +35,40 @@ import {
+@@ -29,12 +29,48 @@ import {
+     type Transport,
+     type EncryptionKeyMapKey,
+     type InboundEncryptionSession,
++    type AetherKeyOrder,
+     type OutboundEncryptionSession,
+     type ParticipantDeviceInfo,
+ } from "./types.ts";
  import { OutdatedKeyFilter } from "./utils.ts";
  import { computeRtcIdentityRaw } from "./membershipData/rtc.ts";
  import { isUnstableLivekitTransport } from "./LivekitTransport.ts";
 +import { participationOf } from "./AetherFastLane.ts";
++import { secureRandomString } from "../randomstring.ts";
 +
 +/**
 + * Aether: the salt LiveKit's E2EE worker ratchets media keys with (`ratchetSalt`, the same for Element Call).
@@ -43,7 +51,7 @@ index f2c46a1..6847caa 100644
  
  /**
   * Default for {@link EncryptionConfig.keyRotationParticipantLimit}.
-@@ -228,12 +262,20 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -228,12 +264,20 @@ export class RTCEncryptionManager implements IEncryptionManager {
          keyIndex: number,
          membership: CallMembershipIdentityParts,
      ): void {
@@ -70,7 +78,7 @@ index f2c46a1..6847caa 100644
          if (!fullMembership) {
              this.logger?.info(
                  `No matching RTC membership for key from ${membership.userId}:${membership.deviceId}, delaying key addition`,
-@@ -274,8 +316,18 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -274,8 +318,18 @@ export class RTCEncryptionManager implements IEncryptionManager {
  
          this.logger?.info(`Joining room`);
          this.transport.start();
@@ -89,7 +97,45 @@ index f2c46a1..6847caa 100644
      public leave(): void {
          this.transport.off(KeyTransportEvents.ReceivedKeys, this.onNewKeyReceived);
          this.transport.stop();
-@@ -385,15 +437,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -314,7 +368,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+         }
+     }
+ 
+-    public onNewKeyReceived: KeyTransportEventListener = (membership, keyBase64Encoded, index, timestamp) => {
++    public onNewKeyReceived: KeyTransportEventListener = (membership, keyBase64Encoded, index, timestamp, order) => {
+         // `manageMediaKeys` is a stop-gap solution for now. The preferred way to handle this case would be instead
+         // to create a NoOpEncryptionManager that does nothing and use it for the session.
+         // This will be done when removing the legacy EncryptionManager.
+@@ -326,6 +380,20 @@ export class RTCEncryptionManager implements IEncryptionManager {
+         }
+         this.logger?.debug(`Received key over transport ${membership.userId}:${membership.deviceId} at index ${index}`);
+ 
++        // Aether: a key of the sender's current join that is older than one already taken for this index arrived
++        // late (the other delivery path, or a resend): it must not replace the newer one.
++        if (order) {
++            const orderKey = `${getEncryptionKeyMapKey(membership)}|${index}`;
++            const latest = this.aetherReceivedOrder.get(orderKey);
++            if (latest && latest.epoch === order.epoch && latest.seq > order.seq) {
++                this.logger?.info(
++                    `Received an older key for ${membership.userId}:${membership.deviceId} at index ${index}, dropping it`,
++                );
++                return;
++            }
++            this.aetherReceivedOrder.set(orderKey, order);
++        }
++
+         // We received a new key, notify the video layer of this new key so that it can decrypt the frames properly.
+         const keyBin = decodeBase64(keyBase64Encoded);
+         const candidateInboundSession: InboundEncryptionSession = {
+@@ -373,6 +441,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+                 creationTS: Date.now(),
+                 sharedWith: [],
+                 keyId: 0,
++                aetherOrder: this.nextKeyOrder(),
+             };
+             this.outboundSession = firstKey;
+             const ids = await this.getOwnBackendIdentities();
+@@ -385,15 +454,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  );
          }
          // get current memberships
@@ -113,7 +159,7 @@ index f2c46a1..6847caa 100644
                  };
              });
  
-@@ -426,6 +485,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -426,6 +502,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
          //default to current session
          let newOutboundEncryptionSession: OutboundEncryptionSession = this.outboundSession!;
          let hasKeyChanged = false;
@@ -121,7 +167,7 @@ index f2c46a1..6847caa 100644
  
          // Rotating means sending the new key to every participant, this is expensive in large session.
          if (this.isKeyRotationSuppressed) {
-@@ -436,11 +496,30 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -436,11 +513,30 @@ export class RTCEncryptionManager implements IEncryptionManager {
              }
              toDistributeTo = anyJoined;
          } else {
@@ -141,12 +187,12 @@ index f2c46a1..6847caa 100644
 +                // only ratchets one step from the key it has: after two joins while we were muted (no frames), they
 +                // could not follow on their own. A new random key would instead have to reach everyone before we
 +                // could use it (`useKeyDelay`), and until then the joiners could not hear us. (A key made in this
-+                // very round has encrypted nothing yet.) A new random key would instead have to reach everyone
-+                // before we could use it (`useKeyDelay`), and until then the joiners could not hear us.
++                // very round has encrypted nothing yet.)
 +                const ratcheted = await ratchetMediaKey(this.outboundSession.key);
 +                newOutboundEncryptionSession = this.outboundSession = {
 +                    ...this.outboundSession,
 +                    key: ratcheted,
++                    aetherOrder: this.nextKeyOrder(),
 +                };
 +                this.joinRatchets++;
 +                toDistributeTo = toShareWith;
@@ -154,7 +200,7 @@ index f2c46a1..6847caa 100644
              } else if (anyJoined.length > 0) {
                  const keyAge = Date.now() - this.outboundSession!.creationTS;
                  if (keyAge < this.keyRotationGracePeriodMs) {
-@@ -457,24 +536,62 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -457,24 +553,63 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  }
              }
          }
@@ -207,6 +253,7 @@ index f2c46a1..6847caa 100644
                  encodeBase64(newOutboundEncryptionSession.key),
                  newOutboundEncryptionSession.keyId,
                  toDistributeTo,
++                newOutboundEncryptionSession.aetherOrder,
              );
 -            newOutboundEncryptionSession.sharedWith.push(...toDistributeTo);
              const outboundSessionList = newOutboundEncryptionSession.sharedWith
@@ -218,7 +265,7 @@ index f2c46a1..6847caa 100644
                  // Delay a bit before using this key
                  // It is recommended not to start using a key immediately but instead wait for a short time to make sure it is delivered.
                  this.logger?.trace(`Delay Rollout for key:${newOutboundEncryptionSession.keyId}...`);
-@@ -493,6 +610,50 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -493,12 +628,73 @@ export class RTCEncryptionManager implements IEncryptionManager {
          }
      }
  
@@ -229,7 +276,12 @@ index f2c46a1..6847caa 100644
 +    public aetherShareCurrentKeySealed(only?: { userId: string; deviceId: string }): void {
 +        const session = this.outboundSession;
 +        const transport = this.transport as IKeyTransport & {
-+            sendKeySealed?: (key: string, index: number, members: ParticipantDeviceInfo[]) => Promise<void>;
++            sendKeySealed?: (
++                key: string,
++                index: number,
++                members: ParticipantDeviceInfo[],
++                order?: AetherKeyOrder,
++            ) => Promise<void>;
 +        };
 +        if (!session || !transport.sendKeySealed) return;
 +        // Sent once there is someone to send it to: a member arriving in the media room asks again.
@@ -250,7 +302,7 @@ index f2c46a1..6847caa 100644
 +            );
 +        if (members.length === 0) return;
 +        transport
-+            .sendKeySealed(encodeBase64(session.key), session.keyId, members)
++            .sendKeySealed(encodeBase64(session.key), session.keyId, members, session.aetherOrder)
 +            .catch((error) => this.logger?.warn("Could not send our key through the call's media room", error));
 +    }
 +
@@ -266,9 +318,27 @@ index f2c46a1..6847caa 100644
 +    /** Aether: the key was ratcheted {@link MAX_JOIN_RATCHETS} times and is to be replaced by a new random one. */
 +    private rotateAfterRatchets = false;
 +
++    /** Aether: an id of this join for the order of our keys, see {@link AetherKeyOrder}. */
++    private readonly aetherKeyEpoch = secureRandomString(12);
++    /** Aether: the counter of our keys in this join. */
++    private aetherKeySeq = 0;
++    /** Aether: the order of the latest key taken from each sender, by sender and index. */
++    private readonly aetherReceivedOrder = new Map<string, AetherKeyOrder>();
++
++    private nextKeyOrder(): AetherKeyOrder {
++        return { epoch: this.aetherKeyEpoch, seq: ++this.aetherKeySeq };
++    }
++
      private createNewOutboundSession(): OutboundEncryptionSession {
          const newOutboundKey: OutboundEncryptionSession = {
              key: this.generateRandomKey(),
+             creationTS: Date.now(),
+             sharedWith: [],
+             keyId: this.nextKeyIndex(),
++            aetherOrder: this.nextKeyOrder(),
+         };
+ 
+         this.logger?.info(`creating new outbound key index:${newOutboundKey.keyId}`);
 diff --git a/src/client.ts b/src/client.ts
 index b86d711..e023710 100644
 --- a/src/client.ts
@@ -3101,11 +3171,55 @@ index 2b2b89a..c3af7db 100644
      /**
       * The ID of the MatrixRTC slot that this membership belongs to (format `{application}#{id}`).
       * This is computed in case SessionMembershipData is used.
+diff --git a/src/matrixrtc/IKeyTransport.ts b/src/matrixrtc/IKeyTransport.ts
+index 805f147..165aff4 100644
+--- a/src/matrixrtc/IKeyTransport.ts
++++ b/src/matrixrtc/IKeyTransport.ts
+@@ -15,7 +15,7 @@ limitations under the License.
+ */
+ 
+ import { type CallMembershipIdentityParts } from "./EncryptionManager.ts";
+-import { type ParticipantDeviceInfo } from "./types.ts";
++import { type AetherKeyOrder, type ParticipantDeviceInfo } from "./types.ts";
+ 
+ export enum KeyTransportEvents {
+     ReceivedKeys = "received_keys",
+@@ -32,6 +32,8 @@ export type KeyTransportEventListener = (
+     keyBase64Encoded: string,
+     index: number,
+     timestamp: number,
++    /** Aether: the key's order among its sender's keys, when the sender gave it. */
++    order?: AetherKeyOrder,
+ ) => void;
+ 
+ /**
+@@ -45,7 +47,12 @@ export interface IKeyTransport {
+      * @param index
+      * @param members - The participants that should get they key
+      */
+-    sendKey(keyBase64Encoded: string, index: number, members: ParticipantDeviceInfo[]): Promise<void>;
++    sendKey(
++        keyBase64Encoded: string,
++        index: number,
++        members: ParticipantDeviceInfo[],
++        order?: AetherKeyOrder,
++    ): Promise<void>;
+ 
+     /** Subscribe to keys from this transport. */
+     on(event: KeyTransportEvents.ReceivedKeys, listener: KeyTransportEventListener): this;
 diff --git a/src/matrixrtc/ToDeviceKeyTransport.ts b/src/matrixrtc/ToDeviceKeyTransport.ts
-index 591785d..1860f04 100644
+index 591785d..53139fc 100644
 --- a/src/matrixrtc/ToDeviceKeyTransport.ts
 +++ b/src/matrixrtc/ToDeviceKeyTransport.ts
-@@ -29,6 +29,7 @@ import { ClientEvent, type MatrixClient } from "../client.ts";
+@@ -21,6 +21,7 @@ import { type IKeyTransport, KeyTransportEvents, type KeyTransportEventsHandlerM
+ import { type Logger, logger as rootLogger } from "../logger.ts";
+ import {
+     type EncryptionKeysToDeviceEventContent,
++    type AetherKeyOrder,
+     type ParticipantDeviceInfo,
+     type RTCEncryptionKeyMediaKey,
+     type Statistics,
+@@ -29,6 +30,7 @@ import { ClientEvent, type MatrixClient } from "../client.ts";
  import type { MatrixEvent } from "../models/event.ts";
  import { EventType } from "../@types/event.ts";
  import { type CallMembershipIdentityParts } from "./EncryptionManager.ts";
@@ -3113,7 +3227,27 @@ index 591785d..1860f04 100644
  
  /**
   * The information extracted from a validated key event.
-@@ -72,7 +73,7 @@ export class ToDeviceKeyTransport
+@@ -37,6 +39,19 @@ interface ReceivedKey {
+     mediaKey: RTCEncryptionKeyMediaKey;
+     memberId?: string;
+     deviceId: string;
++    order?: AetherKeyOrder;
++}
++
++/** Aether: the content field giving a key's order among its sender's keys, see {@link AetherKeyOrder}. */
++const AETHER_KEY_ORDER = "io.aether.key_order";
++
++/** The key order in an event's content, if it is a valid one. */
++function parseKeyOrder(value: unknown): AetherKeyOrder | undefined {
++    if (!value || typeof value !== "object") return undefined;
++    const { epoch, seq } = value as Partial<AetherKeyOrder>;
++    return typeof epoch === "string" && typeof seq === "number" && Number.isSafeInteger(seq)
++        ? { epoch, seq }
++        : undefined;
+ }
+ 
+ /** Returns the given value as a media key if it is a valid one, otherwise `undefined`. */
+@@ -72,7 +87,7 @@ export class ToDeviceKeyTransport
      public constructor(
          private membership: CallMembershipIdentityParts,
          private roomId: string,
@@ -3122,7 +3256,7 @@ index 591785d..1860f04 100644
          private statistics: Statistics,
          parentLogger?: Logger,
      ) {
-@@ -88,12 +89,35 @@ export class ToDeviceKeyTransport
+@@ -88,12 +103,44 @@ export class ToDeviceKeyTransport
          this.client.off(ClientEvent.ToDeviceEvent, this.onToDeviceEvent);
      }
  
@@ -3139,18 +3273,27 @@ index 591785d..1860f04 100644
 +     * Aether: sends a key through the call's fast lane only, to the devices it reaches: for keys already sent through
 +     * the homeserver before the media room was connected.
 +     */
-+    public async sendKeySealed(keyBase64Encoded: string, index: number, members: ParticipantDeviceInfo[]): Promise<void> {
++    public async sendKeySealed(
++        keyBase64Encoded: string,
++        index: number,
++        members: ParticipantDeviceInfo[],
++        order?: AetherKeyOrder,
++    ): Promise<void> {
 +        if (!this.carrier) return;
 +        await sendSealed(
 +            this.client,
 +            this.carrier,
 +            EventType.CallEncryptionKeysPrefix,
 +            this.targetsOf(members),
-+            this.keyContent(keyBase64Encoded, index) as unknown as Record<string, unknown>,
++            this.keyContent(keyBase64Encoded, index, order) as unknown as Record<string, unknown>,
 +        );
 +    }
 +
-+    private keyContent(keyBase64Encoded: string, index: number): EncryptionKeysToDeviceEventContent {
++    private keyContent(
++        keyBase64Encoded: string,
++        index: number,
++        order?: AetherKeyOrder,
++    ): EncryptionKeysToDeviceEventContent & { [AETHER_KEY_ORDER]?: AetherKeyOrder } {
          const mediaKey = {
              index: index,
              key: keyBase64Encoded,
@@ -3160,9 +3303,11 @@ index 591785d..1860f04 100644
              room_id: this.roomId,
              member_id: this.membership.memberId,
              media_key: mediaKey,
-@@ -105,8 +129,10 @@ export class ToDeviceKeyTransport
+@@ -104,9 +151,12 @@ export class ToDeviceKeyTransport
+                 // Deprecated but still sent for backwards compatibility.
                  id: this.membership.memberId,
              },
++            ...(order ? { [AETHER_KEY_ORDER]: order } : {}),
          };
 +    }
  
@@ -3172,14 +3317,19 @@ index 591785d..1860f04 100644
              .map((member) => {
                  return {
                      userId: member.userId,
-@@ -117,6 +143,23 @@ export class ToDeviceKeyTransport
+@@ -117,6 +167,28 @@ export class ToDeviceKeyTransport
              .filter(
                  (member) => !(member.userId == this.membership.userId && member.deviceId == this.membership.deviceId),
              );
 +    }
 +
-+    public async sendKey(keyBase64Encoded: string, index: number, members: ParticipantDeviceInfo[]): Promise<void> {
-+        const content = this.keyContent(keyBase64Encoded, index);
++    public async sendKey(
++        keyBase64Encoded: string,
++        index: number,
++        members: ParticipantDeviceInfo[],
++        order?: AetherKeyOrder,
++    ): Promise<void> {
++        const content = this.keyContent(keyBase64Encoded, index, order);
 +        const targets = this.targetsOf(members);
 +
 +        // Aether: devices in the call's media room get the key through it at once, as a separate Olm message; the
@@ -3196,14 +3346,66 @@ index 591785d..1860f04 100644
  
          if (targets.length > 0) {
              await this.client
-@@ -138,6 +181,7 @@ export class ToDeviceKeyTransport
+@@ -138,9 +210,10 @@ export class ToDeviceKeyTransport
          } else {
              this.logger.warn("No targets found for sending key");
          }
 +        await sealed;
      }
  
-     private receiveCallKeyEvent(fromUser: string, { mediaKey, memberId, deviceId }: ReceivedKey): void {
+-    private receiveCallKeyEvent(fromUser: string, { mediaKey, memberId, deviceId }: ReceivedKey): void {
++    private receiveCallKeyEvent(fromUser: string, { mediaKey, memberId, deviceId, order }: ReceivedKey): void {
+         // The event has already been validated at this point.
+ 
+         this.statistics.counters.roomEventEncryptionKeysReceived += 1;
+@@ -156,6 +229,7 @@ export class ToDeviceKeyTransport
+             mediaKey.key,
+             mediaKey.index,
+             Date.now(),
++            order,
+         );
+     }
+ 
+@@ -215,6 +289,11 @@ export class ToDeviceKeyTransport
+             return;
+         }
+ 
+-        return { mediaKey, memberId, deviceId };
++        return {
++            mediaKey,
++            memberId,
++            deviceId,
++            order: parseKeyOrder((content as Record<string, unknown>)[AETHER_KEY_ORDER]),
++        };
+     }
+ }
+diff --git a/src/matrixrtc/types.ts b/src/matrixrtc/types.ts
+index ea7edf0..da2831e 100644
+--- a/src/matrixrtc/types.ts
++++ b/src/matrixrtc/types.ts
+@@ -55,6 +55,8 @@ export type InboundEncryptionSession = {
+  */
+ export type OutboundEncryptionSession = {
+     key: Uint8Array<ArrayBuffer>;
++    /** Aether: the order of this key among the keys of our join, see {@link AetherKeyOrder}. */
++    aetherOrder?: AetherKeyOrder;
+     creationTS: number;
+     // The devices that this key is shared with.
+     sharedWith: Array<ParticipantDeviceInfo>;
+@@ -617,3 +619,13 @@ export interface SlotDescription {
+      */
+     id: string;
+ }
++
++/**
++ * Aether: the order of one of a sender's keys among the keys of its join: an id of the join (`epoch`) and a counter
++ * (`seq`). A key can reach a receiver after a newer one for the same index, through the other delivery path or as a
++ * late resend, and must not replace it: LiveKit only ratchets one step forward from the key it holds.
++ */
++export interface AetherKeyOrder {
++    epoch: string;
++    seq: number;
++}
 diff --git a/src/rust-crypto/rust-crypto.ts b/src/rust-crypto/rust-crypto.ts
 index 3904a9d..1082668 100644
 --- a/src/rust-crypto/rust-crypto.ts
