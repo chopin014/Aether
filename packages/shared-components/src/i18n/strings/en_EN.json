@@ -780,6 +780,15 @@
                 "yesterday": "Yesterday"
             }
         },
+        "server_folder": {
+            "back": "Back to %(server)s",
+            "description": "Folder",
+            "label_mentions": {
+                "one": "%(server)s, %(count)s mention",
+                "other": "%(server)s, %(count)s mentions"
+            },
+            "open": "Open %(server)s"
+        },
         "server_menu": {
             "change_nickname": "Change nickname",
             "devtools": "View timeline (devtools)",

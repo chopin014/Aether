@@ -63,3 +63,19 @@ it("opens the Space menu from the whole desktop title and retains permission-che
     await userEvent.click(screen.getByRole("menuitem", { name: "New room" }));
     expect(vm.createRoom).toHaveBeenCalledOnce();
 });
+
+it("leads back from a nested server to the server it is in, and only from a nested server", async () => {
+    const vm = new MockedViewModel({
+        ...defaultSnapshot,
+        title: "Advocacy",
+        displaySpaceMenu: true,
+        parentServer: { name: "Matrix Community" },
+    });
+    const { rerender } = render(<RoomListHeaderView vm={vm} desktop />);
+    await userEvent.click(screen.getByRole("button", { name: "Back to Matrix Community" }));
+    expect(vm.openParentServer).toHaveBeenCalledOnce();
+
+    const topLevel = new MockedViewModel({ ...defaultSnapshot, title: "Matrix Community", displaySpaceMenu: true });
+    rerender(<RoomListHeaderView vm={topLevel} desktop />);
+    expect(screen.queryByRole("button", { name: /^Back to/ })).not.toBeInTheDocument();
+});

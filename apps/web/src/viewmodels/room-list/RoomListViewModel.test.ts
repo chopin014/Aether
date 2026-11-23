@@ -49,6 +49,7 @@ import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { RoomListViewModel } from "./RoomListViewModel";
 import { PreviewRoomListItemViewModel } from "./PreviewRoomListItemViewModel";
 import { UnjoinedChannelItemViewModel } from "./UnjoinedChannelItemViewModel";
+import { ServerFolderItemViewModel } from "./ServerFolderItemViewModel";
 import { UnjoinedChannelsStore, UnjoinedChannelsStoreEvent } from "../../stores/spaces/UnjoinedChannelsStore";
 import { type ServerChannel } from "../../utils/servers/serverChannels";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
@@ -389,6 +390,173 @@ describe("RoomListViewModel", () => {
             expect(withoutReorder(viewModel.getSnapshot().sections)[0]).toEqual({
                 id: DESKTOP_TEXT_CHANNELS,
                 roomIds: [room1.roomId, room3.roomId],
+            });
+        });
+
+        describe("servers nested in the open one", () => {
+            const ADVOCACY = "!advocacy:example.org";
+            const BRIDGES = "!bridges:example.org";
+            let advocacy: RealRoom;
+            let news: Room;
+            let unjoinedChannels: Record<string, ServerChannel[]>;
+            let unjoinedServers: Record<string, ServerChannel[]>;
+
+            const serverChannel = (
+                roomId: string,
+                name: string,
+                extra: Partial<ServerChannel> = {},
+            ): ServerChannel => ({
+                roomId,
+                name,
+                kind: "text",
+                memberCount: 2,
+                suggested: false,
+                via: ["example.org"],
+                ...extra,
+            });
+
+            function mkSpace(roomId: string, children: string[]): RealRoom {
+                const created = new RealRoom(roomId, matrixClient, "@userId:matrix.org");
+                created.name = roomId.slice(1, 2).toUpperCase() + roomId.slice(2, roomId.indexOf(":"));
+                vi.spyOn(created, "getMyMembership").mockReturnValue(KnownMembership.Join);
+                created.currentState.setStateEvents([
+                    new MatrixEvent({
+                        type: "m.room.create",
+                        state_key: "",
+                        room_id: roomId,
+                        content: { type: "m.space" },
+                    }),
+                    ...children.map(
+                        (child) =>
+                            new MatrixEvent({
+                                type: "m.space.child",
+                                state_key: child,
+                                room_id: roomId,
+                                content: { via: ["example.org"] },
+                            }),
+                    ),
+                ]);
+                return created;
+            }
+
+            const allRoomIds = (): string[] => viewModel.getSnapshot().sections.flatMap((section) => section.roomIds);
+
+            async function showList(): Promise<void> {
+                viewModel = createViewModel();
+                RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+                await flushPromises();
+            }
+
+            beforeEach(() => {
+                setState("m.space.child", ADVOCACY, { via: ["example.org"] });
+                setState("m.space.child", BRIDGES, { via: ["example.org"] });
+                advocacy = mkSpace(ADVOCACY, ["!news:example.org", "!updates:example.org"]);
+                news = mkStubRoom("!news:example.org", "news", matrixClient);
+                vi.spyOn(news, "getMxcAvatarUrl").mockReturnValue(null);
+                vi.mocked(matrixClient.getRoom).mockImplementation(
+                    (roomId) =>
+                        ({ [SPACE_ID]: space, [ADVOCACY]: advocacy })[roomId!] ??
+                        [room1, room2, room3, news].find((room) => room.roomId === roomId) ??
+                        null,
+                );
+                vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                    spaceId: SPACE_ID,
+                    sections: [{ tag: CHATS_TAG, rooms: [room1, room2, room3, news] }],
+                });
+                vi.spyOn(SDKContextClass.instance.spaceStore, "isRoomInSpace").mockImplementation(
+                    (spaceId, roomId) => spaceId === ADVOCACY && roomId === news.roomId,
+                );
+                unjoinedChannels = { [ADVOCACY]: [serverChannel("!updates:example.org", "updates")] };
+                unjoinedServers = {
+                    [SPACE_ID]: [serverChannel(BRIDGES, "Bridges", { roomType: "m.space" })],
+                };
+                vi.spyOn(UnjoinedChannelsStore.instance, "getChannels").mockImplementation(
+                    (spaceId) => unjoinedChannels[spaceId] ?? [],
+                );
+                vi.spyOn(UnjoinedChannelsStore.instance, "getSubservers").mockImplementation(
+                    (spaceId) => unjoinedServers[spaceId] ?? [],
+                );
+            });
+
+            it("lists each nested server as a closed folder, with its rooms inside it rather than in the list", async () => {
+                await showList();
+                expect(allRoomIds()).toEqual(expect.arrayContaining([ADVOCACY, BRIDGES]));
+                expect(allRoomIds()).not.toContain(news.roomId);
+                const folder = viewModel.getRoomItemViewModel(ADVOCACY);
+                expect(folder).toBeInstanceOf(ServerFolderItemViewModel);
+                expect(folder?.getSnapshot()).toMatchObject({ name: "Advocacy", folder: { expanded: false } });
+                expect(viewModel.getRoomItemViewModel(BRIDGES)?.getSnapshot().name).toBe("Bridges");
+            });
+
+            it("shows a folder's channels beneath it once opened, joined or not, and hides them again", async () => {
+                await showList();
+                viewModel.getRoomItemViewModel(ADVOCACY)!.onOpenRoom();
+                await flushPromises();
+
+                const ids = allRoomIds();
+                const at = ids.indexOf(ADVOCACY);
+                expect(ids.slice(at, at + 3)).toEqual([ADVOCACY, news.roomId, "!updates:example.org"]);
+                const section = viewModel.getSnapshot().sections.find((s) => s.roomIds.includes(ADVOCACY));
+                expect(section?.nestedRoomIds).toEqual([news.roomId, "!updates:example.org"]);
+                expect(viewModel.getRoomItemViewModel("!updates:example.org")).toBeInstanceOf(
+                    UnjoinedChannelItemViewModel,
+                );
+                expect(viewModel.getRoomItemViewModel(ADVOCACY)?.getSnapshot().folder?.expanded).toBe(true);
+                // Remembered on this device.
+                expect(sectionExpansionState[SPACE_ID]?.[`desktop.folder.${ADVOCACY}`]).toBe(true);
+
+                viewModel.getRoomItemViewModel(ADVOCACY)!.onOpenRoom();
+                await flushPromises();
+                expect(allRoomIds()).not.toContain(news.roomId);
+            });
+
+            it("joins the server of a folder the user is not in before its channels", async () => {
+                unjoinedChannels[BRIDGES] = [serverChannel("!irc:example.org", "irc")];
+                await showList();
+                viewModel.getRoomItemViewModel(BRIDGES)!.onOpenRoom();
+                await flushPromises();
+                expect(allRoomIds()).toContain("!irc:example.org");
+                const join = vi.mocked(matrixClient.joinRoom).mockResolvedValue({} as Room);
+                vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+                viewModel.getRoomItemViewModel("!irc:example.org")!.onOpenRoom();
+                await flushPromises();
+                expect(join).toHaveBeenNthCalledWith(1, BRIDGES, { viaServers: ["example.org"] });
+                expect(dispatcher.dispatch).toHaveBeenCalledWith(
+                    expect.objectContaining({ action: Action.ViewRoom, room_id: "!irc:example.org", auto_join: true }),
+                );
+            });
+
+            it("opens a folder's server on its own, joining it first if the user isn't in it", async () => {
+                const setActiveSpace = vi
+                    .spyOn(SDKContextClass.instance.spaceStore, "setActiveSpace")
+                    .mockImplementation(() => {});
+                await showList();
+                (viewModel.getRoomItemViewModel(ADVOCACY) as ServerFolderItemViewModel).onOpenFolder();
+                await flushPromises();
+                expect(setActiveSpace).toHaveBeenCalledWith(ADVOCACY);
+
+                const bridges = mkSpace(BRIDGES, []);
+                vi.mocked(matrixClient.joinRoom).mockImplementation(async () => {
+                    const getRoom = vi.mocked(matrixClient.getRoom).getMockImplementation()!;
+                    vi.mocked(matrixClient.getRoom).mockImplementation((roomId) =>
+                        roomId === BRIDGES ? bridges : getRoom(roomId),
+                    );
+                    return bridges;
+                });
+                (viewModel.getRoomItemViewModel(BRIDGES) as ServerFolderItemViewModel).onOpenFolder();
+                await flushPromises();
+                expect(matrixClient.joinRoom).toHaveBeenCalledWith(BRIDGES, { viaServers: ["example.org"] });
+                expect(setActiveSpace).toHaveBeenCalledWith(BRIDGES);
+            });
+
+            it("shows the open channel beneath its closed folder", async () => {
+                vi.mocked(SDKContextClass.instance.roomViewStore.getRoomId).mockReturnValue(news.roomId);
+                await showList();
+                const ids = allRoomIds();
+                expect(ids[ids.indexOf(ADVOCACY) + 1]).toBe(news.roomId);
+                expect(viewModel.getSnapshot().roomListState.activeRoomIndex).toBe(
+                    viewModel.roomIds.indexOf(news.roomId),
+                );
             });
         });
 

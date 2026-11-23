@@ -37,3 +37,9 @@
     flex: none;
     min-height: var(--mx-desktop-shell-header-height, 49px);
 }
+
+/* Leads back to the server the open one is nested in, tucked against the server's name. */
+.backToParent {
+    flex: none;
+    margin-inline-end: calc(-1 * var(--cpd-space-2x));
+}

@@ -11,6 +11,7 @@ import {
     CollapseAllIcon,
     ExpandAllIcon,
     ChatIcon,
+    ChevronLeftIcon,
     UserAddIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
@@ -82,6 +83,8 @@ export interface RoomListHeaderViewSnapshot {
     displaySectionReleaseAnnouncement: boolean;
     /** The server entries of a desktop server's menu; absent outside a server. */
     serverMenu?: ServerMenuSnapshot;
+    /** The server the open one is nested in, which the header leads back to; absent for a top-level server. */
+    parentServer?: { name: string };
 }
 
 /** What a desktop server's menu offers beyond Element's space menu, and how the server notifies the person. */
@@ -155,6 +158,8 @@ export interface RoomListHeaderViewActions {
     setServerNotificationLevel?: (level: ServerMenuSnapshot["notificationLevel"]) => void;
     /** Hide or show the server's muted channels. */
     toggleHideMutedChannels?: () => void;
+    /** Go back to the server the open one is nested in. */
+    openParentServer?: () => void;
 }
 
 /**
@@ -190,6 +195,7 @@ export function RoomListHeaderView({ vm, desktop = false }: Readonly<RoomListHea
         canCreateRoom,
         canCreateVideoRoom,
         canInviteInSpace,
+        parentServer,
     } = useViewModel(vm);
     const canOnlyStartChat = !areSectionsEnabled && !canCreateRoom && !canCreateVideoRoom;
 
@@ -203,6 +209,17 @@ export function RoomListHeaderView({ vm, desktop = false }: Readonly<RoomListHea
                 gap="var(--cpd-space-3x)"
                 data-testid="room-list-header"
             >
+                {parentServer && vm.openParentServer && (
+                    <IconButton
+                        size="28px"
+                        className={styles.backToParent}
+                        tooltip={_t("desktop|server_folder|back", { server: parentServer.name })}
+                        aria-label={_t("desktop|server_folder|back", { server: parentServer.name })}
+                        onClick={vm.openParentServer}
+                    >
+                        <ChevronLeftIcon />
+                    </IconButton>
+                )}
                 <SpaceMenuView vm={vm} fullWidth />
                 {canInviteInSpace && (
                     <IconButton size="28px" tooltip={_t("action|invite")} onClick={vm.inviteInSpace}>

@@ -107,6 +107,18 @@ export interface RoomListItemViewSnapshot {
     /** Desktop channel symbol; direct messages retain their profile avatars. */
     channelKind?: "text" | "voice";
     /**
+     * Present when the row is a server nested in the open one, drawn as a folder of its channels with its avatar on
+     * the front. Opening the row shows or hides the channels beneath it.
+     */
+    folder?: {
+        /** Whether the server's channels show beneath it. */
+        expanded: boolean;
+        /** The server's avatar, as an http URL. */
+        avatarUrl?: string;
+        /** Whether its channels can show beneath it; a folder nested deeper only opens as its own server. */
+        canExpand: boolean;
+    };
+    /**
      * How many people joined a group conversation, shown under its name when there is no message preview, as
      * Discord does for group messages. Absent for direct messages and channels.
      */
@@ -192,8 +204,10 @@ export interface RoomListItemViewActions {
      * Element options in the item's context and "more options" menus.
      */
     getChannelMenu?: () => ChannelMenuViewModel;
-    /** Called when the room should be opened */
+    /** Called when the room should be opened. A folder's row shows or hides its channels instead. */
     onOpenRoom: () => void;
+    /** Open the server a folder stands for, listing only its channels. */
+    onOpenFolder?: () => void;
     /**
      * Called when the person points at or focuses the room, a hint that they may open it soon, so that slow work
      * (like getting a voice channel's call ready) can start early.
@@ -262,6 +276,8 @@ export interface RoomListItemViewProps extends Omit<React.HTMLAttributes<HTMLBut
     callParticipantDropRef?: Ref<Element>;
     /** Whether a person dragged from another voice channel's call is over this voice channel, to be moved here. */
     isCallParticipantDropTarget?: boolean;
+    /** Whether the row sits inside an open folder, indented beneath it. */
+    isNested?: boolean;
     ref?: Ref<Element>;
 }
 
@@ -397,6 +413,7 @@ export const RoomListItemView = memo(function RoomListItemView({
     canDragCallParticipants = false,
     callParticipantDropRef,
     isCallParticipantDropTarget = false,
+    isNested = false,
     ref,
     ...props
 }: RoomListItemViewProps): JSX.Element {
@@ -449,7 +466,12 @@ export const RoomListItemView = memo(function RoomListItemView({
     };
 
     // Generate a11y label from notification state and room name
-    const a11yLabel = getA11yLabel(item.name, item.notification);
+    // A folder is named by its server, as clicking it shows or hides the server's channels rather than opening a room.
+    const a11yLabel = item.folder
+        ? item.mentionCount
+            ? _t("desktop|server_folder|label_mentions", { server: item.name, count: item.mentionCount })
+            : item.name
+        : getA11yLabel(item.name, item.notification);
 
     const roomItem = (
         <RoomListItemContextMenu vm={vm}>
@@ -466,6 +488,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                     [styles.dropBefore]: dropIndicator === "before",
                     [styles.dropAfter]: dropIndicator === "after",
                     [styles.callParticipantDropTarget]: isCallParticipantDropTarget,
+                    [styles.nested]: isNested,
                     mx_RoomListItemView_selected: isSelected,
                 })}
                 gap="var(--cpd-space-3x)"
@@ -473,7 +496,14 @@ export const RoomListItemView = memo(function RoomListItemView({
                 type="button"
                 aria-label={a11yLabel}
                 // Said after the name, so the room keeps the same name whether or not it is private.
-                aria-description={item.isPrivateChannel ? _t("desktop|channel_row|private") : undefined}
+                aria-description={
+                    item.folder
+                        ? _t("desktop|server_folder|description")
+                        : item.isPrivateChannel
+                          ? _t("desktop|channel_row|private")
+                          : undefined
+                }
+                aria-expanded={item.folder?.canExpand ? item.folder.expanded : undefined}
                 onClick={vm.onOpenRoom}
                 onPointerEnter={vm.onIntentToOpen}
                 onFocus={onItemFocus}
@@ -489,7 +519,7 @@ export const RoomListItemView = memo(function RoomListItemView({
 
     if (item.channelKind === "text" && item.activeThread) {
         return (
-            <div className={styles.channelWithParticipants}>
+            <div className={classNames(styles.channelWithParticipants, { [styles.nestedGroup]: isNested })}>
                 {roomItem}
                 <button
                     type="button"
@@ -509,7 +539,10 @@ export const RoomListItemView = memo(function RoomListItemView({
     if (item.channelKind !== "voice" || !item.callParticipants?.length) return roomItem;
 
     return (
-        <div className={styles.channelWithParticipants} ref={callParticipantDropRef as Ref<HTMLDivElement>}>
+        <div
+            className={classNames(styles.channelWithParticipants, { [styles.nestedGroup]: isNested })}
+            ref={callParticipantDropRef as Ref<HTMLDivElement>}
+        >
             {roomItem}
             <div
                 className={styles.callParticipants}

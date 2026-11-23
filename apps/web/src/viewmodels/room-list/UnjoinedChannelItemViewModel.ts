@@ -27,6 +27,11 @@ export interface UnjoinedChannelItemProps {
     client: MatrixClient;
     /** The channel, as its server lists it. */
     channel: ServerChannel;
+    /**
+     * The server the channel is in, when the user is not in that server either: a channel open to a server's members
+     * can only be joined once the user is in the server.
+     */
+    serverToJoin?: { roomId: string; via: string[] };
 }
 
 /** How long to wait for a joined voice channel to arrive before giving up on joining its call. */
@@ -90,12 +95,35 @@ export class UnjoinedChannelItemViewModel
     }
 
     public onOpenRoom = (): void => {
+        void this.open();
+    };
+
+    private async open(): Promise<void> {
+        if (this.joining) return;
+        if (this.props.serverToJoin && !(await this.joinServer(this.props.serverToJoin))) return;
         if (this.props.channel.kind === "voice") {
-            void this.joinVoiceChannel();
+            await this.joinVoiceChannel();
             return;
         }
         this.viewAndJoin();
-    };
+    }
+
+    /** Join the server the channel is in, unless the user is in it already. Says whether the user is in it now. */
+    private async joinServer(server: { roomId: string; via: string[] }): Promise<boolean> {
+        const { client } = this.props;
+        if (client.getRoom(server.roomId)?.getMyMembership() === KnownMembership.Join) return true;
+        this.joining = true;
+        try {
+            await client.joinRoom(server.roomId, { viaServers: server.via });
+            return true;
+        } catch (error) {
+            // The channel may still be open to people outside the server, so try it anyway.
+            logger.warn(`Could not join the server ${server.roomId} before its channel`, error);
+            return true;
+        } finally {
+            this.joining = false;
+        }
+    }
 
     /** Open the channel and join it there, which shows the join in progress and any error. */
     private viewAndJoin(): void {
@@ -114,7 +142,6 @@ export class UnjoinedChannelItemViewModel
      * join fails, the channel opens to say why.
      */
     private async joinVoiceChannel(): Promise<void> {
-        if (this.joining) return;
         this.joining = true;
         const { client, channel } = this.props;
         try {
