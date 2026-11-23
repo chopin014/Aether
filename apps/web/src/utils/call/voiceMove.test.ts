@@ -137,7 +137,22 @@ describe("voiceMove", () => {
         expect(voiceMoveDestinationVia(client, geral1.roomId, "!unknown:example.org")).toBeUndefined();
     });
 
+    /** The call of the channel, with Bob in it from two devices, and its fast lane. */
+    const callWithBob = (): ReturnType<typeof vi.fn> => {
+        const aetherSendSealed = vi.fn().mockResolvedValue([]);
+        vi.mocked(client.matrixRTC.getRoomSession).mockReturnValue({
+            memberships: [
+                { userId: "@bob:example.org", deviceId: "PHONE" },
+                { userId: "@carol:example.org", deviceId: "CAROL" },
+                { userId: "@bob:example.org", deviceId: "LAPTOP" },
+            ],
+            aetherSendSealed,
+        } as unknown as MatrixRTCSession);
+        return aetherSendSealed;
+    };
+
     it("sends the request about the person to the channel they are in", async () => {
+        const sealed = callWithBob();
         await requestVoiceMove(client, geral1.roomId, "@bob:example.org", geral2.roomId);
         expect(client.sendStateEvent).toHaveBeenCalledWith(
             geral1.roomId,
@@ -145,9 +160,20 @@ describe("voiceMove", () => {
             { to: geral2.roomId, id: expect.any(String) },
             "u:@bob:example.org",
         );
+        // The same request also goes straight to their devices in the call, through its media room.
+        const { id } = vi.mocked(client.sendStateEvent).mock.calls[0]![2] as { id: string };
+        expect(sealed).toHaveBeenCalledWith(
+            [
+                { userId: "@bob:example.org", deviceId: "PHONE" },
+                { userId: "@bob:example.org", deviceId: "LAPTOP" },
+            ],
+            VOICE_MOVE_EVENT_TYPE,
+            { to: geral2.roomId, id, room_id: geral1.roomId, ts: expect.any(Number) },
+        );
     });
 
     it("asks for a disconnect with a request naming no channel", async () => {
+        const sealed = callWithBob();
         await requestVoiceDisconnect(client, geral1.roomId, "@bob:example.org");
         expect(client.sendStateEvent).toHaveBeenCalledWith(
             geral1.roomId,
@@ -155,6 +181,17 @@ describe("voiceMove", () => {
             { id: expect.any(String) },
             "u:@bob:example.org",
         );
+        expect(sealed.mock.calls[0]![2]).toEqual({
+            id: expect.any(String),
+            room_id: geral1.roomId,
+            ts: expect.any(Number),
+        });
+    });
+
+    it("still sends the state event when the fast lane fails", async () => {
+        callWithBob().mockRejectedValue(new Error("no carrier"));
+        await requestVoiceMove(client, geral1.roomId, "@bob:example.org", geral2.roomId);
+        expect(client.sendStateEvent).toHaveBeenCalledOnce();
     });
 
     describe("waitForCallMember", () => {
