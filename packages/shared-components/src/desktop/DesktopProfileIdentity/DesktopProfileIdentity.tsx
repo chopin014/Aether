@@ -320,14 +320,20 @@ export function DesktopProfileBanner({
 
 interface DesktopProfileTagChipProps {
     tag: DesktopProfileTag;
+    /** Extra class for the chip, so a surface such as a name in a list can draw it its own way. */
+    className?: string;
 }
 
 /** A Space's tag, as worn by one of its members. */
-export function DesktopProfileTagChip({ tag }: DesktopProfileTagChipProps): JSX.Element {
+export function DesktopProfileTagChip({ tag, className }: DesktopProfileTagChipProps): JSX.Element {
     const { translate: _t } = useI18n();
     const style = (tag.colour ? { "--profile-tag": tag.colour } : undefined) as CSSProperties | undefined;
     return (
-        <span className={styles.tag} style={style} title={_t("desktop|profile|tag_from", { space: tag.spaceName })}>
+        <span
+            className={classNames(styles.tag, className)}
+            style={style}
+            title={_t("desktop|profile|tag_from", { space: tag.spaceName })}
+        >
             {tag.emoji && <span aria-hidden="true">{tag.emoji}</span>}
             {tag.label}
         </span>
