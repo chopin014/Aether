@@ -20,7 +20,13 @@ interface NativeCapture {
     stopCapture: () => void;
 }
 
-/** Captures only a confirmed source; window capture never falls back to the system mix. */
+// The Wayland portal never says which screen or window was picked, so its source id cannot name an application.
+const PORTAL_SOURCE = "portal";
+
+/**
+ * Captures only a confirmed source; window capture never falls back to the system mix. A Wayland portal source
+ * captures the system mix without Aether, as for an entire screen, because the chosen application is unknown.
+ */
 export class DesktopAudioCapture {
     private selectedSource: string | null = null;
     private sessionId: string | null = null;
@@ -39,6 +45,11 @@ export class DesktopAudioCapture {
     /** Authorize audio once, only after the source picker confirms the user's selection. */
     public select = (sourceId: string, audio: boolean): void => {
         this.selectedSource = audio && /^(screen|window):[0-9]+(?::[0-9]+)?$/.test(sourceId) ? sourceId : null;
+    };
+
+    /** Authorize audio once for the source the Wayland portal returned, whatever form its id takes. */
+    public selectPortal = (audio: boolean): void => {
+        this.selectedSource = audio ? PORTAL_SOURCE : null;
     };
 
     /** Start native process-tree audio using the source chosen in the pending picker. */
@@ -87,9 +98,9 @@ export class DesktopAudioCapture {
 let capture: DesktopAudioCapture | undefined;
 let portalAudioRequested = false;
 
-/** Install audio IPC restricted to the app's top-level renderer. */
-export function setupDesktopAudio(owner: WebContents): void {
-    capture = new DesktopAudioCapture(owner);
+/** Install audio IPC restricted to the app's top-level renderer. `native` replaces the native module in tests. */
+export function setupDesktopAudio(owner: WebContents, native?: NativeCapture): void {
+    capture = new DesktopAudioCapture(owner, native);
     const assertOwner = (event: Electron.IpcMainInvokeEvent): void => {
         if (event.sender !== owner || event.senderFrame !== owner.mainFrame) throw new Error("Invalid audio sender");
     };
@@ -117,6 +128,6 @@ export function selectDesktopAudio(sourceId: string, audio: boolean): void {
 
 /** Portal selection has no renderer picker; use the preference from before getDisplayMedia. */
 export function selectPortalDesktopAudio(sourceId: string): void {
-    capture?.select(sourceId, portalAudioRequested);
+    capture?.selectPortal(sourceId !== "" && portalAudioRequested);
     portalAudioRequested = false;
 }
