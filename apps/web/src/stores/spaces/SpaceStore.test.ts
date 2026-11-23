@@ -190,6 +190,19 @@ describe("SpaceStore", () => {
             checkAll.mockRestore();
             check.mockRestore();
         });
+
+        it("finishes getting ready when checking the rooms fails", async () => {
+            const checkAll = vi.spyOn(SpaceChildRepair.prototype, "checkAll").mockImplementation(() => {
+                throw new Error("checking failed");
+            });
+            window.localStorage.setItem("mx_active_space", space1);
+            mkSpace(space1);
+            await run();
+            expect(checkAll).toHaveBeenCalled();
+            // The last open Space is restored after the check, so the store got through all of it.
+            expect(store.activeSpace).toBe(space1);
+            checkAll.mockRestore();
+        });
     });
 
     describe("static hierarchy resolution tests", () => {
