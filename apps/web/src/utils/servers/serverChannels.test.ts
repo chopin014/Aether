@@ -8,9 +8,17 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { describe, expect, it, vi } from "vitest";
-import { KnownMembership, type MatrixClient, type Room, RoomType } from "matrix-js-sdk/src/matrix";
+import { KnownMembership, type MatrixClient, MatrixError, type Room, RoomType } from "matrix-js-sdk/src/matrix";
 
-import { joinChannels, listJoinableChannels, type ServerChannel } from "./serverChannels";
+import {
+    joinChannels,
+    type JoinChannelsOptions,
+    type JoinChannelsResult,
+    joinChannelsUntilHeldBack,
+    JoinRateLimit,
+    listJoinableChannels,
+    type ServerChannel,
+} from "./serverChannels";
 
 const SPACE = "!space:x";
 
@@ -123,15 +131,80 @@ describe("joinChannels", () => {
         });
         const channels = ["!a", "!b", "!c", "!d", "!e"].map(channel);
 
-        const result = await joinChannels(client, channels, 2);
+        const result = await joinChannels(client, channels, { concurrency: 2 });
 
         expect(result.joined).toEqual(["!a", "!c", "!d", "!e"]);
         expect(result.failed).toEqual([channels[1]]);
         expect(client.joinRoom).toHaveBeenCalledWith("!a", { viaServers: ["x"] });
     });
 
+    it("waits as long as the homeserver asks when it holds joins back, then joins the rest in order", async () => {
+        const client = makeClient([]);
+        let refusals = 1;
+        const calls: string[] = [];
+        vi.mocked(client.joinRoom).mockImplementation(async (roomId) => {
+            calls.push(roomId);
+            if (roomId === "!b" && refusals-- > 0) {
+                throw new MatrixError({ errcode: "M_LIMIT_EXCEEDED", retry_after_ms: 30 }, 429);
+            }
+            return {} as Room;
+        });
+        const onRateLimited = vi.fn();
+        const started = Date.now();
+
+        const result = await joinChannels(client, ["!a", "!b", "!c"].map(channel), { concurrency: 1, onRateLimited });
+
+        expect(result).toEqual({ joined: ["!a", "!b", "!c"], failed: [] });
+        expect(calls).toEqual(["!a", "!b", "!b", "!c"]);
+        expect(onRateLimited).toHaveBeenCalledTimes(1);
+        expect(Date.now() - started).toBeGreaterThanOrEqual(25);
+    });
+
     it("does nothing for no channels", async () => {
         const client = makeClient([]);
         await expect(joinChannels(client, [])).resolves.toEqual({ joined: [], failed: [] });
+    });
+});
+
+describe("JoinRateLimit", () => {
+    it("holds back only for a rate limit, using the homeserver's wait or a default", () => {
+        const limit = new JoinRateLimit();
+        expect(limit.hold(new Error("offline"))).toBe(false);
+        expect(limit.hold(new MatrixError({ errcode: "M_FORBIDDEN" }, 403))).toBe(false);
+        expect(limit.hold(new MatrixError({ errcode: "M_LIMIT_EXCEEDED" }, 429))).toBe(true);
+    });
+
+    it("waits until the latest time the homeserver asked for", async () => {
+        const limit = new JoinRateLimit();
+        expect(limit.holding).toBe(false);
+        limit.hold(new MatrixError({ errcode: "M_LIMIT_EXCEEDED", retry_after_ms: 20 }, 429));
+        limit.hold(new MatrixError({ errcode: "M_LIMIT_EXCEEDED", retry_after_ms: 5 }, 429));
+        const started = Date.now();
+        expect(limit.holding).toBe(true);
+        await limit.wait();
+        expect(Date.now() - started).toBeGreaterThanOrEqual(15);
+        expect(limit.holding).toBe(false);
+    });
+});
+
+describe("joinChannelsUntilHeldBack", () => {
+    const channels: ServerChannel[] = [
+        { roomId: "!a", name: "a", kind: "text", memberCount: 1, suggested: false, via: [] },
+    ];
+
+    it("reports how joining went when nothing held it back", async () => {
+        const join = vi.fn().mockResolvedValue({ joined: ["!a"], failed: [] });
+        await expect(joinChannelsUntilHeldBack(makeClient([]), channels, join)).resolves.toEqual({
+            joined: ["!a"],
+            failed: [],
+        });
+    });
+
+    it("reports nothing once the homeserver holds the joins back", async () => {
+        const join = vi.fn((_client, _channels, options?: JoinChannelsOptions) => {
+            options?.onRateLimited?.();
+            return new Promise<JoinChannelsResult>(() => {});
+        });
+        await expect(joinChannelsUntilHeldBack(makeClient([]), channels, join)).resolves.toBeUndefined();
     });
 });

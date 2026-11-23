@@ -11,7 +11,11 @@ import { describe, expect, it, vi } from "vitest";
 import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import { ChooseServerChannelsViewModel } from "./ChooseServerChannelsViewModel";
-import { type ServerChannel } from "../../utils/servers/serverChannels";
+import {
+    type JoinChannelsOptions,
+    type JoinChannelsResult,
+    type ServerChannel,
+} from "../../utils/servers/serverChannels";
 
 const channel = (roomId: string, kind: "text" | "voice" = "text"): ServerChannel => ({
     roomId,
@@ -69,9 +73,23 @@ describe("ChooseServerChannelsViewModel", () => {
         const { vm, props } = make();
         vm.toggle("!lounge");
         await vm.confirm();
-        expect(props.joinChannels).toHaveBeenCalledWith(client, [channels[0], channels[2]]);
+        expect(props.joinChannels).toHaveBeenCalledWith(client, [channels[0], channels[2]], {
+            onRateLimited: expect.any(Function),
+        });
         expect(props.onFinished).toHaveBeenCalled();
         expect(props.openFirstChannel).toHaveBeenCalledWith(client, "!space", channels, ["!general"]);
+    });
+
+    it("closes once the homeserver holds the joins back, leaving the rest to join in the background", async () => {
+        const join = vi.fn((_client, _channels, options?: JoinChannelsOptions) => {
+            options?.onRateLimited?.();
+            return new Promise<JoinChannelsResult>(() => {});
+        });
+        const { vm, props } = make(join);
+        vm.toggle("!memes");
+        await vm.confirm();
+        expect(props.onFinished).toHaveBeenCalled();
+        expect(props.openFirstChannel).toHaveBeenCalledWith(client, "!space", channels, ["!general", "!memes"]);
     });
 
     it("ignores selection changes while joining", async () => {
