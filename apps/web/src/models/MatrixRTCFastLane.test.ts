@@ -378,6 +378,16 @@ describe("a joiner's hello", () => {
         expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
     });
 
+    it("drops the joiner at once when they leave the room or lose the right to join its call", async () => {
+        hello();
+        await settle();
+        expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
+        room.currentState.setStateEvents([stateEvent(EventType.RoomMember, alice, { membership: "leave" }, me)]);
+        await session.ensureRecalculateSessionMembers();
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
+    });
+
     it("drops the joiner when no state event follows the hello in time", async () => {
         hello();
         await settle();

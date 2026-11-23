@@ -112,7 +112,7 @@ describe("our MatrixRTC media key when someone joins", () => {
         return { manager, memberships, transport, ownKeys, sent, join };
     }
 
-    it("gives joiners our key ratcheted once and uses it at once, without waiting for it to be delivered", async () => {
+    it("ratchets our key for a joiner and uses it at once, without waiting for it to be delivered", async () => {
         const { transport, ownKeys, sent, join } = await inCall([member("@bob:example.org", "BOB")]);
         const before = ownKeys().at(-1)!;
         const calls = transport.sendKey.mock.calls.length;
@@ -121,12 +121,44 @@ describe("our MatrixRTC media key when someone joins", () => {
 
         expect(transport.sendKey).toHaveBeenCalledTimes(calls + 1);
         const toCarol = sent(calls);
-        expect(toCarol.targets).toEqual(["@carol:example.org"]);
+        // Bob already holds the key before it, and gets this one too: LiveKit only ratchets one step on its own.
+        expect(toCarol.targets).toEqual(["@bob:example.org", "@carol:example.org"]);
         expect(toCarol.index).toBe(before.index);
         expect(hex(toCarol.key)).toBe(hex(await ratchetMediaKey(before.key as Uint8Array<ArrayBuffer>)));
         // Already in use: no `useKeyDelay` wait.
         expect(hex(ownKeys().at(-1)!.key)).toBe(hex(toCarol.key));
         expect(ownKeys().at(-1)!.index).toBe(before.index);
+    });
+
+    it("gives everyone already in the call each ratcheted key, so that nobody depends on ratcheting twice", async () => {
+        const { ownKeys, sent, transport, join } = await inCall([member("@bob:example.org", "BOB")]);
+        const first = ownKeys().at(-1)!.key as Uint8Array<ArrayBuffer>;
+        // Two joins in a row while we send nothing (muted): Bob could not ratchet twice on his own.
+        await join("@carol:example.org");
+        await join("@dave:example.org");
+        const last = sent(transport.sendKey.mock.calls.length - 1);
+        expect(last.targets).toContain("@bob:example.org");
+        expect(hex(last.key)).toBe(hex(await ratchetMediaKey(await ratchetMediaKey(first))));
+    });
+
+    it("rotates once ratcheted too often even while people keep joining", async () => {
+        const { manager, memberships, transport, sent, join } = await inCall([member("@bob:example.org", "BOB")]);
+        for (let i = 0; i < MAX_JOIN_RATCHETS - 1; i++) await join(`@j${i}:example.org`);
+        // The last ratchet's delivery is still on its way when someone else joins.
+        let deliver!: () => void;
+        transport.sendKey.mockImplementationOnce(() => new Promise<void>((resolve) => (deliver = resolve)));
+        const sends = transport.sendKey.mock.calls.length;
+        memberships.push(member("@last:example.org", "LAST"));
+        manager.onMembershipsUpdate();
+        await vi.waitFor(() => expect(transport.sendKey.mock.calls.length).toBe(sends + 1));
+        const ratcheted = sent(sends).index;
+        memberships.push(member("@late:example.org", "LATE"));
+        manager.onMembershipsUpdate();
+        deliver();
+        await vi.waitFor(() => expect(transport.sendKey.mock.calls.length).toBe(sends + 2));
+        const next = sent(sends + 1);
+        expect(next.index).toBe((ratcheted + 1) % 256);
+        expect(next.targets).toContain("@late:example.org");
     });
 
     it("never gives a joiner the key that encrypted the call before they came", async () => {

@@ -1,8 +1,8 @@
 diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryptionManager.ts
-index f2c46a1..7865881 100644
+index f2c46a1..6847caa 100644
 --- a/src/matrixrtc/RTCEncryptionManager.ts
 +++ b/src/matrixrtc/RTCEncryptionManager.ts
-@@ -35,6 +35,39 @@ import {
+@@ -35,6 +35,40 @@ import {
  import { OutdatedKeyFilter } from "./utils.ts";
  import { computeRtcIdentityRaw } from "./membershipData/rtc.ts";
  import { isUnstableLivekitTransport } from "./LivekitTransport.ts";
@@ -19,6 +19,7 @@ index f2c46a1..7865881 100644
 + * nothing from us meanwhile (we were muted) must never fall more than that behind.
 + */
 +export const MAX_JOIN_RATCHETS = 8;
++// The cap is defence in depth: every ratcheted key is also sent to everyone (see rolloutOutboundKey).
 +
 +/**
 + * Aether: the next key of LiveKit's key ratchet, as its E2EE worker derives it when a frame does not decrypt with
@@ -42,7 +43,7 @@ index f2c46a1..7865881 100644
  
  /**
   * Default for {@link EncryptionConfig.keyRotationParticipantLimit}.
-@@ -228,12 +261,20 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -228,12 +262,20 @@ export class RTCEncryptionManager implements IEncryptionManager {
          keyIndex: number,
          membership: CallMembershipIdentityParts,
      ): void {
@@ -69,7 +70,7 @@ index f2c46a1..7865881 100644
          if (!fullMembership) {
              this.logger?.info(
                  `No matching RTC membership for key from ${membership.userId}:${membership.deviceId}, delaying key addition`,
-@@ -274,8 +315,18 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -274,8 +316,18 @@ export class RTCEncryptionManager implements IEncryptionManager {
  
          this.logger?.info(`Joining room`);
          this.transport.start();
@@ -88,7 +89,7 @@ index f2c46a1..7865881 100644
      public leave(): void {
          this.transport.off(KeyTransportEvents.ReceivedKeys, this.onNewKeyReceived);
          this.transport.stop();
-@@ -385,15 +436,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -385,15 +437,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  );
          }
          // get current memberships
@@ -112,7 +113,7 @@ index f2c46a1..7865881 100644
                  };
              });
  
-@@ -426,6 +484,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -426,6 +485,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
          //default to current session
          let newOutboundEncryptionSession: OutboundEncryptionSession = this.outboundSession!;
          let hasKeyChanged = false;
@@ -120,23 +121,27 @@ index f2c46a1..7865881 100644
  
          // Rotating means sending the new key to every participant, this is expensive in large session.
          if (this.isKeyRotationSuppressed) {
-@@ -436,11 +495,26 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -436,11 +496,30 @@ export class RTCEncryptionManager implements IEncryptionManager {
              }
              toDistributeTo = anyJoined;
          } else {
 -            if (anyLeft.length > 0) {
 -                // We need to rotate the key
-+            if (anyLeft.length > 0 || (this.rotateAfterRatchets && anyJoined.length === 0)) {
++            if (anyLeft.length > 0 || this.rotateAfterRatchets) {
 +                // We need to rotate the key (Aether: also once it was ratcheted for joiners too often)
 +                this.rotateAfterRatchets = false;
                  newOutboundEncryptionSession = this.createNewOutboundSession();
                  hasKeyChanged = true;
                  toDistributeTo = toShareWith;
 +            } else if (anyJoined.length > 0 && !isFirstKey && this.outboundSession && this.ratchetForJoiners) {
-+                // Aether: joiners get our key ratcheted one step, and we send with it at once. Everyone already in
-+                // the call holds the key before it, and their LiveKit E2EE worker ratchets to this one by itself the
-+                // first time one of our frames does not decrypt; the joiners cannot go back to the key that
-+                // encrypted the call before they came. (A key made in this very round has encrypted nothing yet.) A new random key would instead have to reach everyone
++                // Aether: our key is ratcheted one step and we send with it at once. The joiners cannot go back from
++                // it to the key that encrypted the call before they came. Everyone already in the call holds the key
++                // before it: their LiveKit E2EE worker ratchets to this one by itself when one of our frames does not
++                // decrypt, so they keep hearing us while it reaches them. It is sent to them too, because that worker
++                // only ratchets one step from the key it has: after two joins while we were muted (no frames), they
++                // could not follow on their own. A new random key would instead have to reach everyone before we
++                // could use it (`useKeyDelay`), and until then the joiners could not hear us. (A key made in this
++                // very round has encrypted nothing yet.) A new random key would instead have to reach everyone
 +                // before we could use it (`useKeyDelay`), and until then the joiners could not hear us.
 +                const ratcheted = await ratchetMediaKey(this.outboundSession.key);
 +                newOutboundEncryptionSession = this.outboundSession = {
@@ -144,12 +149,12 @@ index f2c46a1..7865881 100644
 +                    key: ratcheted,
 +                };
 +                this.joinRatchets++;
-+                toDistributeTo = anyJoined;
++                toDistributeTo = toShareWith;
 +                ratchetedForJoiners = true;
              } else if (anyJoined.length > 0) {
                  const keyAge = Date.now() - this.outboundSession!.creationTS;
                  if (keyAge < this.keyRotationGracePeriodMs) {
-@@ -457,24 +531,62 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -457,24 +536,62 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  }
              }
          }
@@ -213,7 +218,7 @@ index f2c46a1..7865881 100644
                  // Delay a bit before using this key
                  // It is recommended not to start using a key immediately but instead wait for a short time to make sure it is delivered.
                  this.logger?.trace(`Delay Rollout for key:${newOutboundEncryptionSession.keyId}...`);
-@@ -493,6 +605,50 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -493,6 +610,50 @@ export class RTCEncryptionManager implements IEncryptionManager {
          }
      }
  
@@ -2657,7 +2662,7 @@ diff --git a/src/models/room-state.ts b/src/models/room-state.ts
              try {
                  await matrixClient.decryptEventIfNeeded(event);
 diff --git a/src/matrixrtc/MatrixRTCSession.ts b/src/matrixrtc/MatrixRTCSession.ts
-index dde93b1..167ea80 100644
+index dde93b1..7e9a7f0 100644
 --- a/src/matrixrtc/MatrixRTCSession.ts
 +++ b/src/matrixrtc/MatrixRTCSession.ts
 @@ -18,7 +18,7 @@ import { type Logger, logger as rootLogger } from "../logger.ts";
@@ -2735,7 +2740,7 @@ index dde93b1..167ea80 100644
  
          const leavePromise = this.membershipManager!.leave(timeout);
          this.emit(MatrixRTCSessionEvent.JoinStateChanged, false);
-@@ -666,6 +686,171 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -666,6 +686,183 @@ export class MatrixRTCSession extends TypedEventEmitter<
          return await leavePromise;
      }
  
@@ -2887,7 +2892,19 @@ index dde93b1..167ea80 100644
 +    private aetherWithProvisional(fromState: CallMembership[]): CallMembership[] {
 +        if (this.aetherProvisional.size === 0) return fromState;
 +        const memberships = [...fromState];
++        const room = this.roomSubset as Room;
 +        for (const [key, { membership, helloTs, timer }] of this.aetherProvisional) {
++            // Someone who left or was removed from the room, or lost the right to join its call, since their hello
++            // is not in the call any more, whatever the hello said.
++            if (
++                !room.hasMembershipState(membership.userId, KnownMembership.Join) ||
++                !room.currentState?.maySendStateEvent(EventType.GroupCallMemberPrefix, membership.userId) ||
++                membership.isExpired()
++            ) {
++                clearTimeout(timer);
++                this.aetherProvisional.delete(key);
++                continue;
++            }
 +            const index = memberships.findIndex(
 +                (m) => m.userId === membership.userId && m.deviceId === membership.deviceId,
 +            );
@@ -2907,7 +2924,7 @@ index dde93b1..167ea80 100644
      /**
       * Get the call intent for the current call, based on what members are advertising. If one or more
       * members disagree on the current call intent, or nobody specifies one then `undefined` is returned.
-@@ -883,10 +1068,12 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -883,10 +1080,12 @@ export class MatrixRTCSession extends TypedEventEmitter<
          // Needs to be computed before `this.memberships` is updated below, since it is derived from it.
          const wasKeyRotationSuppressed = this.isKeyRotationSuppressed;
  
@@ -2924,7 +2941,7 @@ index dde93b1..167ea80 100644
          );
  
          const changed =
-@@ -920,9 +1107,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -920,9 +1119,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
              // If anyone else joins the session it is no longer our responsibility to send the notification.
              // (If we were the joiner we already did sent the notification in the block above.)
              if (this.memberships.length > 0) this.pendingNotificationToSend = undefined;
