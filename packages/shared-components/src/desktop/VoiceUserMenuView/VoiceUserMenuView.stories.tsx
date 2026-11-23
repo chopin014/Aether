@@ -29,6 +29,7 @@ const actions: VoiceUserMenuViewActions = {
     copyUserId: fn(),
     toggleIgnore: fn(),
     setRole: fn(),
+    moveTo: fn(),
 };
 
 function MenuStory(snapshot: VoiceUserMenuViewSnapshot): JSX.Element {
@@ -67,6 +68,7 @@ const meta = {
             { level: 50, label: "Moderator", selected: false },
             { level: 0, label: "Default", selected: true },
         ],
+        moveDestinations: [],
     },
     parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof MenuStory>;
@@ -78,6 +80,15 @@ export const SomeoneElse: Story = {};
 /** Turned up past full volume, muted for this user only, with their soundboard silenced. */
 export const Boosted: Story = { args: { volumePercent: 175, soundboardMuted: true } };
 export const Muted: Story = { args: { muted: true } };
+/** Seen by someone with the power to move people: they can send the person to another voice channel. */
+export const Moderator: Story = {
+    args: {
+        moveDestinations: [
+            { id: "!geral2:example.org", name: "Geral#2" },
+            { id: "!afk:example.org", name: "AFK" },
+        ],
+    },
+};
 /** The user's own menu offers their microphone and deafen instead of a volume. */
 export const Self: Story = {
     args: { isSelf: true, canCall: false, canMessage: false, inviteServers: [], roles: [], microphoneMuted: true },

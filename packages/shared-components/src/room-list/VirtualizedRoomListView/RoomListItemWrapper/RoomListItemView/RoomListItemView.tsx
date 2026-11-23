@@ -10,6 +10,9 @@ import classNames from "classnames";
 import { useMergeRefs } from "react-merge-refs";
 import ThreadsIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads-solid";
 import { Avatar } from "@vector-im/compound-web";
+import { useDraggable } from "@dnd-kit/react";
+import { Feedback } from "@dnd-kit/dom";
+import { RestrictToVerticalAxis } from "@dnd-kit/abstract/modifiers";
 import {
     HeadphonesOffSolidIcon,
     MicOffSolidIcon,
@@ -27,6 +30,7 @@ import { VoiceUserMenuView, type VoiceUserMenuViewModel } from "../../../../desk
 import { useViewModel, type ViewModel } from "../../../../core/viewmodel";
 import { type UserStatus } from "../../../../core/userStatus";
 import { _t } from "../../../../core/i18n/i18n";
+import { callParticipantDragId, type CallParticipantDragData } from "../../dragAndDrop";
 
 /**
  * Opaque type representing a Room object from the parent application
@@ -136,6 +140,11 @@ export interface RoomListItemViewSnapshot {
         /** Whether this is the user, still connecting to the call: shown dimmed until their media is up. */
         isConnecting?: boolean;
     }[];
+    /**
+     * Whether the user may move the people in this voice channel's call to another voice channel, by dragging them
+     * there. Without that power, nobody in the call can be dragged.
+     */
+    canMoveCallParticipants?: boolean;
     /** When people started gathering in an occupied voice channel, in milliseconds since the epoch. */
     callStartedAt?: number;
     /** Can invite other users in the room */
@@ -237,6 +246,18 @@ export interface RoomListItemViewProps extends Omit<React.HTMLAttributes<HTMLBut
     isDragSource?: boolean;
     /** Where a room dragged over this one would be dropped: before or after it. */
     dropIndicator?: "before" | "after";
+    /**
+     * Whether the people in the channel's call may be dragged, as they can be in the grouped list, which takes the
+     * drop. They are only dragged when the user may also move them (`canMoveCallParticipants`).
+     */
+    canDragCallParticipants?: boolean;
+    /**
+     * Where a person dragged from another voice channel's call can be dropped to be moved here: the channel together
+     * with the people in its call.
+     */
+    callParticipantDropRef?: Ref<Element>;
+    /** Whether a person dragged from another voice channel's call is over this voice channel, to be moved here. */
+    isCallParticipantDropTarget?: boolean;
     ref?: Ref<Element>;
 }
 
@@ -281,6 +302,56 @@ function menuPosition(event: React.MouseEvent<HTMLElement>): { x: number; y: num
     return { x: rect.left + 16, y: rect.bottom };
 }
 
+interface CallParticipantButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "draggable"> {
+    /** The voice channel whose call the person is in. */
+    roomId: string;
+    participant: CallParticipant;
+    /** Whether the person can be dragged to another voice channel, to move them there. */
+    draggable: boolean;
+}
+
+/**
+ * A person in a voice channel's call. When the user may move them, they can be dragged to another voice channel, as in
+ * Discord; otherwise the row cannot be dragged at all.
+ */
+function CallParticipantButton({
+    roomId,
+    participant,
+    draggable,
+    className,
+    ...props
+}: CallParticipantButtonProps): JSX.Element {
+    const {
+        ref: draggableRef,
+        handleRef,
+        isDragSource,
+    } = useDraggable<CallParticipantDragData>({
+        id: callParticipantDragId(roomId, participant.userId),
+        data: {
+            type: "participant",
+            roomId,
+            userId: participant.userId,
+            name: participant.name,
+            avatarUrl: participant.avatarUrl,
+        },
+        // As for rooms, the drag overlay follows the pointer and the person stays in place in the list.
+        plugins: [Feedback.configure({ feedback: "clone" })],
+        modifiers: [RestrictToVerticalAxis],
+        disabled: !draggable,
+    });
+    const dndRef = useMergeRefs<HTMLButtonElement>([draggableRef, handleRef]);
+    // Only wire up the draggable refs when the person can be dragged, otherwise dnd-kit puts misleading
+    // a11y attributes (aria-disabled=true) on the row.
+    return (
+        <button
+            type="button"
+            {...props}
+            ref={draggable ? dndRef : undefined}
+            className={classNames(className, { [styles.callParticipantDragSource]: isDragSource })}
+        />
+    );
+}
+
 /**
  * A presentational room list item component.
  * Displays room name, avatar, message preview, and notifications.
@@ -295,12 +366,17 @@ export const RoomListItemView = memo(function RoomListItemView({
     renderAvatar,
     isDragSource = false,
     dropIndicator,
+    canDragCallParticipants = false,
+    callParticipantDropRef,
+    isCallParticipantDropTarget = false,
     ref,
     ...props
 }: RoomListItemViewProps): JSX.Element {
     const internalRef = useRef<HTMLButtonElement>(null);
-    const mergedRef = useMergeRefs([ref, internalRef]);
     const item = useViewModel(vm);
+    // A voice channel with people in it takes a dragged person anywhere over its people too, not just over its row.
+    const dropsOnParticipants = item.channelKind === "voice" && !!item.callParticipants?.length;
+    const mergedRef = useMergeRefs([ref, internalRef, dropsOnParticipants ? undefined : callParticipantDropRef]);
 
     // Reveal the hover menu when the row is focused via the keyboard (not the mouse), and keep it
     // revealed while focus moves onto the menu buttons so they stay reachable by Tab. A pure CSS
@@ -361,6 +437,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                     [styles.dragSource]: isDragSource,
                     [styles.dropBefore]: dropIndicator === "before",
                     [styles.dropAfter]: dropIndicator === "after",
+                    [styles.callParticipantDropTarget]: isCallParticipantDropTarget,
                     mx_RoomListItemView_selected: isSelected,
                 })}
                 gap="var(--cpd-space-3x)"
@@ -404,7 +481,7 @@ export const RoomListItemView = memo(function RoomListItemView({
     if (item.channelKind !== "voice" || !item.callParticipants?.length) return roomItem;
 
     return (
-        <div className={styles.channelWithParticipants}>
+        <div className={styles.channelWithParticipants} ref={callParticipantDropRef as Ref<HTMLDivElement>}>
             {roomItem}
             <div
                 className={styles.callParticipants}
@@ -412,9 +489,11 @@ export const RoomListItemView = memo(function RoomListItemView({
                 aria-label={_t("desktop|voice|participants", { roomName: item.name })}
             >
                 {item.callParticipants.map((participant) => (
-                    <button
+                    <CallParticipantButton
                         key={participant.userId}
-                        type="button"
+                        roomId={item.id}
+                        participant={participant}
+                        draggable={canDragCallParticipants && !!item.canMoveCallParticipants}
                         className={styles.callParticipant}
                         onClick={() => vm.onViewCallParticipant?.(participant.userId)}
                         onContextMenu={(event) => {
@@ -459,7 +538,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                             deafened={participant.isDeafened}
                             locallyMuted={participant.isLocallyMuted}
                         />
-                    </button>
+                    </CallParticipantButton>
                 ))}
             </div>
             {participantMenu && (

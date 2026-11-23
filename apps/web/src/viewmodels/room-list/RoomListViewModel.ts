@@ -71,6 +71,7 @@ import SettingsStore from "../../settings/SettingsStore";
 import { type RoomViewStore } from "../../stores/RoomViewStore.tsx";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { EffectiveMembership, getEffectiveMembership } from "../../utils/membership";
+import { moveVoiceMember } from "../../utils/call/moveVoiceMember";
 
 /**
  * Tracks the position of the active room within a specific section.
@@ -1286,6 +1287,12 @@ export class RoomListViewModel
         // The channels outside any category have no category id.
         const categoryId = categoryIdOfTag(section.tag) ?? null;
         moveChannel(space, roomId, categoryId, { anchor: targetRoomId, side }).catch(reportLayoutError);
+    };
+
+    /** Moves a person dropped on another voice channel of the listed server there. */
+    public moveCallParticipant = (fromRoomId: string, userId: string, toRoomId: string): void => {
+        if (!this.channelListSpace) return;
+        void moveVoiceMember(this.props.client, fromRoomId, userId, toRoomId);
     };
 
     public changeRoomSection = (roomId: string, tag: string): void => {

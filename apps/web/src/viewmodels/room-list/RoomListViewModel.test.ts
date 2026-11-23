@@ -58,7 +58,9 @@ import { CHATS_TAG, CUSTOM_SECTION_TAG_PREFIX, type SectionExpansionState } from
 import { MetaSpace } from "../../stores/spaces";
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { type RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
+import { moveVoiceMember } from "../../utils/call/moveVoiceMember";
 
+vi.mock("../../utils/call/moveVoiceMember", () => ({ moveVoiceMember: vi.fn() }));
 vi.mock("../../utils/room/tagRoom", () => ({
     tagRoom: vi.fn(),
 }));
@@ -427,6 +429,12 @@ describe("RoomListViewModel", () => {
             RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
             await flushPromises();
             expect(viewModel.getSnapshot().sections.some((section) => section.canReorder)).toBe(false);
+        });
+
+        it("moves a person dropped on another voice channel of the server there", () => {
+            viewModel = createViewModel();
+            viewModel.moveCallParticipant(room1.roomId, "@bob:server", room2.roomId);
+            expect(moveVoiceMember).toHaveBeenCalledWith(matrixClient, room1.roomId, "@bob:server", room2.roomId);
         });
 
         it("moves a channel dropped beside another into that channel's category, on the side it came from", async () => {

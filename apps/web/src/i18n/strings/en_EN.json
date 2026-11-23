@@ -916,6 +916,10 @@
             "screen_share_failed": "Screen sharing could not be changed. Please try again."
         },
         "voice_channels": "Voice Channels",
+        "voice_move": {
+            "failed_title": "Couldn't move %(name)s",
+            "not_followed": "%(name)s didn't follow the move. Only people using Aether can be moved to another channel."
+        },
         "voice_settings": {
             "call_moved_description": "You joined a call on another Aether device. Voice is now connected there.",
             "call_moved_title": "Call moved to another device",

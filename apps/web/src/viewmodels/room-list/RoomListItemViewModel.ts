@@ -70,6 +70,7 @@ import { prepareCallInBackground, prepareCallSoon } from "../../components/views
 import { SlidingSyncManager } from "../../SlidingSyncManager";
 import { getCallSessionStart } from "../../utils/call/callSessionStart";
 import { getPublishedVoiceState, VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
+import { mayMoveVoiceMembers } from "../../utils/call/voiceMove";
 import { VoiceUserMenuViewModel } from "../desktop/VoiceUserMenuViewModel";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 
@@ -676,6 +677,8 @@ export class RoomListItemViewModel
             : undefined;
         const canEditChannel =
             !!channelKind && room.currentState.maySendStateEvent(EventType.RoomName, client.getSafeUserId());
+        // Without the power to move people, nobody in the channel's call can be dragged to another channel.
+        const canMoveCallParticipants = channelKind === "voice" && mayMoveVoiceMembers(room, client.getSafeUserId());
         // A server's channels are open to its members; one that takes an invitation or a request to join is private.
         const isPrivateChannel =
             !!channelKind && [JoinRule.Invite, JoinRule.Knock, JoinRule.Private].includes(room.getJoinRule());
@@ -716,6 +719,7 @@ export class RoomListItemViewModel
             isPrivateChannel,
             mentionCount,
             callParticipants,
+            canMoveCallParticipants,
             callStartedAt: callParticipants?.length
                 ? getCallSessionStart(room, client.matrixRTC.getRoomSession(room).memberships)
                 : undefined,
