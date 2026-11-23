@@ -77,6 +77,9 @@ jobs:
                   src/stores/CallStore.test.ts
                   src/stores/RoomViewStore.test.ts
                   src/models/ServerVoiceMuteEnforcer.test.ts
+                  src/utils/serverNickname.test.ts
+                  src/models/ServerNicknameKeeper.test.ts
+                  src/viewmodels/profile/DesktopProfileViewModel.test.ts
             - name: Component tests in Chromium
               working-directory: packages/shared-components
               run: >-

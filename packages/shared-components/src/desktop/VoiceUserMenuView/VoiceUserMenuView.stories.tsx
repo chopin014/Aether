@@ -33,6 +33,7 @@ const actions: VoiceUserMenuViewActions = {
     disconnect: fn(),
     toggleServerMuted: fn(),
     toggleServerDeafened: fn(),
+    changeNickname: fn(),
 };
 
 function MenuStory(snapshot: VoiceUserMenuViewSnapshot): JSX.Element {
@@ -73,6 +74,7 @@ const meta = {
         ],
         moveDestinations: [],
         canDisconnect: false,
+        canChangeNickname: true,
     },
     parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof MenuStory>;
