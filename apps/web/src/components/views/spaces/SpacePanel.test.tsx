@@ -95,6 +95,9 @@ const drop = async (element: HTMLElement) => {
     await screen.findByText(/You have dropped the item/i);
 };
 
+// The desktop rail's servers show who is talking in their voice channels, which needs a real call store.
+vi.mock("../../../hooks/useSpaceVoiceActivity", () => ({ useSpaceVoiceActivity: () => [] }));
+
 vi.mock("../../../stores/spaces/SpaceStore", async () => {
     const { EventEmitter } = await vi.importActual<typeof import("events")>("events");
     class MockSpaceStore extends EventEmitter {
@@ -103,6 +106,8 @@ vi.mock("../../../stores/spaces/SpaceStore", async () => {
         spacePanelSpaces: string[] = [];
         activeSpace: SpaceKey = "!space1";
         getChildSpaces = () => [] as Room[];
+        getKnownParents = vi.fn((_roomId: string, _includeAncestors?: boolean) => new Set<string>());
+        getSpaceFilteredRoomIds = vi.fn(() => new Set<string>());
         getNotificationState = () => null as SpaceNotificationState | null;
         isRoomInSpace = vi.fn((space: SpaceKey) => space === MetaSpace.Home);
         setActiveSpace = vi.fn();
@@ -411,6 +416,37 @@ describe("<SpacePanel />", () => {
             fireEvent.click(screen.getByTestId("create-space-button"));
             expect(screen.getByTestId("create-space-button")).toBeVisible();
         });
+    });
+
+    it("lights up the top-level server while a server nested in it is open", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        const store = sdkContext.spaceStore as any;
+        const { spacePanelSpaces, activeSpace } = store;
+        store.spacePanelSpaces = [
+            mkStubRoom("!root:server", "Matrix Community", mockClient),
+            mkStubRoom("!other:server", "Other", mockClient),
+        ];
+        store.activeSpace = "!advocacy:server";
+        vi.mocked(sdkContext.spaceStore.getKnownParents).mockReturnValue(new Set(["!root:server"]));
+        DMRoomMap.makeShared(mockClient);
+
+        try {
+            const { container } = render(<SpacePanel />);
+            const selected = [...container.querySelectorAll('[aria-selected="true"]')].map((el) =>
+                [el, ...el.querySelectorAll("[aria-label]")].map((node) => node.getAttribute("aria-label")).join(" "),
+            );
+            expect(selected.join()).toContain("Matrix Community");
+            expect(selected.join()).not.toContain("Other");
+            expect(sdkContext.spaceStore.getKnownParents).toHaveBeenCalledWith("!advocacy:server", true);
+        } finally {
+            store.spacePanelSpaces = spacePanelSpaces;
+            store.activeSpace = activeSpace;
+            vi.mocked(sdkContext.spaceStore.getKnownParents).mockReturnValue(new Set());
+            settings.mockRestore();
+        }
     });
 
     it("should allow rearranging via drag and drop", async () => {

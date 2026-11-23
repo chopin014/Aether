@@ -17,7 +17,7 @@ import {
     TypedEventEmitter,
 } from "matrix-js-sdk/src/matrix";
 
-import { listJoinableChannels, type ServerChannel } from "../../utils/servers/serverChannels";
+import { listServerChildren, type ServerChannel } from "../../utils/servers/serverChannels";
 
 export enum UnjoinedChannelsStoreEvent {
     /** The channels a server lists that the user is not in may have changed. Passes the server's room id. */
@@ -33,6 +33,7 @@ const REFRESH_DELAY_MS = 300;
 
 interface Entry {
     channels: ServerChannel[];
+    subservers: ServerChannel[];
     fetchedAt: number;
 }
 
@@ -81,11 +82,23 @@ export class UnjoinedChannelsStore extends TypedEventEmitter<UnjoinedChannelsSto
      * old, and emits {@link UnjoinedChannelsStoreEvent.Changed} when they arrive.
      */
     public getChannels(spaceId: string): ServerChannel[] {
+        return this.read(spaceId, "channels");
+    }
+
+    /**
+     * The servers nested in a server that the user was not in when they were last looked up, in the server's order,
+     * looked up as {@link getChannels} looks up channels.
+     */
+    public getSubservers(spaceId: string): ServerChannel[] {
+        return this.read(spaceId, "subservers");
+    }
+
+    private read(spaceId: string, kind: "channels" | "subservers"): ServerChannel[] {
         const entry = this.entries.get(spaceId);
         if (!entry || Date.now() - entry.fetchedAt > FRESH_FOR_MS) void this.fetch(spaceId);
         if (!entry || !this.client) return [];
         const client = this.client;
-        return entry.channels.filter((channel) => !isBannedFrom(client, channel.roomId));
+        return entry[kind].filter((child) => !isBannedFrom(client, child.roomId));
     }
 
     private fetch(spaceId: string): Promise<void> {
@@ -94,19 +107,23 @@ export class UnjoinedChannelsStore extends TypedEventEmitter<UnjoinedChannelsSto
         const client = this.client;
         if (!client) return Promise.resolve();
         const generation = this.generation;
-        const fetching = listJoinableChannels(client, spaceId)
+        const fetching = listServerChildren(client, spaceId)
             .then(
-                (channels) => {
+                ({ channels, subservers }) => {
                     if (generation !== this.generation) return;
-                    this.entries.set(spaceId, { channels, fetchedAt: Date.now() });
+                    this.entries.set(spaceId, { channels, subservers, fetchedAt: Date.now() });
                     this.emit(UnjoinedChannelsStoreEvent.Changed, spaceId);
                 },
                 (error) => {
                     if (generation !== this.generation) return;
                     logger.warn(`Could not list the channels of ${spaceId}`, error);
                     // Keep what was known, and try again only after a while rather than on every render.
-                    const known = this.entries.get(spaceId)?.channels ?? [];
-                    this.entries.set(spaceId, { channels: known, fetchedAt: Date.now() });
+                    const known = this.entries.get(spaceId);
+                    this.entries.set(spaceId, {
+                        channels: known?.channels ?? [],
+                        subservers: known?.subservers ?? [],
+                        fetchedAt: Date.now(),
+                    });
                 },
             )
             .finally(() => {
@@ -137,7 +154,7 @@ export class UnjoinedChannelsStore extends TypedEventEmitter<UnjoinedChannelsSto
         // A channel joined drops out of its servers' lists at once. One left was never in them, as the hierarchy
         // leaves out joined rooms, so those servers are looked up again.
         for (const [spaceId, entry] of this.entries) {
-            const listed = entry.channels.some((channel) => channel.roomId === room.roomId);
+            const listed = [...entry.channels, ...entry.subservers].some((child) => child.roomId === room.roomId);
             if (listed) this.emit(UnjoinedChannelsStoreEvent.Changed, spaceId);
             else if (membership === KnownMembership.Leave && previous === KnownMembership.Join) {
                 if (isChildOf(this.client, spaceId, room.roomId)) this.scheduleRefresh(spaceId);

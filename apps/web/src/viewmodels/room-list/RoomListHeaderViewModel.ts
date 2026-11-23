@@ -7,6 +7,7 @@
 
 import {
     JoinRule,
+    KnownMembership,
     type MatrixClient,
     type MatrixEvent,
     type Room,
@@ -193,6 +194,12 @@ export class RoomListHeaderViewModel
         if (!space) return;
         const store = SpaceLayoutStore.instance;
         store.setHidingMutedChannels(space, !store.isHidingMutedChannels(space)).catch(reportLayoutError);
+    };
+
+    /** Go back to the server the open one is nested in. */
+    public openParentServer = (): void => {
+        const parent = parentServerOf(this.props.spaceStore, this.props.matrixClient);
+        if (parent) this.props.spaceStore.setActiveSpace(parent.roomId);
     };
 
     /**
@@ -411,6 +418,20 @@ function getCanCreateVideoRoom(canCreateRoom: boolean): boolean {
 }
 
 /**
+ * The server the open desktop server is nested in, which the header leads back to: the first one the user is in that
+ * lists it. A top-level server has none.
+ */
+function parentServerOf(spaceStore: SpaceStore, matrixClient: MatrixClient): Room | null {
+    const space = spaceStore.activeSpaceRoom;
+    if (!space || !isDesktopChannelList(space.roomId)) return null;
+    for (const parentId of spaceStore.getKnownParents(space.roomId)) {
+        const parent = matrixClient.getRoom(parentId);
+        if (parent?.isSpaceRoom() && parent.getMyMembership() === KnownMembership.Join) return parent;
+    }
+    return null;
+}
+
+/**
  * Computes the header space state based on the active space and user permissions.
  * @param spaceStore - The space store instance.
  * @param matrixClient - The Matrix client instance.
@@ -434,9 +455,11 @@ function computeHeaderSpaceState(
         activeSpace?.getJoinRule() === JoinRule.Public || activeSpace?.canInvite(matrixClient.getSafeUserId()),
     );
     const canAccessSpaceSettings = Boolean(activeSpace && shouldShowSpaceSettings(activeSpace));
+    const parent = parentServerOf(spaceStore, matrixClient);
 
     return {
         title,
+        parentServer: parent ? { name: parent.name } : undefined,
         canCreateRoom,
         canCreateVideoRoom,
         displaySpaceMenu,

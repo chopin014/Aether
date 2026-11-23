@@ -15,6 +15,7 @@ import { useViewModel } from "../../../../core/viewmodel";
 import { TextChannelIcon } from "../../../../desktop/TextChannelIcon";
 import { NotificationDecoration, type NotificationDecorationData } from "./NotificationDecoration";
 import { ChannelRowActions } from "./ChannelRowActions";
+import { ServerFolderIcon } from "./ServerFolderIcon";
 import { RoomListItemHoverMenu } from "./RoomListItemHoverMenu";
 import { type Room, type RoomListItemViewModel } from "./RoomListItemView";
 import styles from "./RoomListItemView.module.css";
@@ -44,7 +45,8 @@ export const RoomListItemContent = memo(function RoomListItemContent({
     isDragging = false,
 }: RoomListItemContentProps): JSX.Element {
     const item = useViewModel(vm);
-    const isChannel = !!item.channelKind;
+    // A folder reads like a channel: a symbol, the name, and what needs attention inside it.
+    const isChannel = !!item.channelKind || !!item.folder;
     // An occupied voice channel stands out from empty ones, and shows how long it has been occupied.
     const occupied = item.channelKind === "voice" && !!item.callParticipants?.length;
     // A channel shows what Discord shows: a mention count, an unsent message or a call. Plain unread activity is
@@ -67,7 +69,16 @@ export const RoomListItemContent = memo(function RoomListItemContent({
             align="center"
         >
             {isChannel && item.isBold && <span className={styles.unreadMarker} data-testid="channel-unread" />}
-            {item.channelKind ? (
+            {item.folder ? (
+                <span className={styles.channelSymbols}>
+                    <ServerFolderIcon
+                        id={item.id}
+                        name={item.name}
+                        avatarUrl={item.folder.avatarUrl}
+                        expanded={item.folder.expanded}
+                    />
+                </span>
+            ) : item.channelKind ? (
                 // The kind symbol stays when the channel has a custom icon, because any image can be used for
                 // either kind and would not say whether clicking joins a call.
                 <span className={styles.channelSymbols}>

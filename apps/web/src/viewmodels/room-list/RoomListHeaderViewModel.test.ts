@@ -480,6 +480,24 @@ describe("RoomListHeaderViewModel", () => {
             expect(vm.getSnapshot().serverMenu?.hideMutedChannels).toBe(true);
         });
 
+        it("leads back from a nested server to the server the user is in that lists it", () => {
+            const parent = mkSpace(matrixClient, "!parent:server");
+            parent.name = "Matrix Community";
+            vi.mocked(matrixClient.getRoom).mockImplementation((roomId) => (roomId === parent.roomId ? parent : null));
+            vi.spyOn(sdkContext.spaceStore, "getKnownParents").mockReturnValue(new Set([parent.roomId]));
+            const setActiveSpace = vi.spyOn(sdkContext.spaceStore, "setActiveSpace").mockImplementation(() => {});
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            expect(vm.getSnapshot().parentServer).toEqual({ name: "Matrix Community" });
+            vm.openParentServer();
+            expect(setActiveSpace).toHaveBeenCalledWith(parent.roomId);
+        });
+
+        it("has no way back from a top-level server", () => {
+            vi.spyOn(sdkContext.spaceStore, "getKnownParents").mockReturnValue(new Set());
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            expect(vm.getSnapshot().parentServer).toBeUndefined();
+        });
+
         it("has no server menu outside a server", () => {
             vi.spyOn(sdkContext.spaceStore, "activeSpaceRoom", "get").mockReturnValue(null);
             vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });

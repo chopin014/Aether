@@ -18,9 +18,9 @@ import {
 } from "matrix-js-sdk/src/matrix";
 
 import { UnjoinedChannelsStore, UnjoinedChannelsStoreEvent } from "./UnjoinedChannelsStore";
-import { listJoinableChannels, type ServerChannel } from "../../utils/servers/serverChannels";
+import { listServerChildren, type ServerChannel, type ServerChildren } from "../../utils/servers/serverChannels";
 
-vi.mock("../../utils/servers/serverChannels", () => ({ listJoinableChannels: vi.fn() }));
+vi.mock("../../utils/servers/serverChannels", () => ({ listServerChildren: vi.fn() }));
 
 const SPACE = "!space:example.org";
 
@@ -61,8 +61,11 @@ describe("UnjoinedChannelsStore", () => {
         client = Object.assign(new TypedEventEmitter(), {
             getRoom: (roomId: string) => rooms.get(roomId) ?? null,
         }) as unknown as MatrixClient;
-        vi.mocked(listJoinableChannels).mockReset();
-        vi.mocked(listJoinableChannels).mockResolvedValue([channel("!a:example.org"), channel("!b:example.org")]);
+        vi.mocked(listServerChildren).mockReset();
+        vi.mocked(listServerChildren).mockResolvedValue({
+            channels: [channel("!a:example.org"), channel("!b:example.org")],
+            subservers: [channel("!sub:example.org")],
+        });
         store = new UnjoinedChannelsStore();
         store.watch(client);
         changed = [];
@@ -78,20 +81,21 @@ describe("UnjoinedChannelsStore", () => {
         await vi.runAllTimersAsync();
         expect(changed).toEqual([SPACE]);
         expect(store.getChannels(SPACE).map((c) => c.roomId)).toEqual(["!a:example.org", "!b:example.org"]);
-        expect(listJoinableChannels).toHaveBeenCalledTimes(1);
-        expect(listJoinableChannels).toHaveBeenCalledWith(client, SPACE);
+        expect(store.getSubservers(SPACE).map((c) => c.roomId)).toEqual(["!sub:example.org"]);
+        expect(listServerChildren).toHaveBeenCalledTimes(1);
+        expect(listServerChildren).toHaveBeenCalledWith(client, SPACE);
     });
 
     it("asks once while a lookup is running, and again once the list is old", async () => {
         store.getChannels(SPACE);
         store.getChannels(SPACE);
         await vi.runAllTimersAsync();
-        expect(listJoinableChannels).toHaveBeenCalledTimes(1);
+        expect(listServerChildren).toHaveBeenCalledTimes(1);
 
         vi.setSystemTime(Date.now() + 6 * 60_000);
         store.getChannels(SPACE);
         await vi.runAllTimersAsync();
-        expect(listJoinableChannels).toHaveBeenCalledTimes(2);
+        expect(listServerChildren).toHaveBeenCalledTimes(2);
     });
 
     it("leaves out channels the user was banned from, but keeps ones they joined for the room list to replace", async () => {
@@ -109,8 +113,8 @@ describe("UnjoinedChannelsStore", () => {
         client.emit(RoomStateEvent.Events, spaceChildEvent(SPACE), {} as never, null);
         client.emit(RoomStateEvent.Events, spaceChildEvent("!never-shown:example.org"), {} as never, null);
         await vi.runAllTimersAsync();
-        expect(listJoinableChannels).toHaveBeenCalledTimes(2);
-        expect(listJoinableChannels).not.toHaveBeenCalledWith(client, "!never-shown:example.org");
+        expect(listServerChildren).toHaveBeenCalledTimes(2);
+        expect(listServerChildren).not.toHaveBeenCalledWith(client, "!never-shown:example.org");
     });
 
     it("updates when a listed channel is joined, and looks the server up when one of its channels is left", async () => {
@@ -121,40 +125,40 @@ describe("UnjoinedChannelsStore", () => {
 
         client.emit(RoomEvent.MyMembership, room("!a:example.org", KnownMembership.Join), KnownMembership.Join);
         expect(changed).toEqual([SPACE]);
-        expect(listJoinableChannels).toHaveBeenCalledTimes(1);
+        expect(listServerChildren).toHaveBeenCalledTimes(1);
 
         const left = room("!left:example.org", KnownMembership.Leave);
         client.emit(RoomEvent.MyMembership, left, KnownMembership.Leave, KnownMembership.Join);
         await vi.runAllTimersAsync();
-        expect(listJoinableChannels).toHaveBeenCalledTimes(2);
+        expect(listServerChildren).toHaveBeenCalledTimes(2);
 
         // Leaving a room that isn't one of the server's channels changes nothing.
         const elsewhere = room("!elsewhere:example.org", KnownMembership.Leave);
         client.emit(RoomEvent.MyMembership, elsewhere, KnownMembership.Leave, KnownMembership.Join);
         await vi.runAllTimersAsync();
-        expect(listJoinableChannels).toHaveBeenCalledTimes(2);
+        expect(listServerChildren).toHaveBeenCalledTimes(2);
     });
 
     it("keeps what it knew when a lookup fails, and waits before trying again", async () => {
         store.getChannels(SPACE);
         await vi.runAllTimersAsync();
         vi.setSystemTime(Date.now() + 6 * 60_000);
-        vi.mocked(listJoinableChannels).mockRejectedValueOnce(new Error("offline"));
+        vi.mocked(listServerChildren).mockRejectedValueOnce(new Error("offline"));
         store.getChannels(SPACE);
         await vi.runAllTimersAsync();
 
         expect(store.getChannels(SPACE)).toHaveLength(2);
         await vi.runAllTimersAsync();
-        expect(listJoinableChannels).toHaveBeenCalledTimes(2);
+        expect(listServerChildren).toHaveBeenCalledTimes(2);
     });
 
     it("drops everything for a new client, including lookups still running for the old one", async () => {
-        let finish!: (channels: ServerChannel[]) => void;
-        vi.mocked(listJoinableChannels).mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+        let finish!: (children: ServerChildren) => void;
+        vi.mocked(listServerChildren).mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
         store.getChannels(SPACE);
         const next = Object.assign(new TypedEventEmitter(), { getRoom: () => null }) as unknown as MatrixClient;
         store.watch(next);
-        finish([channel("!old:example.org")]);
+        finish({ channels: [channel("!old:example.org")], subservers: [] });
         await vi.runAllTimersAsync();
         expect(changed).toEqual([]);
 
@@ -164,6 +168,6 @@ describe("UnjoinedChannelsStore", () => {
         // The old client's events no longer reach the store.
         client.emit(RoomStateEvent.Events, spaceChildEvent(SPACE), {} as never, null);
         await vi.runAllTimersAsync();
-        expect(listJoinableChannels).toHaveBeenCalledTimes(2);
+        expect(listServerChildren).toHaveBeenCalledTimes(2);
     });
 });

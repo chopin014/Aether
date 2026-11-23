@@ -95,6 +95,8 @@ interface DraggableWrapperProps extends RoomListItemViewProps {
 
 function DraggableWrapper({ roomIndex, canDropBeside, ...props }: DraggableWrapperProps): JSX.Element {
     const item = useViewModel(props.vm);
+    // A room inside a folder belongs to the folder's own server, so it stays where that server put it.
+    const canDrag = item.canChangeSection && !props.isNested;
     const {
         ref: draggableRef,
         handleRef,
@@ -105,7 +107,7 @@ function DraggableWrapper({ roomIndex, canDropBeside, ...props }: DraggableWrapp
         // We clone the item in the dnd overlay to avoid putting a hole in the list
         plugins: [Feedback.configure({ feedback: "clone" })],
         modifiers: [RestrictToVerticalAxis],
-        disabled: !item.canChangeSection,
+        disabled: !canDrag,
     });
 
     // Another room can be dropped beside this one to reorder its section, but a direct message never joins a server.
@@ -128,7 +130,7 @@ function DraggableWrapper({ roomIndex, canDropBeside, ...props }: DraggableWrapp
     });
 
     const dndRef = useMergeRefs([
-        ...(item.canChangeSection ? [draggableRef, handleRef] : []),
+        ...(canDrag ? [draggableRef, handleRef] : []),
         ...(canDropBeside ? [droppableRef] : []),
     ]);
     // Only wire up the draggable refs when the room can be dragged, otherwise dndkit puts incorrect
@@ -136,7 +138,7 @@ function DraggableWrapper({ roomIndex, canDropBeside, ...props }: DraggableWrapp
     return (
         <RoomListItemView
             {...props}
-            ref={item.canChangeSection || canDropBeside ? dndRef : undefined}
+            ref={canDrag || canDropBeside ? dndRef : undefined}
             isDragSource={isDragSource}
             dropIndicator={dropIndicator}
             canDragCallParticipants={true}

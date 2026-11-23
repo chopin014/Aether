@@ -17,6 +17,7 @@ import {
     joinChannelsUntilHeldBack,
     JoinRateLimit,
     listJoinableChannels,
+    listServerChildren,
     type ServerChannel,
 } from "./serverChannels";
 
@@ -108,6 +109,43 @@ describe("listJoinableChannels", () => {
             addedAt: 1,
         });
         expect(channels[1].roomType).toBe(RoomType.UnstableCall);
+    });
+
+    it("lists the servers nested in a server apart from its channels, leaving out joined and closed ones", async () => {
+        const client = makeClient(
+            [
+                {
+                    rooms: [
+                        entry(SPACE, {
+                            room_type: RoomType.Space,
+                            children_state: [
+                                child("!general:x", "a"),
+                                child("!sub:x", "b"),
+                                child("!joinedsub:x", "c"),
+                                child("!closedsub:x", "d"),
+                            ],
+                        }),
+                        entry("!general:x"),
+                        entry("!sub:x", { room_type: RoomType.Space, avatar_url: "mxc://x/sub" }),
+                        entry("!joinedsub:x", { room_type: RoomType.Space }),
+                        entry("!closedsub:x", { room_type: RoomType.Space, join_rule: "invite" }),
+                    ],
+                },
+            ],
+            ["!joinedsub:x"],
+        );
+
+        const { channels, subservers } = await listServerChildren(client, SPACE);
+
+        expect(channels.map((channel) => channel.roomId)).toEqual(["!general:x"]);
+        expect(subservers).toEqual([
+            expect.objectContaining({
+                roomId: "!sub:x",
+                name: "sub",
+                roomType: RoomType.Space,
+                avatarUrl: "mxc://x/sub",
+            }),
+        ]);
     });
 
     it("returns nothing when the hierarchy leaves out the server", async () => {
