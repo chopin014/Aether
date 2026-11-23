@@ -26,8 +26,8 @@ export const VOICE_MOVE_EVENT_TYPE = "io.aether.voice.move";
 
 /** The content of a {@link VOICE_MOVE_EVENT_TYPE} event. */
 export interface VoiceMoveContent {
-    /** The voice channel to go to. */
-    to: string;
+    /** The voice channel to go to. Without one, the person leaves the call, as Discord's "Disconnect" does. */
+    to?: string;
     /** Tells one request from another, so that each is followed once. */
     id: string;
 }
@@ -110,6 +110,16 @@ export async function requestVoiceMove(
 ): Promise<void> {
     const content: VoiceMoveContent = { to: toRoomId, id: secureRandomString(16) };
     await client.sendStateEvent(fromRoomId, VOICE_MOVE_EVENT_TYPE, content, voiceMoveStateKey(userId));
+}
+
+/**
+ * Asks someone in `roomId`'s call to leave it, as Discord's "Disconnect" does: a move to no channel.
+ *
+ * @returns once the homeserver has accepted the request; it rejects it when the sender may not move people.
+ */
+export async function requestVoiceDisconnect(client: MatrixClient, roomId: string, userId: string): Promise<void> {
+    const content: VoiceMoveContent = { id: secureRandomString(16) };
+    await client.sendStateEvent(roomId, VOICE_MOVE_EVENT_TYPE, content, voiceMoveStateKey(userId));
 }
 
 /**

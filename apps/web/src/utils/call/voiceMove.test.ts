@@ -16,6 +16,7 @@ import { stubClient } from "test-utils";
 
 import {
     mayMoveVoiceMembers,
+    requestVoiceDisconnect,
     requestVoiceMove,
     VOICE_MOVE_EVENT_TYPE,
     voiceMoveDestinations,
@@ -142,6 +143,16 @@ describe("voiceMove", () => {
             geral1.roomId,
             VOICE_MOVE_EVENT_TYPE,
             { to: geral2.roomId, id: expect.any(String) },
+            "u:@bob:example.org",
+        );
+    });
+
+    it("asks for a disconnect with a request naming no channel", async () => {
+        await requestVoiceDisconnect(client, geral1.roomId, "@bob:example.org");
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            geral1.roomId,
+            VOICE_MOVE_EVENT_TYPE,
+            { id: expect.any(String) },
             "u:@bob:example.org",
         );
     });

@@ -34,6 +34,7 @@ const base: VoiceUserMenuViewSnapshot = {
         { level: 0, label: "Default", selected: false },
     ],
     moveDestinations: [],
+    canDisconnect: false,
 };
 
 function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
@@ -55,6 +56,7 @@ function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
         toggleIgnore: vi.fn(),
         setRole: vi.fn(),
         moveTo: vi.fn(),
+        disconnect: vi.fn(),
     });
 }
 
@@ -164,6 +166,18 @@ describe("VoiceUserMenuView", () => {
         expect(vm.moveTo).toHaveBeenCalledWith("!afk:example.org");
     });
 
+    it("offers disconnecting the person, last and in red, when the user may", () => {
+        const vm = makeVm({ canDisconnect: true });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names().at(-1)).toBe("Disconnect");
+        const entry = screen.getByTestId("voice-user-menu-disconnect");
+        expect(entry).toHaveAttribute("data-kind", "critical");
+        fireEvent.click(entry);
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(vm.disconnect).toHaveBeenCalledOnce();
+    });
+
     it("offers moving on the user's own menu too", () => {
         const vm = makeVm({
             isSelf: true,
@@ -216,6 +230,7 @@ describe("VoiceUserMenuView", () => {
         expect(names()).not.toContain("Invite to server");
         expect(names()).not.toContain("Roles");
         expect(names()).not.toContain("Move to");
+        expect(names()).not.toContain("Disconnect");
         expect(names()).toContain("Stop ignoring");
     });
 });

@@ -53,7 +53,7 @@ import { textualPowerLevel } from "../../Roles";
 import { _t } from "../../languageHandler";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { mayMoveVoiceMembers, voiceMoveDestinations } from "../../utils/call/voiceMove";
-import { moveVoiceMember } from "../../utils/call/moveVoiceMember";
+import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
 
 /** The person a voice user menu is about, and where they were found. */
 export interface VoiceUserMenuViewModelProps {
@@ -125,16 +125,19 @@ export class VoiceUserMenuViewModel
                   ),
             roles: room ? VoiceUserMenuViewModel.roles(client, room, userId) : [],
             moveDestinations: room ? VoiceUserMenuViewModel.moveDestinations(client, room, userId) : [],
+            canDisconnect: !!room && VoiceUserMenuViewModel.mayMoveFromCall(client, room, userId),
         };
+    }
+
+    /** Whether the user may move the person out of this channel's call, which they must be in. */
+    private static mayMoveFromCall(client: MatrixClient, room: Room, userId: string): boolean {
+        if (!mayMoveVoiceMembers(room, client.getSafeUserId())) return false;
+        return client.matrixRTC.getRoomSession(room).memberships.some((membership) => membership.userId === userId);
     }
 
     /** The voice channels the user may move the person to, while the person is in this channel's call. */
     private static moveDestinations(client: MatrixClient, room: Room, userId: string): VoiceUserMenuChannel[] {
-        if (!mayMoveVoiceMembers(room, client.getSafeUserId())) return [];
-        const inCall = client.matrixRTC
-            .getRoomSession(room)
-            .memberships.some((membership) => membership.userId === userId);
-        if (!inCall) return [];
+        if (!VoiceUserMenuViewModel.mayMoveFromCall(client, room, userId)) return [];
         return voiceMoveDestinations(client, room).map((channel) => ({ id: channel.roomId, name: channel.name }));
     }
 
@@ -323,6 +326,11 @@ export class VoiceUserMenuViewModel
     public moveTo = (roomId: string): void => {
         const { client, room, userId } = this.props;
         if (room) void moveVoiceMember(client, room.roomId, userId, roomId);
+    };
+
+    public disconnect = (): void => {
+        const { client, room, userId } = this.props;
+        if (room) void disconnectVoiceMember(client, room.roomId, userId);
     };
 
     /** Changes the person's power level in the room, with Element's warnings for changes that cannot be undone. */
