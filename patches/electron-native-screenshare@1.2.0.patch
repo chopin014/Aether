@@ -1,5 +1,5 @@
 diff --git a/src/linux/pulseaudio_capture.cpp b/src/linux/pulseaudio_capture.cpp
-index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd204f2509 100644
+index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..0a29e82f9c3807220652dcdb7c2e9cac03167e3e 100644
 --- a/src/linux/pulseaudio_capture.cpp
 +++ b/src/linux/pulseaudio_capture.cpp
 @@ -9,6 +9,7 @@
@@ -10,53 +10,57 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
  #include <cstdlib>
  
  static bool is_debug_mode() {
-@@ -85,6 +86,9 @@ struct PulseSyms {
+@@ -85,6 +86,10 @@ struct PulseSyms {
      pa_operation* (*context_get_server_info)(pa_context*, pa_server_info_cb_t, void*);
      pa_operation* (*context_get_sink_info_by_name)(pa_context*, const char*, pa_sink_info_cb_t, void*);
      pa_operation* (*context_get_sink_input_info_list)(pa_context*, pa_sink_input_info_cb_t, void*);
 +    pa_operation* (*context_get_sink_info_list)(pa_context*, pa_sink_info_cb_t, void*);
 +    pa_operation* (*context_get_source_output_info_list)(pa_context*, pa_source_output_info_cb_t, void*);
 +    pa_operation* (*context_get_source_info_list)(pa_context*, pa_source_info_cb_t, void*);
++    pa_operation* (*context_get_client_info_list)(pa_context*, pa_client_info_cb_t, void*);
      pa_operation* (*context_move_sink_input_by_name)(pa_context*, uint32_t, const char*, pa_context_success_cb_t, void*);
  
      pa_operation* (*context_load_module)(pa_context*, const char*, const char*, pa_context_index_cb_t, void*);
-@@ -132,6 +136,9 @@ static bool load_pulse() {
+@@ -132,6 +137,10 @@ static bool load_pulse() {
      syms->context_get_server_info = (decltype(syms->context_get_server_info))dlsym(handle, "pa_context_get_server_info");
      syms->context_get_sink_info_by_name = (decltype(syms->context_get_sink_info_by_name))dlsym(handle, "pa_context_get_sink_info_by_name");
      syms->context_get_sink_input_info_list = (decltype(syms->context_get_sink_input_info_list))dlsym(handle, "pa_context_get_sink_input_info_list");
 +    syms->context_get_sink_info_list = (decltype(syms->context_get_sink_info_list))dlsym(handle, "pa_context_get_sink_info_list");
 +    syms->context_get_source_output_info_list = (decltype(syms->context_get_source_output_info_list))dlsym(handle, "pa_context_get_source_output_info_list");
 +    syms->context_get_source_info_list = (decltype(syms->context_get_source_info_list))dlsym(handle, "pa_context_get_source_info_list");
++    syms->context_get_client_info_list = (decltype(syms->context_get_client_info_list))dlsym(handle, "pa_context_get_client_info_list");
      syms->context_move_sink_input_by_name = (decltype(syms->context_move_sink_input_by_name))dlsym(handle, "pa_context_move_sink_input_by_name");
      syms->context_load_module = (decltype(syms->context_load_module))dlsym(handle, "pa_context_load_module");
      syms->context_unload_module = (decltype(syms->context_unload_module))dlsym(handle, "pa_context_unload_module");
-@@ -152,7 +159,9 @@ static bool load_pulse() {
+@@ -152,7 +161,10 @@ static bool load_pulse() {
      syms->stream_drop = (decltype(syms->stream_drop))dlsym(handle, "pa_stream_drop");
      syms->usec_to_bytes = (decltype(syms->usec_to_bytes))dlsym(handle, "pa_usec_to_bytes");
  
 -    if (!syms->mainloop_new || !syms->context_new || !syms->stream_new) {
 +    if (!syms->mainloop_new || !syms->context_new || !syms->stream_new || !syms->context_get_sink_info_list ||
 +        !syms->context_get_source_output_info_list || !syms->context_get_source_info_list ||
++        !syms->context_get_client_info_list ||
 +        !syms->context_get_sink_input_info_list) {
          delete syms;
          dlclose(handle);
          return false;
-@@ -176,6 +185,9 @@ static bool load_pulse() {
+@@ -176,6 +188,10 @@ static bool load_pulse() {
  #define my_pa_context_get_server_info pa_syms->context_get_server_info
  #define my_pa_context_get_sink_info_by_name pa_syms->context_get_sink_info_by_name
  #define my_pa_context_get_sink_input_info_list pa_syms->context_get_sink_input_info_list
 +#define my_pa_context_get_sink_info_list pa_syms->context_get_sink_info_list
 +#define my_pa_context_get_source_output_info_list pa_syms->context_get_source_output_info_list
 +#define my_pa_context_get_source_info_list pa_syms->context_get_source_info_list
++#define my_pa_context_get_client_info_list pa_syms->context_get_client_info_list
  #define my_pa_context_move_sink_input_by_name pa_syms->context_move_sink_input_by_name
  #define my_pa_context_load_module pa_syms->context_load_module
  #define my_pa_context_unload_module pa_syms->context_unload_module
-@@ -218,6 +230,36 @@ struct PulseAudioCapture::Impl {
+@@ -218,6 +234,39 @@ struct PulseAudioCapture::Impl {
      std::thread captureThread;
      std::thread monitorThread; // to poll new sink inputs periodically
      std::mutex mutex;
 +
-+    // One routing scan: sinks, sources, recording streams, then playback streams. The server answers in request order,
++    // One routing scan: sinks, sources, recording streams, clients, then playback streams. The server answers in request order,
 +    // so the playback list arrives last and the scan is applied when it ends.
 +    struct SinkEntry {
 +        uint32_t index;
@@ -82,13 +86,16 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
 +    // Source index -> the sink it monitors. Servers number monitor sources differently, so match through this.
 +    std::vector<std::pair<uint32_t, uint32_t>> scanMonitors;
 +    std::vector<RecordEntry> scanRecords;
++    // Client index -> process id. Native PipeWire and some sandboxed apps (Spotify, pw-play, PipeWire ALSA) put
++    // their process id only on the client, not on the stream.
++    std::vector<std::pair<uint32_t, uint32_t>> scanClients;
 +    std::vector<PlaybackEntry> scanPlayback;
 +    bool scanFailed = false;
 +    std::atomic<bool> scanInFlight{false};
  };
  
  static void context_state_cb(pa_context* c, void* userdata) {
-@@ -254,53 +296,142 @@ static void module_loopback_loaded_cb(pa_context* c, uint32_t idx, void* userdat
+@@ -254,53 +303,172 @@ static void module_loopback_loaded_cb(pa_context* c, uint32_t idx, void* userdat
      impl->loopbackModuleId = idx;
  }
  
@@ -144,6 +151,32 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
 -            isTarget = true;
 -            DEBUG_PRINTF("[DEBUG-SINK]   -> MATCHED Target PID %u (is_descendant of %u)\n", pid, targetPid);
 -            break;
++static void scan_client_cb(pa_context*, const pa_client_info* i, int eol, void* userdata) {
++    auto* impl = static_cast<PulseAudioCapture::Impl*>(userdata);
++    if (eol < 0) impl->scanFailed = true;
++    if (eol != 0 || !i) return;
++    uint32_t pid = proplist_pid(i->proplist);
++    if (pid) impl->scanClients.push_back({i->index, pid});
++}
++
++// A stream without its own process id takes its client's. Streams owned by server modules, such as our loopback,
++// have no client and stay without a process.
++static void fill_client_pids(PulseAudioCapture::Impl* impl) {
++    auto clientPid = [impl](uint32_t client) -> uint32_t {
++        if (client == PA_INVALID_INDEX) return 0;
++        for (const auto& entry : impl->scanClients) {
++            if (entry.first == client) return entry.second;
++        }
++        return 0;
++    };
++    for (auto& record : impl->scanRecords) {
++        if (!record.pid) record.pid = clientPid(record.client);
++    }
++    for (auto& stream : impl->scanPlayback) {
++        if (!stream.pid) stream.pid = clientPid(stream.client);
++    }
++}
++
 +static void move_sink_input(pa_context* c, uint32_t index, const std::string& sink) {
 +    if (sink.empty()) return;
 +    pa_operation* op = my_pa_context_move_sink_input_by_name(c, index, sink.c_str(), nullptr, nullptr);
@@ -252,10 +285,14 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
 +        return;
 +    }
 +    // A partial scan could hide a re-playing stream, so only a complete scan changes routing.
-+    if (eol > 0 && !impl->scanFailed) apply_routing_scan(c, impl);
++    if (eol > 0 && !impl->scanFailed) {
++        fill_client_pids(impl);
++        apply_routing_scan(c, impl);
++    }
 +    impl->scanSinks.clear();
 +    impl->scanMonitors.clear();
 +    impl->scanRecords.clear();
++    impl->scanClients.clear();
 +    impl->scanPlayback.clear();
 +    impl->scanFailed = false;
 +    impl->scanInFlight = false;
@@ -264,7 +301,7 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
  static void run_pulse_operations_sync(PulseAudioCapture::Impl* impl, pa_operation* op) {
      if (!op) return;
      int ret = 0;
-@@ -518,9 +649,24 @@ void PulseAudioCapture::Start(DataCallback callback) {
+@@ -518,9 +686,27 @@ void PulseAudioCapture::Start(DataCallback callback) {
              while (isCapturing.load()) {
                  {
                      std::lock_guard<std::mutex> lock(pImpl->mutex);
@@ -279,6 +316,8 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
 +                            my_pa_context_get_source_info_list(pImpl->context, scan_source_cb, pImpl);
 +                        pa_operation* opRecords =
 +                            my_pa_context_get_source_output_info_list(pImpl->context, scan_source_output_cb, pImpl);
++                        pa_operation* opClients =
++                            my_pa_context_get_client_info_list(pImpl->context, scan_client_cb, pImpl);
 +                        pa_operation* opPlayback =
 +                            my_pa_context_get_sink_input_info_list(pImpl->context, scan_sink_input_cb, pImpl);
 +                        if (!opPlayback) {
@@ -288,11 +327,12 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
 +                        if (opSinks) my_pa_operation_unref(opSinks);
 +                        if (opSources) my_pa_operation_unref(opSources);
 +                        if (opRecords) my_pa_operation_unref(opRecords);
++                        if (opClients) my_pa_operation_unref(opClients);
 +                        if (opPlayback) my_pa_operation_unref(opPlayback);
                      }
                  }
                  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-@@ -529,8 +675,11 @@ void PulseAudioCapture::Start(DataCallback callback) {
+@@ -529,8 +715,11 @@ void PulseAudioCapture::Start(DataCallback callback) {
  
          ret = 0;
          while (isCapturing.load()) {
@@ -306,7 +346,7 @@ index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..e3468b05940604145216d2a222d180fd
              std::this_thread::sleep_for(std::chrono::milliseconds(5));
          }
  
-@@ -546,11 +695,13 @@ void PulseAudioCapture::Start(DataCallback callback) {
+@@ -546,11 +735,13 @@ void PulseAudioCapture::Start(DataCallback callback) {
  
          if (pImpl->loopbackModuleId != PA_INVALID_INDEX && pImpl->context) {
              pa_operation* ud = my_pa_context_unload_module(pImpl->context, pImpl->loopbackModuleId, nullptr, nullptr);
