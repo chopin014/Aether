@@ -951,6 +951,21 @@ describe("SpaceStore", () => {
             expect(store.activeSpace).toBe(space2);
         });
 
+        it("hides a space being left at once, moving away from it, and shows it again if it was not left", async () => {
+            store.setActiveSpace(space1);
+            expect(store.spacePanelSpaces.map((r) => r.roomId)).toContain(space1);
+
+            const showSpace = store.hideLeavingSpace(space1);
+            expect(store.spacePanelSpaces.map((r) => r.roomId)).not.toContain(space1);
+            expect(store.activeSpace).toBe(MetaSpace.Home);
+            expect(fn).toHaveBeenCalledWith(UPDATE_TOP_LEVEL_SPACES, expect.anything(), expect.anything());
+
+            showSpace();
+            expect(store.spacePanelSpaces.map((r) => r.roomId)).toContain(space1);
+            // The user stays where they were moved to.
+            expect(store.activeSpace).toBe(MetaSpace.Home);
+        });
+
         it("switch to unknown space is a nop", async () => {
             expect(store.activeSpace).toBe(MetaSpace.Home);
             const space = client.getRoom(room1)!; // not a space

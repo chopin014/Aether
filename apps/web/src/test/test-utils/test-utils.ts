@@ -743,6 +743,7 @@ export function mkStubRoom(
         getMembersWithMembership: vi.fn().mockReturnValue([]),
         getMxcAvatarUrl: () => "mxc://avatar.url/room.png",
         getMyMembership: vi.fn().mockReturnValue(KnownMembership.Join),
+        updateMyMembership: vi.fn(),
         getPendingEvents: vi.fn().mockReturnValue([]),
         getReceiptsForEvent: vi.fn().mockReturnValue([]),
         getRecommendedVersion: vi.fn().mockReturnValue(Promise.resolve("")),
