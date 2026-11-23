@@ -78,7 +78,11 @@ export function MemberTileView(props: Props): JSX.Element {
             >
                 {props.renderBackground?.(textRef)}
                 <div aria-hidden className="mx_MemberTileView_left">
-                    <div className="mx_MemberTileView_avatar">
+                    <div
+                        className={classNames("mx_MemberTileView_avatar", {
+                            mx_MemberTileView_avatar_withPresence: !!props.presenceJsx,
+                        })}
+                    >
                         {props.avatarJsx}
                         <div className="mx_MemberTileView_presence">{props.presenceJsx}</div>
                     </div>

@@ -9,7 +9,7 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mocked } from "vitest";
+import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mocked, type MockInstance } from "vitest";
 import {
     type MatrixClient,
     type Device,
@@ -20,6 +20,8 @@ import {
     RoomType,
     JoinRule,
     RoomVersionStability,
+    ConnectionError,
+    MatrixError,
 } from "matrix-js-sdk/src/matrix";
 import { type CryptoApi } from "matrix-js-sdk/src/crypto-api";
 import { act } from "test-utils-rtl";
@@ -46,6 +48,8 @@ import { VOICE_STATE_EVENT_TYPE } from "./utils/call/publishedVoiceState";
 import DMRoomMap from "./utils/DMRoomMap";
 import { PreferredRoomVersions } from "./utils/PreferredRoomVersions";
 import SdkConfig from "./SdkConfig";
+import { SDKContextClass } from "./contexts/SDKContextClass";
+import type SpaceStore from "./stores/spaces/SpaceStore";
 
 /**
  * This should be the same as
@@ -265,6 +269,48 @@ describe("createRoom", () => {
         });
     });
 
+    describe("linking a new channel from its server", () => {
+        let parentSpace: Room;
+        let addRoomToSpace: MockInstance<SpaceStore["addRoomToSpace"]>;
+        beforeEach(async () => {
+            const roomId = await createRoom(client, { roomType: RoomType.Space });
+            parentSpace = client.getRoom(roomId!)!;
+            addRoomToSpace = vi.spyOn(SDKContextClass.instance.spaceStore, "addRoomToSpace");
+            vi.useFakeTimers();
+        });
+        afterEach(() => {
+            addRoomToSpace.mockRestore();
+            vi.useRealTimers();
+        });
+
+        const create = async (): Promise<string | null> => {
+            const created = createRoom(client, { parentSpace, spinner: false, createOpts: {} });
+            await vi.runAllTimersAsync();
+            return created;
+        };
+
+        it("retries a dropped connection until the link is sent", async () => {
+            addRoomToSpace
+                .mockRejectedValueOnce(new ConnectionError("connection lost"))
+                .mockRejectedValueOnce(new MatrixError({ errcode: "M_UNKNOWN" }, 502))
+                .mockResolvedValueOnce({ event_id: "$child" });
+            expect(await create()).not.toBeNull();
+            expect(addRoomToSpace).toHaveBeenCalledTimes(3);
+        });
+
+        it("does not retry a refusal", async () => {
+            addRoomToSpace.mockRejectedValue(new MatrixError({ errcode: "M_FORBIDDEN" }, 403));
+            expect(await create()).toBeNull();
+            expect(addRoomToSpace).toHaveBeenCalledOnce();
+        });
+
+        it("gives up after a few attempts", async () => {
+            addRoomToSpace.mockRejectedValue(new ConnectionError("connection lost"));
+            expect(await create()).toBeNull();
+            expect(addRoomToSpace).toHaveBeenCalledTimes(4);
+        });
+    });
+
     describe("history visibility of server channels", () => {
         let parentSpace: Room;
         beforeEach(async () => {
@@ -343,6 +389,35 @@ describe("createRoom", () => {
         it("keeps a private room outside any server for invited members", async () => {
             await createRoom(client, { encryption: true, createOpts: { preset: Preset.PrivateChat } });
             expect(historyVisibilitySent()).toBe(HistoryVisibility.Invited);
+        });
+
+        describe("telling the server's members whether they can join the new channel", () => {
+            beforeEach(() => {
+                vi.spyOn(SDKContextClass.instance.spaceStore, "addRoomToSpace").mockResolvedValue({ event_id: "$c" });
+            });
+            afterEach(() => vi.mocked(SDKContextClass.instance.spaceStore.addRoomToSpace).mockRestore());
+
+            const joinableSent = (): boolean | undefined =>
+                vi.mocked(SDKContextClass.instance.spaceStore.addRoomToSpace).mock.calls[0][4];
+
+            const joinable = new Set(paths.filter(([, opts]) => opts.joinRule === JoinRule.Restricted).map(([p]) => p));
+            it.each(paths)("for %s", async (path, opts) => {
+                await createRoom(client, { ...structuredClone(opts), parentSpace });
+                expect(joinableSent()).toBe(joinable.has(path));
+            });
+
+            it("for a public channel", async () => {
+                await createRoom(client, { parentSpace, createOpts: { preset: Preset.PublicChat } });
+                expect(joinableSent()).toBe(true);
+                vi.mocked(SDKContextClass.instance.spaceStore.addRoomToSpace).mockClear();
+                await createRoom(client, { parentSpace, joinRule: JoinRule.Public, createOpts: {} });
+                expect(joinableSent()).toBe(true);
+            });
+
+            it("for a nested server, which its members join on their own", async () => {
+                await createRoom(client, { parentSpace, roomType: RoomType.Space, joinRule: JoinRule.Restricted });
+                expect(joinableSent()).toBe(false);
+            });
         });
     });
 

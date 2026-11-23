@@ -863,6 +863,9 @@
         "members": {
             "invited": "Invited"
         },
+        "nickname": {
+            "change": "Change nickname"
+        },
         "profile_editor": {
             "error_forbidden": "Your homeserver does not allow this change.",
             "error_generic": "Your profile could not be saved. What went through is kept, so you can try again.",
@@ -916,6 +919,15 @@
             "screen_share_failed": "Screen sharing could not be changed. Please try again."
         },
         "voice_channels": "Voice Channels",
+        "voice_move": {
+            "disconnect_failed_title": "Couldn't disconnect %(name)s",
+            "failed_title": "Couldn't move %(name)s",
+            "not_disconnected": "%(name)s's app didn't leave the call. Only people using Aether can be disconnected.",
+            "not_followed": "%(name)s didn't follow the move. Only people using Aether can be moved to another channel.",
+            "remove_button": "Remove from channel",
+            "remove_description": "%(name)s's app didn't leave the call: it may not be Aether. Removing them from the channel ends their call on any app. They can join the channel again.",
+            "remove_title": "Remove %(name)s from the channel?"
+        },
         "voice_settings": {
             "call_moved_description": "You joined a call on another Aether device. Voice is now connected there.",
             "call_moved_title": "Call moved to another device",
@@ -2901,8 +2913,8 @@
         "invite_controls": {
             "default_label": "Allow users to invite you to rooms"
         },
-        "join_all_channels": "Join every channel of small servers",
-        "join_all_channels_description": "When you join a server with up to 10 channels, join them all at once. Larger servers always let you pick.",
+        "join_all_channels": "Join server channels automatically",
+        "join_all_channels_description": "Join every channel of a server with up to 9 channels when you join it, and every channel added to your servers later. For larger servers you pick the channels when you join.",
         "jump_to_bottom_on_send": "Jump to the bottom of the timeline when you send a message",
         "key_backup": {
             "setup_secure_backup": {

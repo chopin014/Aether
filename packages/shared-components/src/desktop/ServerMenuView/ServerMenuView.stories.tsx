@@ -22,6 +22,7 @@ function ServerMenuStory(snapshot: ServerMenuViewSnapshot): JSX.Element {
         setNotificationLevel: fn(),
         toggleHideMutedChannels: fn(),
         openSettings: fn(),
+        changeNickname: fn(),
         createChannel: fn(),
         createCategory: fn(),
         leave: fn(),

@@ -34,6 +34,18 @@ import { Action } from "../../dispatcher/actions";
 import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
+
+vi.mock("../../utils/call/serverVoiceMute", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/call/serverVoiceMute")>()),
+    getServerVoiceMute: vi.fn(() => ({ muted: false, deafened: false })),
+    onServerVoiceMutesChanged: vi.fn(() => () => {}),
+}));
+
+// Nobody is muted by a moderator unless a test says so.
+beforeEach(() => {
+    vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+});
 
 vi.mock("../../audio/DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
 
@@ -288,6 +300,24 @@ describe("DesktopVoiceControlsViewModel", () => {
         created.forEach((model) => model.dispose());
     });
 
+    it("keeps the microphone and playback as a moderator left them, and says so", async () => {
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: true });
+        await connect();
+        expect(getServerVoiceMute).toHaveBeenCalledWith(client, call.roomId, client.getSafeUserId());
+        expect(vm.getSnapshot()).toMatchObject({ serverMuted: true, serverDeafened: true });
+        vi.mocked(call.setDeviceMute).mockClear();
+        vi.mocked(call.setAudioOutputEnabled).mockClear();
+        await vm.toggleMicrophone();
+        await vm.toggleDeafened();
+        expect(call.setDeviceMute).not.toHaveBeenCalled();
+        expect(call.setAudioOutputEnabled).not.toHaveBeenCalled();
+
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+        expect(vm.getSnapshot()).toMatchObject({ serverMuted: false, serverDeafened: false });
+    });
+
     it("serializes overlapping shortcut/device actions and preserves mute intent", async () => {
         await connect();
         await Promise.all([vm.toggleMicrophone(), vm.toggleDeafened()]);
@@ -384,6 +414,19 @@ describe("DesktopVoiceControlsViewModel", () => {
         store.emit(CallStoreEvent.JoiningCalls);
         expect(vm.getSnapshot().roomName).toBe("Lounge");
         expect(vm.getSnapshot().connection.state).toBe("connecting");
+    });
+    it("waits for the call to connect before applying playback, which Element Call refuses while joining", async () => {
+        // Element Call's output controls throw until its call view is up.
+        vi.mocked(call.setAudioOutputEnabled).mockImplementation(() => {
+            if (!store.connectedCalls.has(call)) throw new Error("Output controls are disabled");
+        });
+        Object.assign(store, { joiningCalls: new Set([call]) });
+        store.emit(CallStoreEvent.JoiningCalls);
+        await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
+        expect(call.setAudioOutputEnabled).not.toHaveBeenCalled();
+        await connect();
+        expect(call.setAudioOutputEnabled).toHaveBeenCalledExactlyOnceWith(true);
+        expect(vm.getSnapshot().error).toBeUndefined();
     });
     it("stays silent about the microphone and camera Element Call opens while joining", async () => {
         await connect();

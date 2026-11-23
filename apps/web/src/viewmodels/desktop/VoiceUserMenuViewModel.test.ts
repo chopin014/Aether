@@ -8,7 +8,9 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventType, MatrixEvent, Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { EventType, MatrixEvent, Room, RoomStateEvent, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import EventEmitter from "node:events";
+import { MatrixRTCSessionEvent, type CallMembership, type MatrixRTCSession } from "matrix-js-sdk/src/matrixrtc";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 
@@ -22,10 +24,21 @@ import { findDMRoom } from "../../utils/dm/findDMRoom";
 import { startDmOnFirstMessage } from "../../utils/direct-messages";
 import { verifyUser } from "../../verification";
 import { confirmAndIgnoreUser } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
+import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
+import { SERVER_VOICE_MUTE_EVENT_TYPE } from "../../utils/call/serverVoiceMute";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
+import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
+
+vi.mock("../../components/views/desktop/DesktopServerNicknameDialog", () => ({ showServerNicknameDialog: vi.fn() }));
+vi.mock("../../utils/serverNickname", () => ({
+    serverOfRoom: vi.fn(),
+    mayChangeNickname: vi.fn(() => false),
+}));
 
 vi.mock("../../Modal");
 vi.mock("../../utils/dm/findDMRoom", () => ({ findDMRoom: vi.fn(() => null) }));
 vi.mock("../../verification", () => ({ verifyUser: vi.fn() }));
+vi.mock("../../utils/call/moveVoiceMember", () => ({ moveVoiceMember: vi.fn(), disconnectVoiceMember: vi.fn() }));
 vi.mock("../../utils/direct-messages", async (importOriginal) => ({
     ...(await importOriginal<typeof import("../../utils/direct-messages")>()),
     startDmOnFirstMessage: vi.fn().mockResolvedValue("!dm:example.org"),
@@ -222,5 +235,215 @@ describe("VoiceUserMenuViewModel", () => {
             expect.objectContaining({ description: "Forbidden" }),
         );
         vm.dispose();
+    });
+
+    describe("in a voice channel", () => {
+        let session: MatrixRTCSession;
+        let voice: Room;
+
+        /** A joined room of a server, where the user is a moderator unless `myLevel` says otherwise. */
+        const serverRoom = (roomId: string, type: string, name: string, myLevel = 50): Room => {
+            const created = new Room(roomId, client, ME);
+            const event = (eventType: string, content: object, stateKey = ""): MatrixEvent =>
+                new MatrixEvent({ type: eventType, state_key: stateKey, room_id: roomId, sender: ME, content });
+            created.currentState.setStateEvents([
+                event(EventType.RoomCreate, { creator: ME, room_version: "10", type }),
+                join(created, ME),
+                join(created, BOB),
+                event(EventType.RoomPowerLevels, { users: { [ME]: myLevel }, users_default: 0, state_default: 50 }),
+            ]);
+            created.updateMyMembership(KnownMembership.Join);
+            created.name = name;
+            return created;
+        };
+
+        beforeEach(() => {
+            const server = serverRoom("!server:example.org", RoomType.Space, "Server");
+            voice = serverRoom("!geral1:example.org", RoomType.UnstableCall, "Geral#1");
+            const other = serverRoom("!geral2:example.org", RoomType.UnstableCall, "Geral#2");
+            for (const child of [voice, other]) {
+                server.currentState.setStateEvents([
+                    new MatrixEvent({
+                        type: EventType.SpaceChild,
+                        state_key: child.roomId,
+                        room_id: server.roomId,
+                        sender: ME,
+                        content: { via: ["example.org"] },
+                    }),
+                ]);
+            }
+            const all = [server, voice, other];
+            vi.mocked(client.getRooms).mockReturnValue(all);
+            vi.mocked(client.getRoom).mockImplementation((id) => all.find((r) => r.roomId === id) ?? null);
+            session = Object.assign(new EventEmitter(), { memberships: [] }) as unknown as MatrixRTCSession;
+            vi.mocked(client.matrixRTC.getRoomSession).mockReturnValue(session);
+        });
+
+        const inCall = (...userIds: string[]): void => {
+            session.memberships = userIds.map((userId) => ({ userId }) as CallMembership);
+            session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], session.memberships);
+        };
+
+        it("offers the server's other voice channels for someone in the call, and moves them there", () => {
+            inCall(BOB);
+            const vm = new VoiceUserMenuViewModel({
+                client,
+                userId: BOB,
+                room: voice,
+                spaceStore: { spacePanelSpaces: [] },
+            });
+            expect(vm.getSnapshot().moveDestinations).toEqual([{ id: "!geral2:example.org", name: "Geral#2" }]);
+            vm.moveTo("!geral2:example.org");
+            expect(moveVoiceMember).toHaveBeenCalledWith(client, voice.roomId, BOB, "!geral2:example.org");
+
+            expect(vm.getSnapshot().canDisconnect).toBe(true);
+            vm.disconnect();
+            expect(disconnectVoiceMember).toHaveBeenCalledWith(client, voice.roomId, BOB);
+
+            // They left the call meanwhile: there is nobody to move.
+            inCall();
+            expect(vm.getSnapshot().moveDestinations).toEqual([]);
+            expect(vm.getSnapshot().canDisconnect).toBe(false);
+            vm.dispose();
+        });
+
+        it("offers no move to anyone without the power to move people", () => {
+            inCall(BOB);
+            voice.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomPowerLevels,
+                    state_key: "",
+                    room_id: voice.roomId,
+                    sender: ME,
+                    content: { users: {}, users_default: 0, state_default: 50 },
+                }),
+            ]);
+            const vm = new VoiceUserMenuViewModel({
+                client,
+                userId: BOB,
+                room: voice,
+                spaceStore: { spacePanelSpaces: [] },
+            });
+            expect(vm.getSnapshot().moveDestinations).toEqual([]);
+            expect(vm.getSnapshot().canDisconnect).toBe(false);
+            vm.dispose();
+        });
+    });
+
+    describe("in a server's voice channel", () => {
+        let voice: Room;
+        let server: Room;
+
+        /** A server whose moderators (the user, unless `myLevel` says otherwise) may mute people. */
+        beforeEach(() => {
+            const make = (roomId: string, type: string, myLevel: number): Room => {
+                const created = new Room(roomId, client, ME);
+                const event = (eventType: string, content: object, stateKey = ""): MatrixEvent =>
+                    new MatrixEvent({ type: eventType, state_key: stateKey, room_id: roomId, sender: ME, content });
+                created.currentState.setStateEvents([
+                    event(EventType.RoomCreate, { creator: ME, room_version: "10", type }),
+                    join(created, ME),
+                    join(created, BOB),
+                    event(EventType.RoomPowerLevels, { users: { [ME]: myLevel }, users_default: 0, state_default: 50 }),
+                ]);
+                created.updateMyMembership(KnownMembership.Join);
+                return created;
+            };
+            server = make("!server:example.org", RoomType.Space, 50);
+            voice = make("!geral1:example.org", RoomType.UnstableCall, 0);
+            server.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.SpaceChild,
+                    state_key: voice.roomId,
+                    room_id: server.roomId,
+                    sender: ME,
+                    content: { via: ["example.org"] },
+                }),
+            ]);
+            vi.mocked(client.getRooms).mockReturnValue([server, voice]);
+            vi.mocked(client.getRoom).mockImplementation((id) => [server, voice].find((r) => r.roomId === id) ?? null);
+        });
+
+        const create = (): VoiceUserMenuViewModel =>
+            new VoiceUserMenuViewModel({ client, userId: BOB, room: voice, spaceStore: { spacePanelSpaces: [] } });
+
+        it("lets a server moderator mute and deafen the person in the whole server", async () => {
+            const vm = create();
+            expect(vm.getSnapshot().serverVoiceMute).toEqual({ muted: false, deafened: false });
+            vm.toggleServerMuted();
+            await vi.waitFor(() =>
+                expect(client.sendStateEvent).toHaveBeenCalledWith(
+                    server.roomId,
+                    SERVER_VOICE_MUTE_EVENT_TYPE,
+                    { muted: true },
+                    `u:${BOB}`,
+                ),
+            );
+
+            // The record comes back through sync.
+            const record = new MatrixEvent({
+                type: SERVER_VOICE_MUTE_EVENT_TYPE,
+                state_key: `u:${BOB}`,
+                room_id: server.roomId,
+                sender: ME,
+                content: { muted: true },
+            });
+            server.currentState.setStateEvents([record]);
+            client.emit(RoomStateEvent.Events, record, server.currentState, null);
+            expect(vm.getSnapshot().serverVoiceMute).toEqual({ muted: true, deafened: false });
+
+            vm.toggleServerDeafened();
+            await vi.waitFor(() =>
+                expect(client.sendStateEvent).toHaveBeenLastCalledWith(
+                    server.roomId,
+                    SERVER_VOICE_MUTE_EVENT_TYPE,
+                    { muted: true, deafened: true },
+                    `u:${BOB}`,
+                ),
+            );
+            vm.dispose();
+        });
+
+        it("offers nothing to someone without the power in the server", () => {
+            server.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomPowerLevels,
+                    state_key: "",
+                    room_id: server.roomId,
+                    sender: ME,
+                    content: { users: {}, users_default: 0, state_default: 50 },
+                }),
+            ]);
+            const vm = create();
+            expect(vm.getSnapshot().serverVoiceMute).toBeUndefined();
+            vm.dispose();
+        });
+
+        it("reports a change the homeserver refused", async () => {
+            vi.mocked(client.sendStateEvent).mockRejectedValue(new Error("M_FORBIDDEN"));
+            const vm = create();
+            vm.toggleServerMuted();
+            await vi.waitFor(() =>
+                expect(Modal.createDialog).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.objectContaining({ description: "M_FORBIDDEN" }),
+                ),
+            );
+            vm.dispose();
+        });
+    });
+
+    it("offers changing the person's nickname in the channel's server when the user may", () => {
+        expect(create().getSnapshot().canChangeNickname).toBe(false);
+        vi.mocked(serverOfRoom).mockReturnValue(space);
+        vi.mocked(mayChangeNickname).mockReturnValue(true);
+        const vm = create();
+        expect(vm.getSnapshot().canChangeNickname).toBe(true);
+        expect(mayChangeNickname).toHaveBeenCalledWith(space, ME, BOB);
+        vm.changeNickname();
+        expect(showServerNicknameDialog).toHaveBeenCalledWith(client, space, BOB);
+        vm.dispose();
+        vi.mocked(serverOfRoom).mockReturnValue(undefined);
+        vi.mocked(mayChangeNickname).mockReturnValue(false);
     });
 });

@@ -213,6 +213,74 @@ taken by others. Each device announces its deafen both as a LiveKit attribute an
 every 10 seconds while deafened, because the attribute needs a JWT service that lets participants update their own
 metadata (`lk-jwt-service` since July 2026). The local user's own row follows this device directly.
 
+## Moving people between voice channels
+
+As in Discord, someone with the power to move people can drag a person in a voice channel's call onto another voice
+channel of the same server, or pick the channel from "Move to" in the person's menu. Without that power, nobody in the
+call can be dragged and the entry is not shown.
+
+The power is the room's power level for the `io.aether.voice.move` state event, which falls back to `state_default`
+(moderators by default). Moving someone sends that event in the channel they are in, with the state key `u:` plus their
+user ID (a state key starting with `@` can only be sent by that user) and the content `{ "to": <room ID>, "id": <random> }`.
+The homeserver refuses it from anyone below the level.
+
+The moved person's Aether (`VoiceMoveFollower`) follows a request when it is about them, less than a minute old, sent
+after their device joined the call, from someone who still has the power, and names a voice channel of a server holding
+both channels. It then leaves the call without asking and joins the new one, joining the room first when needed.
+Someone watching the old call watches the new one. Other Matrix clients ignore the event, so the mover is told when the
+person has not turned up in the new call within 20 seconds.
+
+### Disconnecting people
+
+The same power lets someone disconnect a person from a voice channel's call, as Discord's "Disconnect" does: the red
+entry at the end of the person's menu. It sends the same event without `to`, a move to no channel, and the person's
+Aether leaves the call. If the person is still in the call 20 seconds later (their app is not Aether), someone who may
+also kick them from the channel is offered "Remove from channel". That ends their call on any app, because MatrixRTC
+ignores members who left the room and gives the call a new key, and they can join the channel again. Anyone else is
+told that only people using Aether can be disconnected.
+
+## Server mute and server deafen
+
+As in Discord, a moderator can mute or deafen someone in every voice channel of a server: "Server mute" and "Server
+deafen" are the red checkboxes at the end of the person's menu, shown only to someone with the power. The power is the
+server's (Space's) power level for the `io.aether.voice.server_mute` state event, which falls back to `state_default`.
+The record is that event in the server, with the state key `u:` plus the person's user ID and the content
+`{ "muted": true }` or `{ "muted": true, "deafened": true }`; empty content lifts it. Deafening also mutes, and
+unmuting also undeafens, as in Discord. It lasts until a moderator lifts it, in every voice channel of the server.
+
+- The person's own Aether (`ServerVoiceMuteEnforcer`) turns their microphone off and turns it off again whenever
+  anything turns it on. While deafened, the call is silent. The dock locks both buttons and shows "Muted by a moderator"
+  or "Deafened by a moderator". Once the mute is lifted, the microphone stays off until they turn it on.
+- Every other Aether in the call stops playing a server-muted person's voice and soundboard sounds, whatever app that
+  person uses. Only people listening on other apps still hear them.
+- The sidebar shows a moderator's mute or deafen with red icons in place of the person's own grey ones.
+
+A deafen can only be carried out by the person's own app, so it does not hold for someone using another app. Making
+either one hold for every app needs the call's server (LiveKit) to enforce it, which needs a token service run by the
+homeserver.
+
+## Server nicknames
+
+As in Discord, everyone can have a nickname in a server ("Change nickname" in the server's menu, or in your own voice
+menu or profile), and moderators can change someone else's ("Change nickname" in that person's voice menu or profile,
+with Discord's warning).
+
+Matrix shows a name in each room's membership, and only the person can change their own membership. So the person's own
+Aether writes the nickname there (`ServerNicknameKeeper`), in the server and every channel of it they are in, where
+every app shows it:
+
+- The user's own nicknames are kept in the account data `io.aether.server_nicknames` (`own`, by server), with the names
+  their Aether last wrote (`shown`), so that a nickname that ends gives way to their own name again.
+- A moderator's nickname is the server state event `io.aether.member.nick`, with the state key `u:` plus the person's
+  user ID and `{ "nick": "…" }`; empty content resets it. It takes the server's power level for that event type (falling
+  back to `state_default`), and Aether only honours it from someone above the person's level, as Discord only lets
+  people manage nicknames below their highest role. A moderator's nickname wins over the person's own until it is reset.
+- The homeserver replaces per-room names whenever someone changes their global name (Synapse "stomps over" them), so
+  the keeper writes the nickname again whenever it sees it replaced, and when the user joins another channel.
+
+A moderator's nickname for someone who does not use Aether is recorded but not shown: only the person's own app can
+change their name in a room. Nicknames are at most 32 characters.
+
 ## Channel menu and topic
 
 Clicking a channel's name in the header opens an anchored menu beneath it, and right-clicking a channel in the room

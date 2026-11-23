@@ -166,6 +166,9 @@ function makeMenu(): VoiceUserMenuViewModel & { setVolume: ReturnType<typeof vi.
         isIgnored: false,
         inviteServers: [],
         roles: [],
+        moveDestinations: [],
+        canDisconnect: false,
+        canChangeNickname: false,
     };
     return Object.assign(new MockViewModel(snapshot), {
         viewProfile: vi.fn(),
@@ -184,6 +187,11 @@ function makeMenu(): VoiceUserMenuViewModel & { setVolume: ReturnType<typeof vi.
         copyUserId: vi.fn(),
         toggleIgnore: vi.fn(),
         setRole: vi.fn(),
+        moveTo: vi.fn(),
+        disconnect: vi.fn(),
+        toggleServerMuted: vi.fn(),
+        toggleServerDeafened: vi.fn(),
+        changeNickname: vi.fn(),
     });
 }
 

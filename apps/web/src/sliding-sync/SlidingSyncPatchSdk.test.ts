@@ -1588,6 +1588,81 @@ describe("calls under sliding sync", () => {
     });
 });
 
+describe("the user's own membership under sliding sync", () => {
+    type StateEvent = MSC3575RoomData["required_state"][number];
+
+    function ownMember(id: string, membership: string, ts: number): StateEvent {
+        return {
+            type: EventType.RoomMember,
+            sender: userId,
+            room_id: roomId,
+            event_id: id,
+            state_key: userId,
+            origin_server_ts: ts,
+            content: { membership },
+        };
+    }
+
+    // The server sends a change to the user's membership as changed state, which the room's lists ask for, and in the
+    // timeline.
+    function changed(event: StateEvent): Partial<MSC3575RoomData> {
+        return { required_state: [event], timeline: [event] };
+    }
+
+    async function setup() {
+        const client = makeClient();
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 1000);
+        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+        const receive = async (data: Partial<MSC3575RoomData>): Promise<void> => {
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                required_state: [],
+                timeline: [],
+                ...data,
+                name: "Room",
+            });
+        };
+        // A copy, as the SDK adds the room's name to the state it is given.
+        await receive({ initial: true, required_state: [...requiredState], timeline: [message("$a", 1)] });
+        return { api, room: client.getRoom(roomId)!, receive };
+    }
+
+    it("marks a room left once the server sends the user's leave, without it becoming joined again meanwhile", async () => {
+        const { api, room, receive } = await setup();
+        expect(room.getMyMembership()).toBe("join");
+        const memberships: string[] = [];
+        room.on(RoomEvent.MyMembership, (_room, membership) => memberships.push(membership));
+
+        await receive(changed(ownMember("$leave", "leave", 2)));
+
+        expect(room.getMyMembership()).toBe("leave");
+        expect(memberships).toEqual(["leave"]);
+        api.stop();
+    });
+
+    it("keeps a room the user was banned from as banned, as regular sync does", async () => {
+        const { api, room, receive } = await setup();
+        const memberships: string[] = [];
+        room.on(RoomEvent.MyMembership, (_room, membership) => memberships.push(membership));
+
+        await receive(changed({ ...ownMember("$ban", "ban", 2), sender: "@mod:example.org" }));
+
+        expect(memberships).toEqual(["ban"]);
+        api.stop();
+    });
+
+    it("keeps a room joined for other events, and joined again once the user rejoins", async () => {
+        const { api, room, receive } = await setup();
+
+        await receive({ timeline: [message("$b", 2)] });
+        expect(room.getMyMembership()).toBe("join");
+
+        await receive(changed(ownMember("$leave", "leave", 3)));
+        await receive(changed(ownMember("$rejoin", "join", 4)));
+        expect(room.getMyMembership()).toBe("join");
+        api.stop();
+    });
+});
+
 describe("live locations", () => {
     it("gives a share that arrives as state the locations already in the timeline", async () => {
         // As when a listed room is opened: its latest events came with the list, its shares with its subscription.

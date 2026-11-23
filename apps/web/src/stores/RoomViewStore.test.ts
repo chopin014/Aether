@@ -29,6 +29,7 @@ import { RoomViewStore } from "./RoomViewStore";
 import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
 import { onServerJoined } from "../utils/servers/joinServer";
+import { NewChannelJoiner } from "./spaces/NewChannelJoiner";
 import { afterNextPaint } from "../utils/afterNextPaint";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { PosthogAnalytics } from "../PosthogAnalytics";
@@ -282,6 +283,21 @@ describe("RoomViewStore", function () {
             await vi.waitFor(() => expect(onServerJoined).toHaveBeenCalledWith(mockClient, roomId));
         } finally {
             settings.mockRestore();
+        }
+    });
+
+    it("tells the new channel joiner about a join before sending it", async () => {
+        const expectJoin = vi.spyOn(NewChannelJoiner.instance, "expectJoin");
+        try {
+            vi.mocked(mockClient.joinRoom).mockImplementationOnce(async () => {
+                expect(expectJoin).toHaveBeenCalledWith(roomId);
+                return new Room(roomId, mockClient, userId);
+            });
+            dis.dispatch({ action: Action.ViewRoom, room_id: roomId, auto_join: true });
+            await untilDispatch(Action.JoinRoomReady, dis);
+            expect(mockClient.joinRoom).toHaveBeenCalledTimes(1);
+        } finally {
+            expectJoin.mockRestore();
         }
     });
 
@@ -928,6 +944,80 @@ describe("RoomViewStore", function () {
             it("leaves text channels and other rooms to be opened", () => {
                 inDesktopShell();
                 expect(roomViewStore.joinVoiceChannel(room)).toBe(false);
+            });
+        });
+
+        describe("following a moderator's move to another voice channel", () => {
+            /** The call the user is in, which leaves the store's connected calls once it is left, as a real one does. */
+            function prepareMove(presented: boolean): { oldCall: Call; newCall: ElementCall; connected: Set<Call> } {
+                const original = SettingsStore.getValue.bind(SettingsStore);
+                vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : original(name, ...args),
+                );
+                const connected = new Set<Call>();
+                const oldCall = {
+                    roomId: roomId2,
+                    presented,
+                    disconnect: vi.fn(async () => {
+                        connected.delete(oldCall);
+                    }),
+                } as unknown as Call;
+                connected.add(oldCall);
+                const newCall = Object.defineProperties(Object.create(ElementCall.prototype), {
+                    roomId: { value: roomId },
+                    presented: { value: false, writable: true },
+                    _connectionState: { value: ConnectionState.Disconnected },
+                    _joinRequested: { value: false, writable: true },
+                    localLeavePending: { value: false, writable: true },
+                    componentOptions: { value: { config: { skipLobby: true } } },
+                    emit: { value: vi.fn() },
+                    widget: { value: { id: "call-widget", roomId } },
+                    start: { value: vi.fn().mockResolvedValue(null) },
+                }) as ElementCall;
+                vi.spyOn(CallStore.instance, "connectedCalls", "get").mockImplementation(() => connected);
+                vi.spyOn(CallStore.instance, "getCall").mockImplementation((id) => (id === roomId ? newCall : oldCall));
+                vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+                return { oldCall, newCall, connected };
+            }
+
+            afterEach(() => {
+                vi.mocked(room.isCallRoom).mockRestore?.();
+            });
+
+            it("leaves the call without asking and joins the new channel where the user is", async () => {
+                const { oldCall, newCall } = prepareMove(false);
+                await roomViewStore.viewRoom({ action: Action.ViewRoom, room_id: roomId2, metricsTrigger: undefined });
+
+                await roomViewStore.followVoiceMove(roomId);
+
+                expect(confirmVoiceChannelSwitch).not.toHaveBeenCalled();
+                expect(oldCall.disconnect).toHaveBeenCalledOnce();
+                expect(roomViewStore.getRoomId()).toBe(roomId2);
+                expect(newCall.joinRequested).toBe(true);
+                paintQueue.splice(0).forEach((work) => work());
+                expect(newCall.start).toHaveBeenCalledOnce();
+            });
+
+            it("shows the new channel's call to someone who was watching the old one", async () => {
+                prepareMove(true);
+                await roomViewStore.viewRoom({ action: Action.ViewRoom, room_id: roomId2, metricsTrigger: undefined });
+                // Opening the call is the view's own job, tested above; only the request to open it matters here.
+                const dispatch = vi.spyOn(dis, "dispatch").mockImplementation(() => {});
+
+                await roomViewStore.followVoiceMove(roomId);
+
+                expect(confirmVoiceChannelSwitch).not.toHaveBeenCalled();
+                expect(dispatch).toHaveBeenCalledWith(
+                    expect.objectContaining({ action: Action.ViewRoom, room_id: roomId, view_call: true }),
+                );
+                dispatch.mockRestore();
+            });
+
+            it("does nothing for a room that is not a voice channel", async () => {
+                const { oldCall } = prepareMove(false);
+                vi.mocked(room.isCallRoom).mockReturnValue(false);
+                await roomViewStore.followVoiceMove(roomId);
+                expect(oldCall.disconnect).not.toHaveBeenCalled();
             });
         });
 

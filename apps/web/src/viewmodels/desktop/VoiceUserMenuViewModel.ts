@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import {
     BaseViewModel,
+    type VoiceUserMenuChannel,
     type VoiceUserMenuRole,
     type VoiceUserMenuServer,
     type VoiceUserMenuViewModel as VoiceUserMenuViewModelInterface,
@@ -22,6 +23,7 @@ import {
     type Room,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { MatrixRTCSessionEvent } from "matrix-js-sdk/src/matrixrtc";
 import { logger } from "matrix-js-sdk/src/logger";
 import { copyPlainTextToClipboard } from "@element-hq/element-web-shared-utils";
 
@@ -50,6 +52,17 @@ import {
 import { textualPowerLevel } from "../../Roles";
 import { _t } from "../../languageHandler";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
+import { mayMoveVoiceMembers, voiceMoveDestinations } from "../../utils/call/voiceMove";
+import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
+import {
+    getServerVoiceMute,
+    onServerVoiceMutesChanged,
+    serverForVoiceMute,
+    setServerVoiceMute,
+    type ServerVoiceMute,
+} from "../../utils/call/serverVoiceMute";
+import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
 
 /** The person a voice user menu is about, and where they were found. */
 export interface VoiceUserMenuViewModelProps {
@@ -81,7 +94,15 @@ export class VoiceUserMenuViewModel
             this.disposables.track(() => SettingsStore.unwatchSetting(ref));
         }
         this.disposables.trackListener(props.client, ClientEvent.AccountData, this.refresh);
-        if (props.room) this.disposables.trackListener(props.room, RoomStateEvent.Events, this.onRoomState);
+        if (props.room) {
+            this.disposables.trackListener(props.room, RoomStateEvent.Events, this.onRoomState);
+            // Someone can only be moved while they are in the channel's call.
+            if (props.room.isCallRoom()) {
+                const session = props.client.matrixRTC.getRoomSession(props.room);
+                this.disposables.trackListener(session, MatrixRTCSessionEvent.MembershipsChanged, this.refresh);
+            }
+        }
+        this.disposables.track(onServerVoiceMutesChanged(props.client, this.refresh));
         void this.loadVerification();
     }
 
@@ -113,7 +134,32 @@ export class VoiceUserMenuViewModel
                       props.spaceStore ?? SDKContextClass.instance.spaceStore,
                   ),
             roles: room ? VoiceUserMenuViewModel.roles(client, room, userId) : [],
+            moveDestinations: room ? VoiceUserMenuViewModel.moveDestinations(client, room, userId) : [],
+            canDisconnect: !!room && VoiceUserMenuViewModel.mayMoveFromCall(client, room, userId),
+            serverVoiceMute:
+                room && serverForVoiceMute(client, room.roomId, client.getSafeUserId())
+                    ? getServerVoiceMute(client, room.roomId, userId)
+                    : undefined,
+            canChangeNickname: VoiceUserMenuViewModel.canChangeNickname(client, room, userId),
         };
+    }
+
+    /** Whether the user may move the person out of this channel's call, which they must be in. */
+    private static mayMoveFromCall(client: MatrixClient, room: Room, userId: string): boolean {
+        if (!mayMoveVoiceMembers(room, client.getSafeUserId())) return false;
+        return client.matrixRTC.getRoomSession(room).memberships.some((membership) => membership.userId === userId);
+    }
+
+    /** The voice channels the user may move the person to, while the person is in this channel's call. */
+    private static moveDestinations(client: MatrixClient, room: Room, userId: string): VoiceUserMenuChannel[] {
+        if (!VoiceUserMenuViewModel.mayMoveFromCall(client, room, userId)) return [];
+        return voiceMoveDestinations(client, room).map((channel) => ({ id: channel.roomId, name: channel.name }));
+    }
+
+    /** Whether the user may change the person's nickname in the server the room belongs to. */
+    private static canChangeNickname(client: MatrixClient, room: Room | undefined, userId: string): boolean {
+        const server = room && serverOfRoom(client, room);
+        return !!server && mayChangeNickname(server, client.getSafeUserId(), userId);
     }
 
     private static displayName({ client, userId, room }: VoiceUserMenuViewModelProps): string {
@@ -296,6 +342,46 @@ export class VoiceUserMenuViewModel
         const { client, userId } = this.props;
         if (client.isUserIgnored(userId)) void unignoreUser(client, userId);
         else void confirmAndIgnoreUser(client, this.member());
+    };
+
+    public moveTo = (roomId: string): void => {
+        const { client, room, userId } = this.props;
+        if (room) void moveVoiceMember(client, room.roomId, userId, roomId);
+    };
+
+    public disconnect = (): void => {
+        const { client, room, userId } = this.props;
+        if (room) void disconnectVoiceMember(client, room.roomId, userId);
+    };
+
+    public toggleServerMuted = (): void => {
+        const current = this.snapshot.current.serverVoiceMute;
+        if (current) void this.changeServerVoiceMute({ muted: !current.muted });
+    };
+
+    public toggleServerDeafened = (): void => {
+        const current = this.snapshot.current.serverVoiceMute;
+        if (current) void this.changeServerVoiceMute({ deafened: !current.deafened });
+    };
+
+    private async changeServerVoiceMute(change: Partial<ServerVoiceMute>): Promise<void> {
+        const { client, room, userId } = this.props;
+        if (!room) return;
+        try {
+            await setServerVoiceMute(client, room.roomId, userId, change);
+        } catch (error) {
+            logger.warn("Could not change the server mute", error);
+            Modal.createDialog(ErrorDialog, {
+                title: _t("common|error"),
+                description: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    public changeNickname = (): void => {
+        const { client, room, userId } = this.props;
+        const server = room && serverOfRoom(client, room);
+        if (server) showServerNicknameDialog(client, server, userId);
     };
 
     /** Changes the person's power level in the room, with Element's warnings for changes that cannot be undone. */

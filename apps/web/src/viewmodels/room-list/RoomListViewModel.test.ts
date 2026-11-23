@@ -15,6 +15,7 @@ import {
     type Room,
     Room as RealRoom,
     RoomStateEvent,
+    RoomType,
 } from "matrix-js-sdk/src/matrix";
 import { waitFor } from "test-utils-rtl";
 import {
@@ -47,6 +48,9 @@ import { MatrixClientPeg } from "../../MatrixClientPeg";
 
 import { RoomListViewModel } from "./RoomListViewModel";
 import { PreviewRoomListItemViewModel } from "./PreviewRoomListItemViewModel";
+import { UnjoinedChannelItemViewModel } from "./UnjoinedChannelItemViewModel";
+import { UnjoinedChannelsStore, UnjoinedChannelsStoreEvent } from "../../stores/spaces/UnjoinedChannelsStore";
+import { type ServerChannel } from "../../utils/servers/serverChannels";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { hasCreateRoomRights } from "./utils";
@@ -58,7 +62,9 @@ import { CHATS_TAG, CUSTOM_SECTION_TAG_PREFIX, type SectionExpansionState } from
 import { MetaSpace } from "../../stores/spaces";
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { type RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
+import { moveVoiceMember } from "../../utils/call/moveVoiceMember";
 
+vi.mock("../../utils/call/moveVoiceMember", () => ({ moveVoiceMember: vi.fn() }));
 vi.mock("../../utils/room/tagRoom", () => ({
     tagRoom: vi.fn(),
 }));
@@ -386,6 +392,122 @@ describe("RoomListViewModel", () => {
             });
         });
 
+        describe("channels the user is not in", () => {
+            const channel = (roomId: string, name: string, extra: Partial<ServerChannel> = {}): ServerChannel => ({
+                roomId,
+                name,
+                kind: "text",
+                memberCount: 2,
+                suggested: false,
+                via: ["example.org"],
+                ...extra,
+            });
+            const lounge = channel("!lounge:example.org", "Lounge", {
+                kind: "voice",
+                roomType: RoomType.UnstableCall,
+                addedAt: 5,
+            });
+            const news = channel("!news:example.org", "news", { addedAt: 6 });
+            let listed: ServerChannel[];
+
+            beforeEach(() => {
+                listed = [lounge, news];
+                vi.spyOn(UnjoinedChannelsStore.instance, "getChannels").mockImplementation(() => listed);
+            });
+
+            async function update(): Promise<void> {
+                RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+                await flushPromises();
+            }
+
+            async function showList(): Promise<void> {
+                viewModel = createViewModel();
+                await update();
+            }
+
+            const allRoomIds = (): string[] => viewModel.getSnapshot().sections.flatMap((section) => section.roomIds);
+
+            it("lists them where the server's layout puts them, as rows that join them", async () => {
+                setState(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Governo", order: "A" });
+                setState(SPACE_CHANNEL_EVENT_TYPE, news.roomId, { v: 1, category: CATEGORY, order: "B" });
+                await showList();
+
+                const sections = withoutReorder(viewModel.getSnapshot().sections);
+                expect(sections[0]).toEqual({ id: categoryTag(CATEGORY), roomIds: [news.roomId] });
+                expect(sections.find((section) => section.id === DESKTOP_VOICE_CHANNELS)?.roomIds).toEqual(
+                    expect.arrayContaining([room2.roomId, lounge.roomId]),
+                );
+                expect(viewModel.roomIds).toContain(lounge.roomId);
+                const row = viewModel.getRoomItemViewModel(lounge.roomId);
+                expect(row).toBeInstanceOf(UnjoinedChannelItemViewModel);
+                expect(row?.getSnapshot()).toMatchObject({ name: "Lounge", channelKind: "voice", isBold: false });
+            });
+
+            it("keeps a channel's row until the list has the room joined, then shows that room once", async () => {
+                await showList();
+                expect(viewModel.getRoomItemViewModel(news.roomId)).toBeInstanceOf(UnjoinedChannelItemViewModel);
+
+                const joined = mkStubRoom(news.roomId, "news", matrixClient);
+                vi.spyOn(joined, "getMxcAvatarUrl").mockReturnValue(null);
+                vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                    spaceId: SPACE_ID,
+                    sections: [{ tag: CHATS_TAG, rooms: [room1, room2, room3, joined] }],
+                });
+                await update();
+
+                expect(allRoomIds().filter((roomId) => roomId === news.roomId)).toHaveLength(1);
+                expect(viewModel.getRoomItemViewModel(news.roomId)).not.toBeInstanceOf(UnjoinedChannelItemViewModel);
+            });
+
+            it("follows the server's channels as they change", async () => {
+                await showList();
+                expect(allRoomIds()).toContain(lounge.roomId);
+                listed = [news];
+                UnjoinedChannelsStore.instance.emit(UnjoinedChannelsStoreEvent.Changed, SPACE_ID);
+                await flushPromises();
+                expect(allRoomIds()).not.toContain(lounge.roomId);
+            });
+
+            it("leaves them out while a filter is on and when their category is collapsed", async () => {
+                vi.mocked(room2.isCallRoom).mockReturnValue(false);
+                await showList();
+                viewModel.onToggleFilter("unread");
+                await flushPromises();
+                expect(allRoomIds()).not.toContain(news.roomId);
+
+                viewModel.onToggleFilter("unread");
+                await flushPromises();
+                expect(allRoomIds()).toContain(news.roomId);
+                await viewModel.getSectionHeaderViewModel(DESKTOP_TEXT_CHANNELS).onClick();
+                expect(allRoomIds()).not.toContain(news.roomId);
+            });
+
+            it("adds no second row for an unjoined channel while it is opened and joined", async () => {
+                vi.mocked(SDKContextClass.instance.roomViewStore.getRoomId).mockReturnValue(news.roomId);
+                vi.spyOn(SDKContextClass.instance.roomViewStore, "getRoomSummary").mockReturnValue({
+                    room_id: news.roomId,
+                    name: "news",
+                } as ReturnType<RoomViewStore["getRoomSummary"]>);
+                await showList();
+                dispatcher.dispatch({ action: Action.ActiveRoomChanged, oldRoomId: null, newRoomId: news.roomId });
+                await flushPromises();
+                expect(allRoomIds().filter((roomId) => roomId === news.roomId)).toHaveLength(1);
+                expect(viewModel.getRoomItemViewModel(news.roomId)).toBeInstanceOf(UnjoinedChannelItemViewModel);
+                expect(viewModel.getSnapshot().roomListState.activeRoomIndex).toBe(
+                    viewModel.roomIds.indexOf(news.roomId),
+                );
+            });
+
+            it("lists none outside a server", async () => {
+                vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                    spaceId: MetaSpace.Home,
+                    sections: [{ tag: CHATS_TAG, rooms: [room1] }],
+                });
+                await showList();
+                expect(allRoomIds()).toEqual([room1.roomId]);
+            });
+        });
+
         it("never collapses the channels outside any category", async () => {
             setState(SPACE_CHANNEL_EVENT_TYPE, room1.roomId, { v: 1, category: null, order: "B" });
             viewModel = createViewModel();
@@ -427,6 +549,12 @@ describe("RoomListViewModel", () => {
             RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
             await flushPromises();
             expect(viewModel.getSnapshot().sections.some((section) => section.canReorder)).toBe(false);
+        });
+
+        it("moves a person dropped on another voice channel of the server there", () => {
+            viewModel = createViewModel();
+            viewModel.moveCallParticipant(room1.roomId, "@bob:server", room2.roomId);
+            expect(moveVoiceMember).toHaveBeenCalledWith(matrixClient, room1.roomId, "@bob:server", room2.roomId);
         });
 
         it("moves a channel dropped beside another into that channel's category, on the side it came from", async () => {

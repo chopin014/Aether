@@ -51,6 +51,7 @@ import { currentRoomEntryVisit, notifyRoomEntryReady } from "../../performance/R
 import { UPDATE_EVENT } from "../AsyncStore";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import LeaveSpaceDialog from "../../components/views/dialogs/LeaveSpaceDialog";
+import { SpaceChildRepair } from "./SpaceChildRepair";
 
 vi.useFakeTimers();
 
@@ -151,6 +152,44 @@ describe("SpaceStore", () => {
 
     afterEach(async () => {
         await testUtils.resetAsyncStoreWithClient(store);
+    });
+
+    describe("restoring Space links that creating a channel left out", () => {
+        it("checks every room once ready, and each room whose parent or link changes", async () => {
+            const checkAll = vi.spyOn(SpaceChildRepair.prototype, "checkAll");
+            const check = vi.spyOn(SpaceChildRepair.prototype, "check");
+            mkSpace(space1);
+            const channel = mkRoom(room1);
+            await run();
+            expect(checkAll).toHaveBeenCalled();
+
+            check.mockClear();
+            const parent = mkEvent({
+                event: true,
+                type: EventType.SpaceParent,
+                room: room1,
+                user: testUserId,
+                skey: space1,
+                content: { via: ["server"], canonical: true },
+            });
+            client.emit(RoomStateEvent.Events, parent, channel.currentState, null);
+            expect(check).toHaveBeenCalledWith(channel);
+
+            check.mockClear();
+            const child = mkEvent({
+                event: true,
+                type: EventType.SpaceChild,
+                room: space1,
+                user: testUserId,
+                skey: room1,
+                content: {},
+            });
+            client.emit(RoomStateEvent.Events, child, client.getRoom(space1)!.currentState, null);
+            expect(check).toHaveBeenCalledWith(channel);
+
+            checkAll.mockRestore();
+            check.mockRestore();
+        });
     });
 
     describe("static hierarchy resolution tests", () => {
@@ -949,6 +988,21 @@ describe("SpaceStore", () => {
             store.setActiveSpace(space2);
             expect(fn).toHaveBeenCalledWith(UPDATE_SELECTED_SPACE, space2);
             expect(store.activeSpace).toBe(space2);
+        });
+
+        it("hides a space being left at once, moving away from it, and shows it again if it was not left", async () => {
+            store.setActiveSpace(space1);
+            expect(store.spacePanelSpaces.map((r) => r.roomId)).toContain(space1);
+
+            const showSpace = store.hideLeavingSpace(space1);
+            expect(store.spacePanelSpaces.map((r) => r.roomId)).not.toContain(space1);
+            expect(store.activeSpace).toBe(MetaSpace.Home);
+            expect(fn).toHaveBeenCalledWith(UPDATE_TOP_LEVEL_SPACES, expect.anything(), expect.anything());
+
+            showSpace();
+            expect(store.spacePanelSpaces.map((r) => r.roomId)).toContain(space1);
+            // The user stays where they were moved to.
+            expect(store.activeSpace).toBe(MetaSpace.Home);
         });
 
         it("switch to unknown space is a nop", async () => {
@@ -2075,6 +2129,30 @@ describe("SpaceStore", () => {
             expect(store.allRoomsInHome).toBe(false);
             expect(store.isRoomInSpace(MetaSpace.Home, room1)).toBeFalsy();
             expect(store.isRoomInSpace(MetaSpace.Home, orphan1)).toBeTruthy();
+        });
+    });
+
+    describe("addRoomToSpace", () => {
+        it("says whether the Space's members can join the room, when the caller knows", async () => {
+            mkSpace(space1);
+            await run();
+            const space = client.getRoom(space1)!;
+
+            await store.addRoomToSpace(space, room1, ["example.org"], true, true);
+            expect(client.sendStateEvent).toHaveBeenLastCalledWith(
+                space1,
+                EventType.SpaceChild,
+                { "via": ["example.org"], "suggested": true, "io.aether.joinable": true },
+                room1,
+            );
+
+            await store.addRoomToSpace(space, room1, ["example.org"]);
+            expect(client.sendStateEvent).toHaveBeenLastCalledWith(
+                space1,
+                EventType.SpaceChild,
+                { via: ["example.org"], suggested: false },
+                room1,
+            );
         });
     });
 });

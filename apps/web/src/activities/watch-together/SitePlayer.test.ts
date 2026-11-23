@@ -117,6 +117,29 @@ describe("SitePlayer", () => {
         expect(vi.mocked(api.setBounds).mock.calls.length).toBe(calls);
     });
 
+    it("hides the view while one of the app's menus reaches over it, wherever the menu was opened", async () => {
+        const rect = (left: number, top: number, width: number, height: number) => (): DOMRect =>
+            ({ x: left, y: top, left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+        document.body.appendChild(player.element);
+        player.element.getBoundingClientRect = rect(300, 100, 640, 360);
+        // A member menu opened from the sidebar, portalled to the body like the real one.
+        const menu = document.createElement("div");
+        menu.setAttribute("role", "menu");
+        menu.getBoundingClientRect = rect(10, 120, 200, 250);
+        document.body.appendChild(menu);
+        await frame();
+        // Beside the player: the page stays visible.
+        expect(api.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 640, height: 360 });
+
+        menu.getBoundingClientRect = rect(150, 120, 200, 250);
+        await frame();
+        expect(api.setBounds).toHaveBeenLastCalledWith(null);
+
+        menu.remove();
+        await frame();
+        expect(api.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 640, height: 360 });
+    });
+
     it("closes the view when disposed", () => {
         player.dispose();
         expect(api.close).toHaveBeenCalled();

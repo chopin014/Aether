@@ -85,6 +85,19 @@ describe("DesktopVoiceControlsView", () => {
         expect(screen.getByRole("button", { name: "Unmute" })).toHaveAttribute("aria-pressed", "true");
         expect(screen.getByRole("button", { name: "Undeafen" })).toBeDisabled();
     });
+    it("locks the microphone and playback a moderator turned off, and says who did", () => {
+        render(
+            <DesktopVoiceControlsView
+                vm={makeVm({ microphoneMuted: true, serverMuted: true, deafened: false, serverDeafened: true })}
+            />,
+        );
+        const microphone = screen.getByRole("button", { name: "Muted by a moderator" });
+        expect(microphone).toBeDisabled();
+        expect(microphone).toHaveAttribute("aria-pressed", "true");
+        const playback = screen.getByRole("button", { name: "Deafened by a moderator" });
+        expect(playback).toBeDisabled();
+        expect(playback).toHaveAttribute("aria-pressed", "true");
+    });
     it("animates the slash through a device only when it is muted or unmuted after the dock appears", () => {
         const { container, rerender } = render(<DesktopVoiceControlsView vm={makeVm({ microphoneMuted: true })} />);
         const [microphone, headphones] = container.querySelectorAll("[data-off]");

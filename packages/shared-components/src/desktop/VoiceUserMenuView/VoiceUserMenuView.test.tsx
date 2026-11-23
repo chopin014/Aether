@@ -33,6 +33,9 @@ const base: VoiceUserMenuViewSnapshot = {
         { level: 50, label: "Moderator", selected: true },
         { level: 0, label: "Default", selected: false },
     ],
+    moveDestinations: [],
+    canDisconnect: false,
+    canChangeNickname: false,
 };
 
 function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
@@ -53,6 +56,11 @@ function makeVm(snapshot: Partial<VoiceUserMenuViewSnapshot> = {}) {
         copyUserId: vi.fn(),
         toggleIgnore: vi.fn(),
         setRole: vi.fn(),
+        moveTo: vi.fn(),
+        disconnect: vi.fn(),
+        toggleServerMuted: vi.fn(),
+        toggleServerDeafened: vi.fn(),
+        changeNickname: vi.fn(),
     });
 }
 
@@ -145,6 +153,82 @@ describe("VoiceUserMenuView", () => {
         expect(vm.setRole).toHaveBeenCalledWith(100);
     });
 
+    it("offers to move the person to another voice channel when the user may", () => {
+        const vm = makeVm({
+            moveDestinations: [
+                { id: "!geral2:example.org", name: "Geral#2" },
+                { id: "!afk:example.org", name: "AFK" },
+            ],
+        });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names().at(-1)).toBe("Move to");
+        fireEvent.click(screen.getByTestId("voice-user-menu-move"));
+        expect(names(screen.getByRole("menu", { name: "Move to" }))).toEqual(["Geral#2", "AFK"]);
+        fireEvent.click(screen.getByRole("menuitem", { name: "AFK" }));
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(vm.moveTo).toHaveBeenCalledWith("!afk:example.org");
+    });
+
+    it("offers disconnecting the person, last and in red, when the user may", () => {
+        const vm = makeVm({ canDisconnect: true });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names().at(-1)).toBe("Disconnect");
+        const entry = screen.getByTestId("voice-user-menu-disconnect");
+        expect(entry).toHaveAttribute("data-kind", "critical");
+        fireEvent.click(entry);
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(vm.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it("offers moving on the user's own menu too", () => {
+        const vm = makeVm({
+            isSelf: true,
+            inviteServers: [],
+            roles: [],
+            moveDestinations: [{ id: "!geral2:example.org", name: "Geral#2" }],
+        });
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={vi.fn()} />);
+        expect(names()).toEqual(["Profile", "Mention", "Mute", "Deafen", "Edit profile", "Copy user ID", "Move to"]);
+    });
+
+    it("lists a moderator's server mute and deafen before moving and disconnecting", () => {
+        const vm = makeVm({
+            serverVoiceMute: { muted: false, deafened: false },
+            moveDestinations: [{ id: "!geral2:example.org", name: "Geral#2" }],
+            canDisconnect: true,
+        });
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={vi.fn()} />);
+        expect(names().slice(-4)).toEqual(["Server mute", "Server deafen", "Move to", "Disconnect"]);
+    });
+
+    it("offers a moderator server mute and deafen, in red, without closing", () => {
+        const vm = makeVm({ serverVoiceMute: { muted: true, deafened: false } });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names().slice(-2)).toEqual(["Server mute", "Server deafen"]);
+        const mute = screen.getByTestId("voice-user-menu-server-mute");
+        expect(mute).toHaveAttribute("aria-checked", "true");
+        expect(mute).toHaveAttribute("data-kind", "critical");
+        expect(screen.getByTestId("voice-user-menu-server-deafen")).toHaveAttribute("aria-checked", "false");
+        fireEvent.click(mute);
+        fireEvent.click(screen.getByTestId("voice-user-menu-server-deafen"));
+        expect(vm.toggleServerMuted).toHaveBeenCalledOnce();
+        expect(vm.toggleServerDeafened).toHaveBeenCalledOnce();
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("offers changing the person's nickname when the user may", () => {
+        const vm = makeVm({ canChangeNickname: true });
+        const onClose = vi.fn();
+        render(<VoiceUserMenuView vm={vm} position={{ x: 10, y: 10 }} onClose={onClose} />);
+        expect(names()).toContain("Change nickname");
+        fireEvent.click(screen.getByTestId("voice-user-menu-change-nickname"));
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(vm.changeNickname).toHaveBeenCalledOnce();
+    });
+
     it("moves between entries with the arrow keys and closes on Escape, returning focus", () => {
         const trigger = document.createElement("button");
         document.body.append(trigger);
@@ -185,6 +269,10 @@ describe("VoiceUserMenuView", () => {
         expect(names()).not.toContain("Verify");
         expect(names()).not.toContain("Invite to server");
         expect(names()).not.toContain("Roles");
+        expect(names()).not.toContain("Move to");
+        expect(names()).not.toContain("Disconnect");
+        expect(names()).not.toContain("Server mute");
+        expect(names()).not.toContain("Change nickname");
         expect(names()).toContain("Stop ignoring");
     });
 });

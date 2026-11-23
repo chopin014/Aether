@@ -122,6 +122,11 @@
         width: var(--cpd-space-4x);
         height: var(--cpd-space-4x);
     }
+
+    /* Muted or deafened by a moderator. */
+    .byModerator {
+        color: var(--cpd-color-icon-critical-primary);
+    }
 }
 
 /* Match the inset voice ring: two pixels of color with a one-pixel background separator. */
@@ -210,6 +215,18 @@
 
 .dragSource .container {
     opacity: 0.6;
+}
+
+/* A person being dragged to another voice channel stays in place, dimmed, until they move. */
+.callParticipantDragSource {
+    opacity: 0.6;
+}
+
+/* A voice channel a dragged person will be moved to, outlined as in Discord. */
+.callParticipantDropTarget .container {
+    outline: 1px solid var(--cpd-color-border-success-primary);
+    outline-offset: -1px;
+    background-color: var(--cpd-color-bg-success-subtle);
 }
 
 /* Where a dragged channel will land: a line along the top or bottom edge of the channel it is over. */

@@ -39,6 +39,13 @@ export interface VoiceUserMenuServer {
     readonly name: string;
 }
 
+/** A voice channel the person can be moved to. */
+export interface VoiceUserMenuChannel {
+    /** The channel's Matrix room ID. */
+    readonly id: string;
+    readonly name: string;
+}
+
 /** Everything the voice user menu shows about one person. */
 export interface VoiceUserMenuViewSnapshot {
     readonly userId: string;
@@ -71,6 +78,20 @@ export interface VoiceUserMenuViewSnapshot {
     readonly inviteServers: readonly VoiceUserMenuServer[];
     /** Roles the user may give the person in this channel; the entry is hidden when there are none. */
     readonly roles: readonly VoiceUserMenuRole[];
+    /**
+     * The other voice channels the user may move the person to, from the call they are in. The entry is hidden when
+     * there are none, as it is for anyone without the power to move people.
+     */
+    readonly moveDestinations: readonly VoiceUserMenuChannel[];
+    /** Whether the user may disconnect the person from the call they are in, as anyone who may move them can. */
+    readonly canDisconnect: boolean;
+    /**
+     * Whether a moderator muted or deafened the person in the server's voice channels. Present only when the user
+     * may do so; the entries are hidden otherwise.
+     */
+    readonly serverVoiceMute?: { readonly muted: boolean; readonly deafened: boolean };
+    /** Whether the user may change the person's nickname in the channel's server: their own, or as a moderator. */
+    readonly canChangeNickname: boolean;
 }
 
 /** What choosing an entry in the voice user menu does. */
@@ -91,6 +112,16 @@ export interface VoiceUserMenuViewActions {
     copyUserId(): void;
     toggleIgnore(): void;
     setRole(level: number): void;
+    /** Moves the person to another voice channel. */
+    moveTo(roomId: string): void;
+    /** Disconnects the person from the call they are in. */
+    disconnect(): void;
+    /** Mutes or unmutes the person in all of the server's voice channels. */
+    toggleServerMuted(): void;
+    /** Deafens or undeafens the person in all of the server's voice channels. */
+    toggleServerDeafened(): void;
+    /** Opens the dialog that changes the person's nickname in the server. */
+    changeNickname(): void;
 }
 
 /** The view model behind the voice user menu. */
@@ -294,17 +325,20 @@ interface CheckboxItemProps {
     checked: boolean;
     onToggle: () => void;
     onHover: () => void;
+    /** Red, for what the user does to someone else as a moderator. */
+    critical?: boolean;
     testId?: string;
 }
 
 /** An entry that turns something on or off, with Discord's checkbox at its end. It keeps the menu open. */
-function CheckboxItem({ label, checked, onToggle, onHover, testId }: CheckboxItemProps): JSX.Element {
+function CheckboxItem({ label, checked, onToggle, onHover, critical, testId }: CheckboxItemProps): JSX.Element {
     return (
         <button
             type="button"
             role="menuitemcheckbox"
             aria-checked={checked}
             className={styles.item}
+            data-kind={critical ? "critical" : undefined}
             data-testid={testId}
             onPointerEnter={onHover}
             onClick={onToggle}
@@ -328,7 +362,7 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
     const s = useViewModel(vm);
     const menu = useRef<HTMLDivElement>(null);
     const placement = usePlacement(menu, position);
-    const [openSubMenu, setOpenSubMenu] = useState<"invite" | "roles" | null>(null);
+    const [openSubMenu, setOpenSubMenu] = useState<"invite" | "roles" | "move" | null>(null);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
     const doc = ownerDocument ?? document;
@@ -517,6 +551,14 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                     )}
                 </>
             )}
+            {s.canChangeNickname && (
+                <Item
+                    onHover={closeSubMenu}
+                    label={_t("desktop|voice_user_menu|change_nickname")}
+                    onSelect={select(vm.changeNickname)}
+                    testId="voice-user-menu-change-nickname"
+                />
+            )}
             <Item
                 onHover={closeSubMenu}
                 label={_t("desktop|voice_user_menu|copy_user_id")}
@@ -556,6 +598,62 @@ export function VoiceUserMenuView({ vm, position, ownerDocument, onClose }: Voic
                             </button>
                         ))}
                     </SubMenu>
+                </>
+            )}
+            {s.serverVoiceMute && (
+                <>
+                    <Separator />
+                    <CheckboxItem
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|server_mute")}
+                        checked={s.serverVoiceMute.muted}
+                        onToggle={vm.toggleServerMuted}
+                        critical
+                        testId="voice-user-menu-server-mute"
+                    />
+                    <CheckboxItem
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|server_deafen")}
+                        checked={s.serverVoiceMute.deafened}
+                        onToggle={vm.toggleServerDeafened}
+                        critical
+                        testId="voice-user-menu-server-deafen"
+                    />
+                </>
+            )}
+            {s.moveDestinations.length > 0 && (
+                <>
+                    {s.roles.length === 0 && !s.serverVoiceMute && <Separator />}
+                    <SubMenu
+                        label={_t("desktop|voice_user_menu|move_to")}
+                        testId="voice-user-menu-move"
+                        open={openSubMenu === "move"}
+                        onOpenChange={(open) => setOpenSubMenu(open ? "move" : null)}
+                    >
+                        {s.moveDestinations.map((channel) => (
+                            <button
+                                key={channel.id}
+                                type="button"
+                                role="menuitem"
+                                className={styles.item}
+                                onClick={select(() => vm.moveTo(channel.id))}
+                            >
+                                <span className={styles.label}>{channel.name}</span>
+                            </button>
+                        ))}
+                    </SubMenu>
+                </>
+            )}
+            {s.canDisconnect && (
+                <>
+                    {s.roles.length === 0 && !s.serverVoiceMute && s.moveDestinations.length === 0 && <Separator />}
+                    <Item
+                        onHover={closeSubMenu}
+                        label={_t("desktop|voice_user_menu|disconnect")}
+                        critical
+                        onSelect={select(vm.disconnect)}
+                        testId="voice-user-menu-disconnect"
+                    />
                 </>
             )}
         </div>

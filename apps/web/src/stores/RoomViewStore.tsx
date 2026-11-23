@@ -37,10 +37,12 @@ import { TimelineRenderingType } from "../contexts/RoomContext";
 import { type ViewRoomPayload } from "../dispatcher/payloads/ViewRoomPayload";
 import DMRoomMap from "../utils/DMRoomMap";
 import { isMetaSpace, MetaSpace } from "./spaces";
+import { NewChannelJoiner } from "./spaces/NewChannelJoiner";
 import { type JoinRoomPayload } from "../dispatcher/payloads/JoinRoomPayload";
 import { type JoinRoomReadyPayload } from "../dispatcher/payloads/JoinRoomReadyPayload";
 import { type JoinRoomErrorPayload } from "../dispatcher/payloads/JoinRoomErrorPayload";
 import { type ViewRoomErrorPayload } from "../dispatcher/payloads/ViewRoomErrorPayload";
+import { type FollowVoiceMovePayload } from "../dispatcher/payloads/FollowVoiceMovePayload";
 import ErrorDialog from "../components/views/dialogs/ErrorDialog";
 import { type ActiveRoomChangedPayload } from "../dispatcher/payloads/ActiveRoomChangedPayload";
 import SettingsStore from "../settings/SettingsStore";
@@ -247,6 +249,9 @@ export class RoomViewStore extends EventEmitter {
             case Action.ViewRoom:
                 void this.viewRoom(payload as ViewRoomPayload);
                 break;
+            case Action.FollowVoiceMove:
+                void this.followVoiceMove((payload as FollowVoiceMovePayload).room_id);
+                break;
             case Action.ViewThread:
                 this.viewThread(payload as ThreadPayload);
                 break;
@@ -435,11 +440,41 @@ export class RoomViewStore extends EventEmitter {
     }
 
     /**
+     * Follows a moderator who moved the user to another voice channel: the user's calls are left without asking, and
+     * the channel's call is joined. Someone watching the call they were moved out of watches the new one instead;
+     * anyone else stays where they are, as when they join a voice channel from the list.
+     */
+    public async followVoiceMove(roomId: string): Promise<void> {
+        const room = MatrixClientPeg.safeGet().getRoom(roomId);
+        if (!room?.isCallRoom()) return;
+        const otherCalls = [...CallStore.instance.connectedCalls, ...CallStore.instance.joiningCalls].filter(
+            (call) => call.roomId !== roomId,
+        );
+        const wasWatching = otherCalls.some((call) => call.presented && call.roomId === this.state.roomId);
+        // Closing the old stage must not navigate back to its room during the move.
+        for (const call of otherCalls) call.presented = false;
+        await Promise.all(otherCalls.map((call) => call.disconnect()));
+        if (wasWatching) {
+            this.dis.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                room_id: roomId,
+                view_call: true,
+                metricsTrigger: undefined,
+            });
+        } else {
+            // The other calls are already left: nothing must ask to switch.
+            await this.joinCallInBackground(room, this.viewRequest, true);
+        }
+    }
+
+    /**
      * Joins a voice channel's call without opening it. The call is kept alive off screen, as a call the user has
      * navigated away from is, and the voice panel, the channel and the stage show it as joining from now on.
+     *
+     * @param othersLeft - Whether the user's other calls were already left, so that there is no switch to confirm.
      */
-    private async joinCallInBackground(room: Room, viewRequest: number): Promise<void> {
-        if (!(await this.leaveOtherCallsFor(room, viewRequest))) return;
+    private async joinCallInBackground(room: Room, viewRequest: number, othersLeft = false): Promise<void> {
+        if (!othersLeft && !(await this.leaveOtherCallsFor(room, viewRequest))) return;
         let call = CallStore.instance.getCall(room.roomId);
         if (call === null) {
             ElementCall.create(room);
@@ -743,6 +778,8 @@ export class RoomViewStore extends EventEmitter {
             acceptSharedHistory: true,
             ...payload.opts,
         };
+        // Joining a server joins its current channels through the join flow below, so they are not new channels.
+        if (roomId) NewChannelJoiner.instance.expectJoin(roomId);
         try {
             const cli = MatrixClientPeg.safeGet();
             const joinedRoom = await retry<Room, MatrixError>(

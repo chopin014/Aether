@@ -70,6 +70,8 @@ import {
 import { wornSpaceTag } from "../../profile/spaceTag";
 import { getUserNote, setUserNote } from "../../profile/userNotes";
 import { VoiceActivityIndex, voiceActivity } from "../../profile/voiceActivity";
+import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
 
 /** One snapshot serves both the popout card and the full profile. */
 export type DesktopProfileViewSnapshot = DesktopFullProfileViewSnapshot & DesktopProfilePopoutViewSnapshot;
@@ -200,6 +202,8 @@ export class DesktopProfileViewModel
         // member list, is not a status.
         const merged = getMergedPresence(client, userId);
         const presence = merged && merged.source !== "activity" ? merged.state : undefined;
+        const shownPresence =
+            presence === "online" || presence === "unavailable" || presence === "busy" ? presence : "offline";
         const me = room?.getMember(client.getSafeUserId());
         const canModerate =
             !isMe &&
@@ -224,7 +228,7 @@ export class DesktopProfileViewModel
             displayName: name,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(160, 160, "crop") ?? undefined) : undefined,
             avatarPreviewUrl: mxc ? props.avatarPreviewUrls?.find((url) => showsMedia(url, mxc)) : undefined,
-            presence: presence === "online" || presence === "unavailable" || presence === "busy" ? presence : "offline",
+            presence: shownPresence,
             roles: DesktopProfileViewModel.roles(props, userId, member),
             status: extra.status ?? rich?.status,
             appearance: rich && appearanceFromRichProfile(rich, mxc),
@@ -253,6 +257,7 @@ export class DesktopProfileViewModel
                 member?.membership === KnownMembership.Join,
             isIgnored: client.isUserIgnored(userId),
             canModerate,
+            canChangeNickname: DesktopProfileViewModel.canChangeNickname(client, room, userId),
             busy: extra.busy ?? false,
             error: extra.error ?? false,
             memberSince,
@@ -263,7 +268,11 @@ export class DesktopProfileViewModel
             mutualRooms: extra.mutualRooms ?? { state: props.full ? "loading" : "unsupported", items: [] },
             mutualSpaces: props.full ? shared : [],
             mutual: isMe ? undefined : { count: shared.length, faces: shared.slice(0, 3) },
-            activity: voiceActivity(client, VoiceActivityIndex.instance.roomOf(userId)),
+            // As in the member list, someone who appears offline shows no voice channel.
+            activity:
+                shownPresence === "offline"
+                    ? undefined
+                    : voiceActivity(client, VoiceActivityIndex.instance.roomOf(userId)),
         };
     }
 
@@ -446,6 +455,20 @@ export class DesktopProfileViewModel
         const { client, member } = this.props;
         if (client.isUserIgnored(member.userId)) void unignoreUser(client, member.userId);
         else void confirmAndIgnoreUser(client, member);
+    };
+
+    /** Whether the user may change the person's nickname in the server of the room being viewed. */
+    private static canChangeNickname(client: MatrixClient, room: Room | undefined, userId: string): boolean {
+        const server = room && serverOfRoom(client, room);
+        return !!server && mayChangeNickname(server, client.getSafeUserId(), userId);
+    }
+
+    public changeNickname = (): void => {
+        const { client, room, member } = this.props;
+        const server = room && serverOfRoom(client, room);
+        if (!server) return;
+        this.props.onClose();
+        showServerNicknameDialog(client, server, member.userId);
     };
 
     /** Moderation (kick, ban, power level) lives in the room info panel; this hands the member over to it. */

@@ -20,6 +20,10 @@ import { Call, CallEvent, ConnectionState, ElementCall } from "../models/Call";
 import SdkConfig from "../SdkConfig.ts";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { DesktopCallHandoff } from "../models/DesktopCallHandoff";
+import { VoiceMoveFollower } from "../models/VoiceMoveFollower";
+import { Action } from "../dispatcher/actions";
+import { type FollowVoiceMovePayload } from "../dispatcher/payloads/FollowVoiceMovePayload";
+import { ServerVoiceMuteEnforcer } from "../models/ServerVoiceMuteEnforcer";
 import ToastStore from "./ToastStore";
 import { GenericToast } from "@element-hq/web-shared-components";
 import { _t } from "../languageHandler";
@@ -79,6 +83,38 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
                   },
               )
             : undefined;
+        this.voiceMoves?.dispose();
+        this.voiceMoves = SettingsStore.getValue("feature_desktop_shell")
+            ? new VoiceMoveFollower(
+                  this.matrixClient,
+                  (roomId) => {
+                      const call = this.getCall(roomId);
+                      return !!call && (this._connectedCalls.has(call) || this.joiningCalls.has(call));
+                  },
+                  (room) =>
+                      defaultDispatcher.dispatch<FollowVoiceMovePayload>({
+                          action: Action.FollowVoiceMove,
+                          room_id: room.roomId,
+                      }),
+                  async (room) => {
+                      await this.getCall(room.roomId)?.disconnect();
+                  },
+              )
+            : undefined;
+        this.stopServerMutes();
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            const serverMutes = new ServerVoiceMuteEnforcer(this.matrixClient, () => [
+                ...this.connectedCalls,
+                ...this.joiningCalls,
+            ]);
+            this.on(CallStoreEvent.ConnectedCalls, serverMutes.update);
+            this.on(CallStoreEvent.JoiningCalls, serverMutes.update);
+            this.stopServerMutes = (): void => {
+                this.off(CallStoreEvent.ConnectedCalls, serverMutes.update);
+                this.off(CallStoreEvent.JoiningCalls, serverMutes.update);
+                serverMutes.dispose();
+            };
+        }
         // Fetch transports, but don't await the result.
         this.matrixClient.cachedRtcTransports
             .wait()
@@ -123,6 +159,10 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
     protected async onNotReady(): Promise<any> {
         this.handoff?.dispose();
         this.handoff = undefined;
+        this.voiceMoves?.dispose();
+        this.voiceMoves = undefined;
+        this.stopServerMutes();
+        this.stopServerMutes = (): void => {};
         for (const [call, listenerMap] of this.callListeners) {
             // It's important that we remove the listeners before destroying the
             // call, because otherwise the call's onDestroy callback would fire
@@ -141,6 +181,10 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
 
     private _connectedCalls: Set<Call> = new Set();
     private handoff: DesktopCallHandoff | undefined;
+    /** Follows moderators who move the user to another voice channel. */
+    private voiceMoves: VoiceMoveFollower | undefined;
+    /** Stops applying moderators' mutes to the user's calls. */
+    private stopServerMutes = (): void => {};
     /**
      * The calls to which the user is currently connected.
      */

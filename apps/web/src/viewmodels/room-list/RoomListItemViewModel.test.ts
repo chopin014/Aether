@@ -57,6 +57,19 @@ import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDial
 import { prepareCallInBackground, prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
 import { VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
+import { VOICE_MOVE_EVENT_TYPE } from "../../utils/call/voiceMove";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
+
+vi.mock("../../utils/call/serverVoiceMute", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/call/serverVoiceMute")>()),
+    getServerVoiceMute: vi.fn(() => ({ muted: false, deafened: false })),
+    onServerVoiceMutesChanged: vi.fn(() => () => {}),
+}));
+
+// Nobody is muted by a moderator unless a test says so.
+beforeEach(() => {
+    vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+});
 
 vi.mock("../../components/views/voip/prepareElementCall", () => ({
     prepareCallSoon: vi.fn(),
@@ -326,6 +339,32 @@ describe("RoomListItemViewModel", () => {
         });
     });
 
+    it("lets the people in a voice channel's call be dragged only by those who may move them", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        let mayMove = false;
+        const maySend = vi
+            .spyOn(room.currentState, "maySendStateEvent")
+            .mockImplementation((type) => type === VOICE_MOVE_EVENT_TYPE && mayMove);
+
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
+        expect(viewModel.getSnapshot().canMoveCallParticipants).toBe(false);
+
+        // Promoted: the power level change reaches the row.
+        mayMove = true;
+        room.emit(
+            RoomStateEvent.Events,
+            new MatrixEvent({ type: EventType.RoomPowerLevels, state_key: "" }),
+            room.currentState,
+            null,
+        );
+        expect(viewModel.getSnapshot().canMoveCallParticipants).toBe(true);
+        expect(maySend).toHaveBeenCalledWith(VOICE_MOVE_EVENT_TYPE, matrixClient.getSafeUserId());
+    });
+
     it("dates an occupied voice channel from its oldest call membership", () => {
         const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
         vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
@@ -420,6 +459,38 @@ describe("RoomListItemViewModel", () => {
         room.currentState.setStateEvents([published]);
         room.emit(RoomStateEvent.Events, published, room.currentState, null);
         expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({ isMuted: true, isDeafened: true });
+    });
+
+    it("marks participants a moderator muted or deafened in the server, and follows changes", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const alice = new RoomMember(room.roomId, "@alice:server");
+        alice.name = "Alice";
+        const call = Object.assign(new EventEmitter(), {
+            participants: new Map([[alice, new Set(["device1"])]]),
+            callType: CallType.Voice,
+            speakingUserIds: new Set<string>(),
+            soundboardUserIds: new Set<string>(),
+            voiceStates: new Map<string, VoiceState>(),
+        });
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient, isServerChannel: true });
+        expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({
+            isServerMuted: false,
+            isServerDeafened: false,
+        });
+        expect(getServerVoiceMute).toHaveBeenCalledWith(matrixClient, room.roomId, alice.userId);
+
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: true });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+        expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({
+            isServerMuted: true,
+            isServerDeafened: true,
+        });
     });
 
     it("marks participants muted for this user only and opens one participant menu at a time", () => {
@@ -534,6 +605,8 @@ describe("RoomListItemViewModel", () => {
                 isMuted: false,
                 isDeafened: false,
                 isLocallyMuted: false,
+                isServerMuted: false,
+                isServerDeafened: false,
             },
         ]);
         call.voiceStates = new Map([[alice.userId, { userId: alice.userId, muted: true, deafened: true }]]);

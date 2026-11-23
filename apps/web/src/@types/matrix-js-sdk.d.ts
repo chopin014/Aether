@@ -18,8 +18,18 @@ import { type MediaPreviewConfig } from "./media_preview.ts";
 import { type INVITE_RULES_ACCOUNT_DATA_TYPE, type InviteConfigAccountData } from "./invite-rules.ts";
 import type { StoredSound } from "../audio/soundboard/Soundboard";
 import type { PublishedVoiceStateContent } from "../utils/call/publishedVoiceState";
+import type { VoiceMoveContent } from "../utils/call/voiceMove";
+import type { ServerVoiceMuteContent } from "../utils/call/serverVoiceMute";
+import type { MemberNickContent, ServerNicknamesContent } from "../utils/serverNickname";
 
 // Extend Matrix JS SDK types via Typescript declaration merging to support unspecced event fields and types
+declare module "matrix-js-sdk/src/@types/state_events" {
+    export interface SpaceChildEventContent {
+        // Whether the Space's members can join the child at once, see stores/spaces/joinableChild.ts
+        "io.aether.joinable"?: boolean;
+    }
+}
+
 declare module "matrix-js-sdk/src/types" {
     export interface FileInfo {
         /**
@@ -42,6 +52,12 @@ declare module "matrix-js-sdk/src/types" {
         "io.aether.space.channel": { v?: number; category?: string | null; order?: string } | EmptyObject;
         "io.aether.space.category.deleted": { v?: number } | EmptyObject;
         "io.aether.call.voice_state": PublishedVoiceStateContent | EmptyObject;
+        // A moderator moving someone to another voice channel, followed by models/VoiceMoveFollower.ts
+        "io.aether.voice.move": VoiceMoveContent;
+        // A moderator muting or deafening someone in a server's voice channels, see utils/call/serverVoiceMute.ts
+        "io.aether.voice.server_mute": ServerVoiceMuteContent;
+        // A moderator's nickname for someone in a server, see utils/serverNickname.ts
+        "io.aether.member.nick": MemberNickContent;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 
@@ -65,6 +81,8 @@ declare module "matrix-js-sdk/src/types" {
         "io.aether.space.sidebar": { v?: number; hide_muted?: boolean };
         // How a room was muted and when that ends, see stores/notifications/TimedMutes.ts
         "io.aether.mute": { v?: number; until?: number; restore?: string; by?: string } | EmptyObject;
+        // The channels of a server a person was already offered, see stores/spaces/NewChannelJoiner.ts
+        "io.aether.space.known_channels": { v?: number; since?: number; rooms?: string[] };
         // A person's notification level for a whole server, see stores/notifications/ServerNotifications.ts
         "io.aether.space.notifications": {
             v?: number;
@@ -89,6 +107,8 @@ declare module "matrix-js-sdk/src/types" {
         };
     }
     export interface AccountDataEvents {
+        // The user's per-server nicknames, see utils/serverNickname.ts
+        "io.aether.server_nicknames": ServerNicknamesContent;
         // Analytics account data event
         "im.vector.analytics": {
             id: string;

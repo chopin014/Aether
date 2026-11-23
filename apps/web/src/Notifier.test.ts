@@ -969,6 +969,78 @@ describe("Notifier", () => {
             expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
         });
 
+        describe("sound for a group call", () => {
+            let playAudio: MockInstance<Notifier["playAudioNotification"]>;
+            const emitGroupCall = (params: Parameters<typeof emitCallNotificationEvent>[0] = {}): MatrixEvent =>
+                emitCallNotificationEvent({
+                    ...params,
+                    content: { notification_type: "notification", ...params.content },
+                });
+
+            beforeEach(() => {
+                mockClient.getPushActionsForEvent.mockReturnValue({ notify: true, tweaks: { sound: "ring" } });
+                vi.spyOn(notifier, "isAudioEnabled").mockReturnValue(true);
+                playAudio = vi.spyOn(notifier, "playAudioNotification").mockResolvedValue();
+            });
+
+            it("plays the room's sound along with the call it shows", () => {
+                const notificationEvent = emitGroupCall();
+                expect(ToastStore.sharedInstance().addOrReplaceToast).toHaveBeenCalledTimes(1);
+                expect(playAudio).toHaveBeenCalledWith(notificationEvent, testRoom);
+            });
+
+            it("plays the sound once the call is shown, even if its membership had to be fetched", async () => {
+                vi.spyOn(testRoom, "findEventById").mockReturnValue(undefined);
+                vi.spyOn(mockClient, "fetchRoomEvent").mockResolvedValue({
+                    type: "org.matrix.msc4143.rtc.member",
+                    content: { call_id: callId },
+                });
+                emitGroupCall();
+                await waitFor(() => expect(playAudio).toHaveBeenCalledTimes(1));
+            });
+
+            it("makes no sound for the call the user is already in", () => {
+                vi.mocked(mockClient.matrixRTC.getRoomSession).mockReturnValue({
+                    memberships: [{ userId }],
+                    slotDescription: { application: "m.call", id: "" },
+                } as unknown as MatrixRTCSession);
+                emitGroupCall();
+                expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
+                expect(playAudio).not.toHaveBeenCalled();
+            });
+
+            it("makes no sound for an expired notification", () => {
+                emitGroupCall({ ts: Date.now() - 40000 });
+                expect(playAudio).not.toHaveBeenCalled();
+            });
+
+            it("makes no sound for a call that is already shown", () => {
+                emitGroupCall();
+                emitGroupCall();
+                expect(playAudio).toHaveBeenCalledTimes(1);
+            });
+
+            it("makes no sound when the call cannot be found", async () => {
+                vi.spyOn(testRoom, "findEventById").mockReturnValue(undefined);
+                const fetch = vi.spyOn(mockClient, "fetchRoomEvent").mockRejectedValue(new Error("not found"));
+                emitGroupCall();
+                await waitFor(() => expect(fetch).toHaveBeenCalled());
+                await Promise.resolve();
+                expect(playAudio).not.toHaveBeenCalled();
+            });
+
+            it("makes no sound for an invalid notification", () => {
+                emitGroupCall({ content: { "m.relates_to": undefined } });
+                expect(playAudio).not.toHaveBeenCalled();
+            });
+
+            it("leaves a ringing call to its ringtone", () => {
+                emitCallNotificationEvent();
+                expect(ToastStore.sharedInstance().addOrReplaceToast).toHaveBeenCalledTimes(1);
+                expect(playAudio).not.toHaveBeenCalled();
+            });
+        });
+
         it("rings for a call received while catching up after being offline", () => {
             notifier.onSyncStateChange(SyncState.Error, SyncState.Syncing);
             vi.spyOn(notifier, "displayPopupNotification");

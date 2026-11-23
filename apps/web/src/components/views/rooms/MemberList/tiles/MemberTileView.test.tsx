@@ -9,7 +9,7 @@
 // @vitest-environment happy-dom
 
 import React from "react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "test-utils-rtl";
 import * as TestUtils from "test-utils";
 import { type MatrixClient, RoomMember as SdkRoomMember, type Device, Room } from "matrix-js-sdk/src/matrix";
@@ -25,6 +25,17 @@ import {
 import { RoomMemberTileView } from "./RoomMemberTileView";
 import { ThreePidInviteTileView } from "./ThreePidInviteTileView";
 import { type ThreePIDInvite } from "../../../../../models/rooms/ThreePIDInvite";
+import SettingsStore from "../../../../../settings/SettingsStore";
+import MatrixClientContext from "../../../../../contexts/MatrixClientContext";
+import { VoiceActivityIndex } from "../../../../../profile/voiceActivity";
+import { type MergedPresence } from "../../../../../presence/mergedPresence";
+
+// Null, as with the desktop shell off, unless a test sets a status.
+const mergedPresence = vi.hoisted(() => ({ current: null as MergedPresence | null }));
+vi.mock("../../../../../presence/useMergedPresence", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../../../../presence/useMergedPresence")>()),
+    useMergedPresence: () => mergedPresence.current,
+}));
 
 describe("MemberTileView", () => {
     describe("RoomMemberTileView", () => {
@@ -100,6 +111,87 @@ describe("MemberTileView", () => {
                 ).toBeInTheDocument();
             });
             expect(container).toMatchSnapshot();
+        });
+
+        describe("in the desktop shell", () => {
+            beforeEach(() => {
+                mergedPresence.current = null;
+                vi.spyOn(SettingsStore, "getValue").mockImplementation(
+                    (settingName) => settingName === "feature_desktop_shell",
+                );
+                const voiceRoom = new Room("!voice:example.org", matrixClient, matrixClient.getSafeUserId());
+                voiceRoom.name = "Geral";
+                vi.mocked(matrixClient.getRoom).mockReturnValue(voiceRoom);
+                vi.spyOn(VoiceActivityIndex.instance, "roomOf").mockReturnValue(voiceRoom.roomId);
+            });
+
+            afterEach(() => {
+                vi.mocked(SettingsStore.getValue).mockRestore();
+                vi.mocked(VoiceActivityIndex.instance.roomOf).mockRestore();
+                mergedPresence.current = null;
+            });
+
+            const renderTile = (offline = false): ReturnType<typeof render> =>
+                render(
+                    <MatrixClientContext.Provider value={matrixClient}>
+                        <RoomMemberTileView
+                            item={item}
+                            member={member}
+                            index={0}
+                            memberCount={1}
+                            offline={offline}
+                            onFocus={vi.fn()}
+                        />
+                    </MatrixClientContext.Provider>,
+                );
+
+            it("shows the voice channel of someone who is online", () => {
+                mergedPresence.current = { state: "online", source: "aether" } as MergedPresence;
+                renderTile();
+                expect(screen.getByText("In Geral")).toBeInTheDocument();
+            });
+
+            it("shows no voice channel for someone who appears offline, such as an invisible person", () => {
+                mergedPresence.current = { state: "offline", source: "aether" } as MergedPresence;
+                const { container, unmount } = renderTile();
+                expect(screen.queryByText("In Geral")).toBeNull();
+                expect(container.querySelector(".mx_MemberTileView_status")).toBeNull();
+                unmount();
+
+                // Listed under Offline, the row shows none either, whatever was last reported.
+                mergedPresence.current = { state: "online", source: "aether" } as MergedPresence;
+                renderTile(true);
+                expect(screen.queryByText("In Geral")).toBeNull();
+            });
+
+            it("leaves out the verified mark but keeps the warning", async () => {
+                const deviceMap = new Map<string, Map<string, Device>>();
+                deviceMap.set(member.userId, new Map([["deviceId", {} as Device]]));
+                vi.mocked(matrixClient.getCrypto()!.getUserDeviceInfo).mockResolvedValue(deviceMap);
+                vi.mocked(matrixClient.getCrypto()!.getDeviceVerificationStatus).mockResolvedValue({
+                    crossSigningVerified: true,
+                } as DeviceVerificationStatus);
+                const status = vi.mocked(matrixClient.getCrypto()!.getUserVerificationStatus);
+                status.mockResolvedValue({
+                    isCrossSigningVerified: vi.fn().mockReturnValue(true),
+                } as unknown as UserVerificationStatus);
+                const verified = render(
+                    <RoomMemberTileView item={item} member={member} index={0} memberCount={1} onFocus={vi.fn()} />,
+                );
+                await waitFor(() => expect(status).toHaveBeenCalled());
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(verified.container.querySelector(".mx_E2EIconView")).toBeNull();
+                verified.unmount();
+
+                status.mockResolvedValue({
+                    isCrossSigningVerified: vi.fn().mockReturnValue(false),
+                    wasCrossSigningVerified: vi.fn().mockReturnValue(true),
+                } as unknown as UserVerificationStatus);
+                const { container } = render(
+                    <RoomMemberTileView item={item} member={member} index={0} memberCount={1} onFocus={vi.fn()} />,
+                );
+                await waitFor(() => expect(container.querySelector(".mx_E2EIconView")).not.toBeNull());
+            });
         });
 
         it("renders user labels correctly", async () => {

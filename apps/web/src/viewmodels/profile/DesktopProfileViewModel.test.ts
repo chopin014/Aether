@@ -38,6 +38,14 @@ import { VoiceActivityIndex } from "../../profile/voiceActivity";
 import * as presenceModule from "../../presence/useMergedPresence";
 import { AetherPresenceService } from "../../presence/AetherPresenceService";
 import { AetherPresenceStoreEvent } from "../../presence/AetherPresenceStore";
+import { showServerNicknameDialog } from "../../components/views/desktop/DesktopServerNicknameDialog";
+import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
+
+vi.mock("../../components/views/desktop/DesktopServerNicknameDialog", () => ({ showServerNicknameDialog: vi.fn() }));
+vi.mock("../../utils/serverNickname", () => ({
+    serverOfRoom: vi.fn(),
+    mayChangeNickname: vi.fn(() => false),
+}));
 
 const { copy } = vi.hoisted(() => ({ copy: vi.fn() }));
 vi.mock("@element-hq/element-web-shared-utils", async (importOriginal) => ({
@@ -236,6 +244,20 @@ describe("DesktopProfileViewModel", () => {
             new MatrixEvent({ type: EventType.Direct, content: { [member.userId]: [room.roomId] } }),
         );
         expect(create().getSnapshot().roles).toEqual([]);
+    });
+
+    it("offers changing the person's nickname in the room's server when the viewer may", () => {
+        const server = new Room("!server:example.org", client, client.getSafeUserId());
+        expect(create().getSnapshot().canChangeNickname).toBe(false);
+        vi.mocked(serverOfRoom).mockReturnValue(server);
+        vi.mocked(mayChangeNickname).mockReturnValue(true);
+        const vm = create();
+        expect(vm.getSnapshot().canChangeNickname).toBe(true);
+        expect(mayChangeNickname).toHaveBeenCalledWith(server, client.getSafeUserId(), "@bob:example.org");
+        vm.changeNickname();
+        expect(showServerNicknameDialog).toHaveBeenCalledWith(client, server, "@bob:example.org");
+        vi.mocked(serverOfRoom).mockReturnValue(undefined);
+        vi.mocked(mayChangeNickname).mockReturnValue(false);
     });
 
     it("withholds moderation unless the viewer outranks the member and may act", () => {
@@ -489,6 +511,10 @@ describe("DesktopProfileViewModel", () => {
         });
 
         it("shows the voice channel the person is in, and follows them as they move", () => {
+            const merged = vi.spyOn(presenceModule, "getMergedPresence").mockReturnValue({
+                state: "online",
+                source: "aether",
+            } as ReturnType<typeof presenceModule.getMergedPresence>);
             const index = VoiceActivityIndex.instance;
             const roomOf = vi.spyOn(index, "roomOf").mockReturnValue(undefined);
             const activity = vi.spyOn(voiceActivityModule, "voiceActivity");
@@ -506,6 +532,13 @@ describe("DesktopProfileViewModel", () => {
             (index as unknown as { listeners: Set<() => void> }).listeners.forEach((listener) => listener());
             expect(activity).toHaveBeenLastCalledWith(client, "!lounge:example.org");
             expect(vm.getSnapshot().activity?.channelName).toBe("Lounge");
+
+            // Someone who appears offline, such as an invisible person, shows no voice channel.
+            merged.mockReturnValue({ state: "offline", source: "aether" } as ReturnType<
+                typeof presenceModule.getMergedPresence
+            >);
+            (index as unknown as { listeners: Set<() => void> }).listeners.forEach((listener) => listener());
+            expect(vm.getSnapshot().activity).toBeUndefined();
         });
 
         it("opens a mutual room and closes", () => {

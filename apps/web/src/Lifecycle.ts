@@ -29,8 +29,10 @@ import UserActivity from "./UserActivity";
 import Presence from "./Presence";
 import { RichProfileStore } from "./profile/RichProfileStore";
 import { AetherPresenceService } from "./presence/AetherPresenceService";
+import { ServerNicknameKeeper } from "./models/ServerNicknameKeeper";
 import dis from "./dispatcher/dispatcher";
 import DMRoomMap from "./utils/DMRoomMap";
+import { NewChannelJoiner } from "./stores/spaces/NewChannelJoiner";
 import Modal from "./Modal";
 import ActiveWidgetStore from "./stores/ActiveWidgetStore";
 import PlatformPeg from "./PlatformPeg";
@@ -1134,6 +1136,8 @@ async function startMatrixClient(
     SDKContextClass.instance.notifier.start();
     UserActivity.sharedInstance().start();
     DMRoomMap.makeShared(client).start();
+    // Before the first sync, so that channels added to the user's servers while they were away are noticed.
+    NewChannelJoiner.instance.start(client);
     IntegrationManagers.sharedInstance().startWatching();
     ActiveWidgetStore.instance.start();
     SDKContextClass.instance.legacyCallHandler.start();
@@ -1163,6 +1167,9 @@ async function startMatrixClient(
     DeviceListener.sharedInstance().start(client);
 
     CallStatusListener.sharedInstance().start(CallStore.instance, client);
+
+    // Per-server nicknames are written into the user's memberships by their own app.
+    if (SettingsStore.getValue("feature_desktop_shell")) ServerNicknameKeeper.instance.start(client);
 
     // Similarly, don't start sending presence updates until we've started the client
     if (!SettingsStore.getValue("lowBandwidth")) {
@@ -1324,6 +1331,7 @@ export function stopMatrixClient(unsetClient = true): void {
     UserActivity.sharedInstance().stop();
     SDKContextClass.instance.typingStore.reset();
     AetherPresenceService.instance.stop();
+    ServerNicknameKeeper.instance.stop();
     Presence.stop();
     ActiveWidgetStore.instance.stop();
     IntegrationManagers.sharedInstance().stopWatching();
@@ -1331,6 +1339,7 @@ export function stopMatrixClient(unsetClient = true): void {
     DeviceListener.sharedInstance().stop();
     CallStatusListener.sharedInstance().stop();
     DMRoomMap.shared()?.stop();
+    NewChannelJoiner.instance.stop();
     EventIndexPeg.stop();
     const cli = MatrixClientPeg.get();
     if (cli) {

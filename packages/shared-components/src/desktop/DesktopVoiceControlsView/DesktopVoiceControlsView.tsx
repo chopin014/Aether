@@ -33,6 +33,10 @@ export interface DesktopVoiceControlsViewSnapshot {
     soundboardPlaying?: boolean;
     microphoneMuted: boolean;
     deafened: boolean;
+    /** Whether a moderator muted us in the call's server: the microphone cannot be turned on. */
+    serverMuted?: boolean;
+    /** Whether a moderator deafened us in the call's server: the call cannot be played. */
+    serverDeafened?: boolean;
     /** Whether our camera is on in the connected call. */
     videoEnabled: boolean;
     /** Whether the connected call lets us share our screen. */
@@ -102,7 +106,7 @@ export type DesktopVoiceControlsViewModel = ViewModel<
  * for choosing the device and its volume, as in Discord.
  */
 export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewModel }): JSX.Element {
-    const { microphoneMuted, deafened, busy, panel } = useViewModel(vm);
+    const { microphoneMuted, deafened, serverMuted, serverDeafened, busy, panel } = useViewModel(vm);
     const { translate: _t } = useI18n();
     const inputMenu = useRef<HTMLButtonElement>(null);
     const outputMenu = useRef<HTMLButtonElement>(null);
@@ -113,9 +117,15 @@ export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewM
             <div className={styles.deviceControl} data-muted={microphoneMuted}>
                 <IconButton
                     className={styles.toggle}
-                    tooltip={microphoneMuted ? _t("desktop|voice|unmute") : _t("desktop|voice|mute")}
+                    tooltip={
+                        serverMuted
+                            ? _t("desktop|voice|server_muted")
+                            : microphoneMuted
+                              ? _t("desktop|voice|unmute")
+                              : _t("desktop|voice|mute")
+                    }
                     aria-pressed={microphoneMuted}
-                    disabled={busy}
+                    disabled={busy || serverMuted}
                     onClick={() => void vm.toggleMicrophone()}
                     data-muted={microphoneMuted}
                 >
@@ -132,16 +142,22 @@ export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewM
                     <ChevronDownIcon />
                 </IconButton>
             </div>
-            <div className={styles.deviceControl} data-muted={deafened}>
+            <div className={styles.deviceControl} data-muted={deafened || !!serverDeafened}>
                 <IconButton
                     className={styles.toggle}
-                    tooltip={deafened ? _t("desktop|voice|undeafen") : _t("desktop|voice|deafen")}
-                    aria-pressed={deafened}
-                    disabled={busy}
+                    tooltip={
+                        serverDeafened
+                            ? _t("desktop|voice|server_deafened")
+                            : deafened
+                              ? _t("desktop|voice|undeafen")
+                              : _t("desktop|voice|deafen")
+                    }
+                    aria-pressed={deafened || serverDeafened}
+                    disabled={busy || serverDeafened}
                     onClick={() => void vm.toggleDeafened()}
-                    data-muted={deafened}
+                    data-muted={deafened || !!serverDeafened}
                 >
-                    <AnimatedDeviceIcon device="headphones" off={deafened} />
+                    <AnimatedDeviceIcon device="headphones" off={deafened || !!serverDeafened} />
                 </IconButton>
                 <IconButton
                     ref={outputMenu}
