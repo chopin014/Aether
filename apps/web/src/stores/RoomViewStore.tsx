@@ -37,6 +37,7 @@ import { TimelineRenderingType } from "../contexts/RoomContext";
 import { type ViewRoomPayload } from "../dispatcher/payloads/ViewRoomPayload";
 import DMRoomMap from "../utils/DMRoomMap";
 import { isMetaSpace, MetaSpace } from "./spaces";
+import { NewChannelJoiner } from "./spaces/NewChannelJoiner";
 import { type JoinRoomPayload } from "../dispatcher/payloads/JoinRoomPayload";
 import { type JoinRoomReadyPayload } from "../dispatcher/payloads/JoinRoomReadyPayload";
 import { type JoinRoomErrorPayload } from "../dispatcher/payloads/JoinRoomErrorPayload";
@@ -777,6 +778,8 @@ export class RoomViewStore extends EventEmitter {
             acceptSharedHistory: true,
             ...payload.opts,
         };
+        // Joining a server joins its current channels through the join flow below, so they are not new channels.
+        if (roomId) NewChannelJoiner.instance.expectJoin(roomId);
         try {
             const cli = MatrixClientPeg.safeGet();
             const joinedRoom = await retry<Room, MatrixError>(

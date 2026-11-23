@@ -56,9 +56,9 @@ describe("<ChatUserSettingsTab />", () => {
         expect(screen.getByRole("switch", { name: "Autoplay GIFs" })).toBeInTheDocument();
     });
 
-    it("offers joining every channel of small servers", () => {
+    it("offers joining server channels automatically", () => {
         renderTab();
-        expect(screen.getByRole("switch", { name: "Join every channel of small servers" })).toBeInTheDocument();
+        expect(screen.getByRole("switch", { name: "Join server channels automatically" })).toBeInTheDocument();
     });
 
     describe("bundled url previews only", () => {
