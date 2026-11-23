@@ -31,6 +31,7 @@ type RoomListItemProps = RoomListItemViewSnapshot &
         isLastItem: boolean;
         renderAvatar: (room: Room) => React.ReactElement;
         dropIndicator?: "before" | "after";
+        isNested?: boolean;
     };
 
 // Wrapper component that creates a mocked ViewModel
@@ -53,6 +54,7 @@ const RoomListItemWrapperImpl = ({
     onToggleSection,
     onRemoveFromSection,
     onEditChannel,
+    onOpenFolder,
     isSelected,
     isFocused,
     onFocus,
@@ -60,6 +62,7 @@ const RoomListItemWrapperImpl = ({
     isLastItem,
     renderAvatar: renderAvatarProp,
     dropIndicator,
+    isNested,
     ...rest
 }: RoomListItemProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
@@ -81,6 +84,7 @@ const RoomListItemWrapperImpl = ({
         onToggleSection,
         onRemoveFromSection,
         onEditChannel,
+        onOpenFolder,
     });
     return (
         <RoomListItemView
@@ -92,6 +96,7 @@ const RoomListItemWrapperImpl = ({
             isLastItem={isLastItem}
             renderAvatar={renderAvatarProp}
             dropIndicator={dropIndicator}
+            isNested={isNested}
             role="option"
         />
     );
@@ -519,4 +524,30 @@ export const DesktopActiveThread: Story = {
         activeThread: { id: "$thread:example.org", title: "Release planning" },
         onOpenActiveThread: fn(),
     },
+};
+
+/** A server nested in the open one, drawn as a folder with the server's avatar on its front. */
+export const DesktopServerFolder: Story = {
+    args: { name: "Advocacy", folder: { expanded: false, canExpand: true } },
+};
+
+/** A folder showing its server's channels beneath it. */
+export const DesktopOpenServerFolder: Story = {
+    args: { name: "Advocacy", folder: { expanded: true, canExpand: true } },
+};
+
+/** A folder holding a channel with news and a mention: bold, with the mention count. */
+export const DesktopServerFolderWithMention: Story = {
+    args: {
+        name: "Advocacy",
+        folder: { expanded: false, canExpand: true },
+        isBold: true,
+        mentionCount: 2,
+        notification: { ...defaultSnapshot.notification, hasAnyNotificationOrActivity: true, isMention: true },
+    },
+};
+
+/** A channel inside an open folder, indented beneath it. */
+export const DesktopChannelInFolder: Story = {
+    args: { channelKind: "text", name: "twim-updates", isNested: true },
 };

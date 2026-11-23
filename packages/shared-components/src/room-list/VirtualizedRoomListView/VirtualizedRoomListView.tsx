@@ -355,6 +355,7 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
             isInLastSection?: boolean,
             roomIndexInSection?: number,
             canDropBeside?: boolean,
+            isNested?: boolean,
         ): JSX.Element => {
             const { activeRoomIndex, roomCount, vm, isFlatList } = context.context;
             const isSelected = activeRoomIndex === index;
@@ -387,7 +388,8 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
                     isFirstItem={isFirstItem}
                     isLastItem={isLastItem}
                     isInFlatList={isFlatList}
-                    canDropBeside={canDropBeside}
+                    canDropBeside={canDropBeside && !isNested}
+                    isNested={isNested}
                 />
             );
         },
@@ -417,6 +419,7 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
                 isInLastSection,
                 roomIndexInSection,
                 sections[groupIndex].canReorder,
+                sections[groupIndex].nestedRoomIds?.includes(roomId),
             );
         },
         [getItemComponent],
