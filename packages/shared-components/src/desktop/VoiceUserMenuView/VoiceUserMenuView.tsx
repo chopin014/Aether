@@ -85,6 +85,7 @@ export interface VoiceUserMenuViewSnapshot {
     readonly moveDestinations: readonly VoiceUserMenuChannel[];
     /** Whether the user may disconnect the person from the call they are in, as anyone who may move them can. */
     readonly canDisconnect: boolean;
+    /**
      * Whether a moderator muted or deafened the person in the server's voice channels. Present only when the user
      * may do so; the entries are hidden otherwise.
      */

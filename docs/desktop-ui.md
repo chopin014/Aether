@@ -238,6 +238,7 @@ Aether leaves the call. If the person is still in the call 20 seconds later (the
 also kick them from the channel is offered "Remove from channel". That ends their call on any app, because MatrixRTC
 ignores members who left the room and gives the call a new key, and they can join the channel again. Anyone else is
 told that only people using Aether can be disconnected.
+
 ## Server mute and server deafen
 
 As in Discord, a moderator can mute or deafen someone in every voice channel of a server: "Server mute" and "Server
