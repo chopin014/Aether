@@ -22,13 +22,14 @@ import { type ImageInfo } from "matrix-js-sdk/src/types";
 import encrypt, { type IEncryptedFile } from "matrix-encrypt-attachment";
 import { createTestClient, flushPromises, mkEvent } from "test-utils";
 
-import ContentMessages, { UploadCanceledError, uploadFile } from "./ContentMessages";
+import ContentMessages, { UploadCanceledError, uploadFile, withEnforcedUploadLimit } from "./ContentMessages";
 import { clearUploadedMediaCache, queryUploadedMediaCache } from "./utils/UploadedMediaCache";
 import { doMaybeLocalRoomAction } from "./utils/local-room";
 import { BlurhashEncoder } from "./BlurhashEncoder";
 import Modal from "./Modal";
 import ErrorDialog from "./components/views/dialogs/ErrorDialog";
 import UploadConfirmDialog from "./components/views/dialogs/UploadConfirmDialog";
+import UploadFailureDialog from "./components/views/dialogs/UploadFailureDialog";
 import { _t } from "./languageHandler";
 import { PosthogAnalytics } from "./PosthogAnalytics";
 
@@ -558,5 +559,53 @@ describe("sendContentListToRoom analytics", () => {
             }),
         );
         expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
+    });
+});
+
+describe("withEnforcedUploadLimit", () => {
+    it("applies matrix.org's enforced limit over the 1 GiB it reports", () => {
+        expect(withEnforcedUploadLimit({ "m.upload.size": 1073741824 }, "matrix.org")).toEqual({
+            "m.upload.size": 10_000_000,
+        });
+        expect(withEnforcedUploadLimit({}, "matrix.org")).toEqual({ "m.upload.size": 10_000_000 });
+    });
+
+    it("keeps a lower reported limit, and other servers' limits", () => {
+        expect(withEnforcedUploadLimit({ "m.upload.size": 5_000_000 }, "matrix.org")).toEqual({
+            "m.upload.size": 5_000_000,
+        });
+        expect(withEnforcedUploadLimit({ "m.upload.size": 1073741824 }, "example.org")).toEqual({
+            "m.upload.size": 1073741824,
+        });
+        expect(withEnforcedUploadLimit({}, null)).toEqual({});
+    });
+});
+
+describe("sendContentListToRoom upload limit", () => {
+    const roomId = "!roomId:server";
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("tells the person a file is too large for matrix.org before sending it", async () => {
+        const client = createTestClient();
+        vi.mocked(client.getDomain).mockReturnValue("matrix.org");
+        vi.mocked(client.getMediaConfig).mockResolvedValue({ "m.upload.size": 1073741824 });
+        const contentMessages = new ContentMessages();
+        vi.spyOn(contentMessages, "sendContentToRoom").mockResolvedValue(undefined);
+        const createDialog = vi.spyOn(Modal, "createDialog").mockImplementation((component: unknown) => {
+            if (component === UploadFailureDialog) return { finished: Promise.resolve([false]) } as any;
+            if (component === UploadConfirmDialog) return { finished: Promise.resolve([true, false]) } as any;
+            return { finished: new Promise(() => {}), close: vi.fn() } as any;
+        });
+        const file = new File(["zip"], "early_xmas.zip", { type: "application/zip" });
+        Object.defineProperty(file, "size", { value: 10_000_001 });
+
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, client);
+
+        expect(createDialog).toHaveBeenCalledWith(UploadFailureDialog, expect.objectContaining({ badFiles: [file] }));
+        expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
+        expect(contentMessages.getUploadLimit()).toBe(10_000_000);
     });
 });

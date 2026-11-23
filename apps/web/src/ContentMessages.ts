@@ -149,6 +149,30 @@ const IMAGE_THUMBNAIL_MIN_REDUCTION_PERCENT = 0.1; // 10%
 const ALWAYS_INCLUDE_THUMBNAIL = ["image/avif", "image/webp", "image/svg+xml"];
 
 /**
+ * Upload limits, in bytes, that homeservers enforce below the one their media config reports, by server name.
+ *
+ * matrix.org reports 1 GiB but refuses any upload over 10,000,000 bytes (measured 2026-11-23). Up to about 23 MB it
+ * answers 413; past that it resets the connection, which the app can only show as a generic failure, after the
+ * person has waited for most of the file to be sent.
+ */
+const ENFORCED_UPLOAD_LIMITS: Record<string, number> = {
+    "matrix.org": 10_000_000,
+};
+
+/**
+ * Applies the limit the homeserver is known to enforce, if lower than the one it reports.
+ * @param config - The media config the homeserver reported.
+ * @param serverName - The homeserver's server name.
+ * @returns The config with the limit that the homeserver actually enforces.
+ */
+export function withEnforcedUploadLimit(config: IMediaConfig, serverName: string | null): IMediaConfig {
+    const enforced = serverName ? ENFORCED_UPLOAD_LIMITS[serverName] : undefined;
+    const reported = config["m.upload.size"];
+    if (enforced === undefined || (reported !== undefined && reported <= enforced)) return config;
+    return { ...config, "m.upload.size": enforced };
+}
+
+/**
  * Read the metadata for an image file and create and upload a thumbnail of the image.
  *
  * @param {MatrixClient} matrixClient A matrixClient to upload the thumbnail with.
@@ -782,7 +806,7 @@ export default class ContentMessages {
                 return {};
             })
             .then((config) => {
-                this.mediaConfig = config;
+                this.mediaConfig = withEnforcedUploadLimit(config, matrixClient.getDomain());
             });
     }
 
