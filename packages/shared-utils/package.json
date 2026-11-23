@@ -34,10 +34,10 @@
     },
     "devDependencies": {
         "@microsoft/api-extractor": "^7.56.0",
-        "@types/sanitize-html": "2.16.2",
         "@types/node": "catalog:ts6",
+        "@types/sanitize-html": "2.16.2",
         "@typescript/native": "catalog:",
-        "happy-dom": "^21.0.0",
+        "happy-dom": "^21.0.4",
         "typescript": "catalog:ts6",
         "unplugin-dts": "catalog:",
         "vite": "catalog:",
