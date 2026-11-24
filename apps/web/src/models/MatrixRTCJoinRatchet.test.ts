@@ -211,6 +211,23 @@ describe("our MatrixRTC media key when someone joins", () => {
         expect(hex(sent(calls).key)).not.toBe(hex(await ratchetMediaKey(before.key as Uint8Array<ArrayBuffer>)));
     });
 
+    it("does not use a key it was still rolling out once we left the call", async () => {
+        const { manager, memberships, transport, ownKeys } = await inCall([
+            member("@bob:example.org", "BOB"),
+            member("@carol:example.org", "CAROL"),
+        ]);
+        const index = ownKeys().at(-1)!.index;
+        const calls = transport.sendKey.mock.calls.length;
+        memberships.splice(1, 1);
+        manager.onMembershipsUpdate();
+        // The new key went out and waits for the delivery delay; we leave meanwhile.
+        await vi.waitFor(() => expect(transport.sendKey).toHaveBeenCalledTimes(calls + 1));
+        manager.leave();
+        await vi.advanceTimersByTimeAsync(1000);
+        await settle();
+        expect(ownKeys().at(-1)!.index).toBe(index);
+    });
+
     it("still rotates to a new key when someone leaves", async () => {
         const { manager, memberships, transport, ownKeys, sent } = await inCall([
             member("@bob:example.org", "BOB"),

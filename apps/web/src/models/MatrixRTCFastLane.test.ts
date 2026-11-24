@@ -291,6 +291,7 @@ describe("the order of a sender's keys", () => {
     function withBob(): {
         manager: RTCEncryptionManager;
         bobJoins: (joinId: string | undefined) => void;
+        bobLeaves: () => void;
         fromBob: () => string[];
     } {
         const keysChanged = vi.fn();
@@ -311,12 +312,18 @@ describe("the order of a sender's keys", () => {
                 return joinId;
             },
         } as unknown as CallMembership;
-        const manager = new RTCEncryptionManager(own, () => [bobMembership], transport, keysChanged);
+        let present = true;
+        const manager = new RTCEncryptionManager(own, () => (present ? [bobMembership] : []), transport, keysChanged);
         manager.join({ manageMediaKeys: true }, []);
         return {
             manager,
             bobJoins: (id) => {
                 joinId = id;
+                present = true;
+                manager.onMembershipsUpdate();
+            },
+            bobLeaves: () => {
+                present = false;
                 manager.onMembershipsUpdate();
             },
             fromBob: () =>
@@ -398,6 +405,31 @@ describe("the order of a sender's keys", () => {
         expect(waiting.map(({ order }) => order?.seq)).toEqual([20]);
         bobJoins("join3");
         expect(fromBob()).toEqual(["key0"]);
+        manager.leave();
+    });
+
+    it("lets no key of an ended participation wait while the sender is not in the call", () => {
+        const { manager, bobJoins, bobLeaves, fromBob } = withBob();
+        bobJoins("join1");
+        bobLeaves();
+        // Bob's next join's key comes first, then late keys of the join that ended.
+        manager.onNewKeyReceived(bob, key(2), 0, Date.now(), { epoch: "m2", seq: 1, join: "join2" });
+        for (let seq = 1; seq <= 20; seq++) {
+            manager.onNewKeyReceived(bob, key(1), 0, Date.now(), { epoch: `e${seq}`, seq, join: "join1" });
+        }
+        bobJoins("join2");
+        expect(fromBob()).toEqual(["key2"]);
+        manager.leave();
+    });
+
+    it("ignores a key without a participation once one sent for the participation was used", () => {
+        const { manager, fromBob } = withBob();
+        // Aether builds that send no participation with their keys: used as before.
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now());
+        manager.onNewKeyReceived(bob, key(2), 0, Date.now(), { epoch: "m1", seq: 1, join: "join1" });
+        // A late copy from the client the device ran before.
+        manager.onNewKeyReceived(bob, key(3), 0, Date.now());
+        expect(fromBob()).toEqual(["key1", "key2"]);
         manager.leave();
     });
 
@@ -806,6 +838,23 @@ describe("a joiner's hello", () => {
         hello({ content: { membership: membershipContent("ALICE", "join-2"), replaces: ["join-1"] } });
         await settle();
         expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-2");
+    });
+
+    it("drops a joiner known from a hello once room state shows it left that participation", async () => {
+        hello();
+        await settle();
+        expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
+        // We never saw the join in room state, only the leave that ended it.
+        const leave = stateEvent(EventType.GroupCallMemberPrefix, `_${alice}_ALICE_m.call`, {}, alice);
+        leave.event.unsigned = { prev_content: membershipContent("ALICE", "join-1") };
+        room.currentState.setStateEvents([leave]);
+        await session.ensureRecalculateSessionMembers();
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
+        // Her next join's hello counts at once.
+        hello({ content: { membership: membershipContent("ALICE", "join-2") } });
+        await settle();
+        expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
     });
 
     it("takes the hello of a new participation right after the last one's, within the repeat limit", async () => {
