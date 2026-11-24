@@ -228,6 +228,16 @@ describe("our MatrixRTC media key when someone joins", () => {
         expect(ownKeys().at(-1)!.index).toBe(index);
     });
 
+    it("sends no key once we left, whoever joins", async () => {
+        const { manager, memberships, transport } = await inCall([member("@bob:example.org", "BOB")]);
+        const calls = transport.sendKey.mock.calls.length;
+        manager.leave();
+        memberships.push(member("@carol:example.org", "CAROL"));
+        manager.onMembershipsUpdate();
+        await settle();
+        expect(transport.sendKey).toHaveBeenCalledTimes(calls);
+    });
+
     it("still rotates to a new key when someone leaves", async () => {
         const { manager, memberships, transport, ownKeys, sent } = await inCall([
             member("@bob:example.org", "BOB"),

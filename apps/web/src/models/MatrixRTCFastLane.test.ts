@@ -422,6 +422,20 @@ describe("the order of a sender's keys", () => {
         manager.leave();
     });
 
+    it("drops the waiting keys of a participation the session saw end", () => {
+        const { manager, bobLeaves } = withBob();
+        bobLeaves();
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now(), { epoch: "m1", seq: 1, join: "join5" });
+        const waiting = (): unknown[] =>
+            (manager as unknown as { keysWithoutMatchingRTCMembership: unknown[] }).keysWithoutMatchingRTCMembership;
+        expect(waiting()).toHaveLength(1);
+        manager.aetherRetireJoin(bob, "join5");
+        expect(waiting()).toHaveLength(0);
+        manager.onNewKeyReceived(bob, key(2), 0, Date.now(), { epoch: "m1", seq: 2, join: "join5" });
+        expect(waiting()).toHaveLength(0);
+        manager.leave();
+    });
+
     it("ignores a key without a participation once one sent for the participation was used", () => {
         const { manager, fromBob } = withBob();
         // Aether builds that send no participation with their keys: used as before.
@@ -852,6 +866,20 @@ describe("a joiner's hello", () => {
         await settle();
         expect(members()).toEqual([`${me}|BOB`]);
         // Her next join's hello counts at once.
+        hello({ content: { membership: membershipContent("ALICE", "join-2") } });
+        await settle();
+        expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
+    });
+
+    it("takes a device's next hello once room state shows its last join end, after the provisional time", async () => {
+        hello();
+        await settle();
+        await vi.advanceTimersByTimeAsync(PROVISIONAL_MEMBERSHIP_MS);
+        await settle();
+        const leave = stateEvent(EventType.GroupCallMemberPrefix, `_${alice}_ALICE_m.call`, {}, alice);
+        leave.event.unsigned = { prev_content: membershipContent("ALICE", "join-1") };
+        room.currentState.setStateEvents([leave]);
+        await session.ensureRecalculateSessionMembers();
         hello({ content: { membership: membershipContent("ALICE", "join-2") } });
         await settle();
         expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
