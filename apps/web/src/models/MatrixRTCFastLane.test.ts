@@ -268,71 +268,116 @@ describe("the order of a sender's keys", () => {
         transport.setCarrier(lane);
         await transport.sendKey("a2V5", 1, [{ userId: "@bob:x", deviceId: "BOB", membershipTs: 1 }], {
             epoch: "e",
-            since: 5,
             seq: 7,
+            join: "j",
         });
         expect(client.encryptAndSendToDevice.mock.calls[0]![2]).toMatchObject({
-            "io.aether.key_order": { epoch: "e", since: 5, seq: 7 },
+            "io.aether.key_order": { epoch: "e", seq: 7, join: "j" },
         });
 
         const received = vi.fn();
         transport.on(KeyTransportEvents.ReceivedKeys, received);
         transport.start();
-        client.emit(ClientEvent.ReceivedToDeviceMessage, keyMessage({ epoch: "f", since: 4, seq: 3 }));
+        client.emit(ClientEvent.ReceivedToDeviceMessage, keyMessage({ epoch: "f", seq: 3, join: "j2" }));
         expect(received).toHaveBeenCalledWith(expect.anything(), "a2V5", 1, expect.any(Number), {
             epoch: "f",
-            since: 4,
             seq: 3,
+            join: "j2",
         });
         transport.stop();
     });
 
-    it("keeps a newer key of a sender's join when an older one for the same index arrives after it", () => {
+    /** Our key manager in a call with Bob, whose participation (join id) the test changes. */
+    function withBob(): {
+        manager: RTCEncryptionManager;
+        bobJoins: (joinId: string | undefined) => void;
+        fromBob: () => string[];
+    } {
         const keysChanged = vi.fn();
         const transport = Object.assign(new TypedEventEmitter<KeyTransportEvents, KeyTransportEventsHandlerMap>(), {
             start: vi.fn(),
             stop: vi.fn(),
             sendKey: vi.fn(async () => {}),
         });
-        const memberships = [
-            {
-                userId: bob.userId,
-                deviceId: bob.deviceId,
-                sender: bob.userId,
-                memberId: bob.memberId,
-                backendIdentities: [bob.memberId],
-                createdTs: () => 1,
-            } as unknown as CallMembership,
-        ];
-        const manager = new RTCEncryptionManager(own, () => memberships, transport, keysChanged);
+        let joinId: string | undefined = "join1";
+        const bobMembership = {
+            userId: bob.userId,
+            deviceId: bob.deviceId,
+            sender: bob.userId,
+            memberId: bob.memberId,
+            backendIdentities: [bob.memberId],
+            createdTs: () => 1,
+            get aetherJoinId() {
+                return joinId;
+            },
+        } as unknown as CallMembership;
+        const manager = new RTCEncryptionManager(own, () => [bobMembership], transport, keysChanged);
         manager.join({ manageMediaKeys: true }, []);
-        const now = Date.now();
-        manager.onNewKeyReceived(bob, "a2V5Mg==", 0, now, { epoch: "join1", since: 10, seq: 3 });
-        manager.onNewKeyReceived(bob, "a2V5MQ==", 0, now + 1, { epoch: "join1", since: 10, seq: 2 });
-        const fromBob = (): string[] =>
-            keysChanged.mock.calls
-                .filter(([, , m]) => m.userId === bob.userId)
-                .map(([key]) => new TextDecoder().decode(key));
+        return {
+            manager,
+            bobJoins: (id) => {
+                joinId = id;
+                manager.onMembershipsUpdate();
+            },
+            fromBob: () =>
+                keysChanged.mock.calls
+                    .filter(([, , m]) => m.userId === bob.userId)
+                    .map(([key]) => new TextDecoder().decode(key)),
+        };
+    }
+    // "key1".."key9", base64.
+    const key = (n: number): string => btoa(`key${n}`);
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("keeps a newer key of a sender's participation when an older one for the same index arrives after it", () => {
+        const { manager, fromBob } = withBob();
+        manager.onNewKeyReceived(bob, key(2), 0, Date.now(), { epoch: "m1", seq: 3, join: "join1" });
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now(), { epoch: "m1", seq: 2, join: "join1" });
         expect(fromBob()).toEqual(["key2"]);
-        // A key of a later join of the same device counts, whatever its counter.
-        manager.onNewKeyReceived(bob, "a2V5Mw==", 0, now + 2, { epoch: "join2", since: 20, seq: 1 });
-        expect(fromBob()).toEqual(["key2", "key3"]);
-        // Keys of the earlier join that were still on their way count no more, at any index.
-        manager.onNewKeyReceived(bob, "a2V5NA==", 0, now + 3, { epoch: "join1", since: 10, seq: 4 });
-        manager.onNewKeyReceived(bob, "a2V5NQ==", 1, now + 4, { epoch: "join1", since: 10, seq: 5 });
-        expect(fromBob()).toEqual(["key2", "key3"]);
-        // A key of the later join that arrives after it still counts.
-        manager.onNewKeyReceived(bob, "a2V5Ng==", 0, now + 5, { epoch: "join2", since: 20, seq: 2 });
-        expect(fromBob()).toEqual(["key2", "key3", "key6"]);
         manager.leave();
     });
 
-    it("does not let a dropped key of an earlier join undo the order of the later one", () => {
-        const keysChanged = vi.fn();
+    it("uses a key only for the participation of the sender it was sent in, whatever the clocks say", () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        const { manager, bobJoins, fromBob } = withBob();
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now(), { epoch: "m1", seq: 1, join: "join1" });
+        expect(fromBob()).toEqual(["key1"]);
+
+        // Bob re-joins: his first key comes before we know of his new participation, and waits for it.
+        manager.onNewKeyReceived(bob, key(2), 0, Date.now(), { epoch: "m2", seq: 1, join: "join2" });
+        expect(fromBob()).toEqual(["key1"]);
+        bobJoins("join2");
+        expect(fromBob()).toEqual(["key1", "key2"]);
+
+        // A key of his previous participation arrives late: it is never used, though it is "newer" in its own join.
+        manager.onNewKeyReceived(bob, key(3), 0, Date.now(), { epoch: "m1", seq: 2, join: "join1" });
+        bobJoins("join2");
+        vi.advanceTimersByTime(30_000);
+        bobJoins("join2");
+        expect(fromBob()).toEqual(["key1", "key2"]);
+
+        // Nor once it has waited long enough to be dropped, even if Bob were in that participation again.
+        bobJoins("join1");
+        expect(fromBob()).toEqual(["key1", "key2"]);
+        manager.leave();
+    });
+
+    it("uses keys without a participation, as other clients send them, as before", () => {
+        const { manager, fromBob } = withBob();
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now());
+        manager.onNewKeyReceived(bob, key(2), 0, Date.now(), { epoch: "m1", seq: 1 });
+        expect(fromBob()).toEqual(["key1", "key2"]);
+        manager.leave();
+    });
+
+    it("sends our keys with the participation we are in", async () => {
         const transport = Object.assign(new TypedEventEmitter<KeyTransportEvents, KeyTransportEventsHandlerMap>(), {
             start: vi.fn(),
             stop: vi.fn(),
-            sendKey: vi.fn(async () => {}),
+            sendKey: vi.fn<IKeyTransport["sendKey"]>(async () => {}),
         });
         const memberships = [
             {
@@ -344,17 +389,11 @@ describe("the order of a sender's keys", () => {
                 createdTs: () => 1,
             } as unknown as CallMembership,
         ];
-        const manager = new RTCEncryptionManager(own, () => memberships, transport, keysChanged);
-        manager.join({ manageMediaKeys: true }, []);
-        const now = Date.now();
-        manager.onNewKeyReceived(bob, "a2V5Mg==", 0, now, { epoch: "join2", since: 20, seq: 2 });
-        manager.onNewKeyReceived(bob, "a2V5OQ==", 0, now + 1, { epoch: "join1", since: 10, seq: 9 });
-        manager.onNewKeyReceived(bob, "a2V5MQ==", 0, now + 2, { epoch: "join2", since: 20, seq: 1 });
-        expect(
-            keysChanged.mock.calls
-                .filter(([, , m]) => m.userId === bob.userId)
-                .map(([key]) => new TextDecoder().decode(key)),
-        ).toEqual(["key2"]);
+        const manager = new RTCEncryptionManager(own, () => memberships, transport, vi.fn());
+        manager.aetherJoinIdOf = () => "our-join";
+        manager.join({ manageMediaKeys: true }, [{ type: "livekit", livekit_service_url: "https://lk" }]);
+        await vi.waitFor(() => expect(transport.sendKey).toHaveBeenCalled());
+        expect(transport.sendKey.mock.calls[0]![3]).toEqual(expect.objectContaining({ join: "our-join" }));
         manager.leave();
     });
 });
@@ -567,6 +606,59 @@ describe("a joiner's hello", () => {
         await session.ensureRecalculateSessionMembers();
         await settle();
         expect(members()).toEqual([`${me}|BOB`]);
+    });
+
+    it("does not let further hellos keep a joiner in the call past the time of its first", async () => {
+        hello();
+        await settle();
+        await vi.advanceTimersByTimeAsync(PROVISIONAL_MEMBERSHIP_MS - 2000);
+        hello();
+        await settle();
+        expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
+        await vi.advanceTimersByTimeAsync(2000);
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
+        // Its time is used up until a membership event of the device arrives.
+        hello();
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
+    });
+
+    it("lets a device's hellos count again once a membership event of it arrived", async () => {
+        hello();
+        await settle();
+        await vi.advanceTimersByTimeAsync(PROVISIONAL_MEMBERSHIP_MS);
+        await settle();
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-2"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        room.currentState.setStateEvents([stateEvent(EventType.GroupCallMemberPrefix, aliceKey, {}, alice)]);
+        await session.ensureRecalculateSessionMembers();
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
+        hello({ content: { membership: membershipContent("ALICE", "join-3") } });
+        await settle();
+        expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
+    });
+
+    it("takes the hello of a device's next join when the membership event of its last one came before its hello", async () => {
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-1"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        hello();
+        await settle();
+        await vi.advanceTimersByTimeAsync(PROVISIONAL_MEMBERSHIP_MS * 2);
+        room.currentState.setStateEvents([stateEvent(EventType.GroupCallMemberPrefix, aliceKey, {}, alice)]);
+        await session.ensureRecalculateSessionMembers();
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
+        hello({ content: { membership: membershipContent("ALICE", "join-2") } });
+        await settle();
+        expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
     });
 
     it("drops the joiner when no state event follows the hello in time", async () => {

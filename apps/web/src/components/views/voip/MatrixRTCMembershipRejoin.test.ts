@@ -56,6 +56,21 @@ describe("MatrixRTC membership re-join", () => {
         expect({ ...second, [JOIN_ID]: null }).toEqual({ ...first, [JOIN_ID]: null });
     });
 
+    it("keeps the join id when a join event is sent again after a timeout, as its hello announced it", async () => {
+        const client = fakeClient();
+        const timeout = Object.assign(new Error("timed out"), { name: "AbortError" });
+        client.sendStateEvent.mockRejectedValueOnce(timeout);
+        manager = new MembershipManager(undefined, { roomId: "!call:example.org", getVersion: () => "11" }, client, {
+            application: "m.call",
+            id: "ROOM",
+        });
+        manager.join([{ type: "livekit", livekit_service_url: "https://sfu.example.org" }]);
+        await vi.waitFor(() => expect(client.sendStateEvent).toHaveBeenCalledTimes(2));
+        const [first, second] = client.sendStateEvent.mock.calls.map((call) => call[2] as Record<string, unknown>);
+        expect(second[JOIN_ID]).toBe(first[JOIN_ID]);
+        expect(manager.aetherCurrentJoinId).toBe(first[JOIN_ID]);
+    });
+
     it("keeps the join id while the membership goes on, so that the others do not take it for a new join", async () => {
         const client = fakeClient();
         // Renewals fall due at once: the headroom exceeds the expiry.
