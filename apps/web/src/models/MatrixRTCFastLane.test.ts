@@ -28,7 +28,7 @@ import {
     sendSealed,
 } from "matrix-js-sdk/src/matrixrtc/AetherFastLane";
 import { type CallMembership } from "matrix-js-sdk/src/matrixrtc/CallMembership";
-import { RTCEncryptionManager } from "matrix-js-sdk/src/matrixrtc/RTCEncryptionManager";
+import { AETHER_KEYS_WAITING_PER_SENDER, RTCEncryptionManager } from "matrix-js-sdk/src/matrixrtc/RTCEncryptionManager";
 import { ToDeviceKeyTransport } from "matrix-js-sdk/src/matrixrtc/ToDeviceKeyTransport";
 import {
     type IKeyTransport,
@@ -355,13 +355,34 @@ describe("the order of a sender's keys", () => {
         // A key of his previous participation arrives late: it is never used, though it is "newer" in its own join.
         manager.onNewKeyReceived(bob, key(3), 0, Date.now(), { epoch: "m1", seq: 2, join: "join1" });
         bobJoins("join2");
-        vi.advanceTimersByTime(30_000);
+        vi.advanceTimersByTime(60_000);
         bobJoins("join2");
         expect(fromBob()).toEqual(["key1", "key2"]);
+        manager.leave();
+    });
 
-        // Nor once it has waited long enough to be dropped, even if Bob were in that participation again.
+    it("keeps a key for a participation we learn of late, however late", () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        const { manager, bobJoins, fromBob } = withBob();
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now(), { epoch: "m1", seq: 1, join: "join2" });
+        vi.advanceTimersByTime(60_000);
         bobJoins("join1");
-        expect(fromBob()).toEqual(["key1", "key2"]);
+        expect(fromBob()).toEqual([]);
+        bobJoins("join2");
+        expect(fromBob()).toEqual(["key1"]);
+        manager.leave();
+    });
+
+    it("keeps only a sender's newest keys waiting for participations we do not count it in", () => {
+        const { manager, bobJoins, fromBob } = withBob();
+        for (let seq = 1; seq <= AETHER_KEYS_WAITING_PER_SENDER + 4; seq++) {
+            manager.onNewKeyReceived(bob, key(seq % 10), seq % 4, Date.now(), { epoch: "old", seq, join: "gone" });
+        }
+        const waiting = (manager as unknown as { keysWithoutMatchingRTCMembership: unknown[] })
+            .keysWithoutMatchingRTCMembership;
+        expect(waiting).toHaveLength(AETHER_KEYS_WAITING_PER_SENDER);
+        bobJoins("join1");
+        expect(fromBob()).toEqual([]);
         manager.leave();
     });
 
@@ -730,6 +751,33 @@ describe("a joiner's hello", () => {
         hello({ content: { membership: membershipContent("ALICE", "join-1") } });
         await settle();
         expect(members()).toEqual([`${me}|BOB`]);
+    });
+
+    it("does not let a late hello of an earlier participation take the place of a later one", async () => {
+        // We never saw Alice's first participation in room state, only her return.
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-2"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        hello({ content: { membership: membershipContent("ALICE", "join-1"), replaces: "join-0" } });
+        await settle();
+        expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-2");
+    });
+
+    it("lets a hello take the place of the participation it names, and right after an ignored one", async () => {
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-1"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        // The hello of join-1 comes after its state event, and is ignored.
+        hello();
+        await settle();
+        // Alice moves away and straight back.
+        hello({ content: { membership: membershipContent("ALICE", "join-2"), replaces: "join-1" } });
+        await settle();
+        expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-2");
     });
 
     it("drops the joiner when no state event follows the hello in time", async () => {

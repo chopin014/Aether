@@ -1,5 +1,5 @@
 diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryptionManager.ts
-index f2c46a1..74a8c92 100644
+index f2c46a1..d13f1de 100644
 --- a/src/matrixrtc/RTCEncryptionManager.ts
 +++ b/src/matrixrtc/RTCEncryptionManager.ts
 @@ -29,12 +29,54 @@ import {
@@ -29,10 +29,10 @@ index f2c46a1..74a8c92 100644
 +export const MAX_JOIN_RATCHETS = 8;
 +
 +/**
-+ * Aether: how long a key sent for a participation of its sender that we do not know yet waits for it to arrive (its
-+ * hello or membership event), before it is taken for a key of a participation that is over, and dropped.
++ * Aether: how many keys of a sender sent for a participation we do not count it in may wait for it (its hello or
++ * membership event). The oldest go first: a participation that is over never comes back, so its keys only wait.
 + */
-+export const AETHER_KEY_WAIT_MS = 30_000;
++export const AETHER_KEYS_WAITING_PER_SENDER = 16;
 +// The cap is defence in depth: every ratcheted key is also sent to everyone (see rolloutOutboundKey).
 +
 +/**
@@ -57,35 +57,49 @@ index f2c46a1..74a8c92 100644
  
  /**
   * Default for {@link EncryptionConfig.keyRotationParticipantLimit}.
-@@ -213,13 +255,21 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -213,13 +255,36 @@ export class RTCEncryptionManager implements IEncryptionManager {
          key: Uint8Array<ArrayBuffer>;
          keyIndex: number;
          membership: CallMembershipIdentityParts;
 +        order?: AetherKeyOrder;
-+        receivedAt?: number;
      }> = [];
  
++    /**
++     * Aether: keeps a key until its sender's membership matches it, keeping at most
++     * {@link AETHER_KEYS_WAITING_PER_SENDER} keys of a sender sent for a participation (the upstream keys of a sender
++     * not in the call at all keep waiting as before).
++     */
++    private aetherKeepWaiting(entry: {
++        key: Uint8Array<ArrayBuffer>;
++        keyIndex: number;
++        membership: CallMembershipIdentityParts;
++        order?: AetherKeyOrder;
++    }): void {
++        this.keysWithoutMatchingRTCMembership.push(entry);
++        if (entry.order?.join === undefined) return;
++        const sender = (e: typeof entry): string => `${e.membership.userId}:${e.membership.deviceId}`;
++        const ofSender = this.keysWithoutMatchingRTCMembership.filter(
++            (e) => e.order?.join !== undefined && sender(e) === sender(entry),
++        );
++        for (const dropped of ofSender.slice(0, -AETHER_KEYS_WAITING_PER_SENDER)) {
++            this.keysWithoutMatchingRTCMembership.splice(this.keysWithoutMatchingRTCMembership.indexOf(dropped), 1);
++        }
++    }
++
      private checkKeysWithoutMatchingRTCMembership(): void {
          const keyInfoTemp = this.keysWithoutMatchingRTCMembership;
          this.keysWithoutMatchingRTCMembership = [];
          keyInfoTemp.forEach((keyInfo) => {
 -            this.addKeyToParticipant(keyInfo.key, keyInfo.keyIndex, keyInfo.membership);
-+            this.addKeyToParticipant(
-+                keyInfo.key,
-+                keyInfo.keyIndex,
-+                keyInfo.membership,
-+                keyInfo.order,
-+                keyInfo.receivedAt,
-+            );
++            this.addKeyToParticipant(keyInfo.key, keyInfo.keyIndex, keyInfo.membership, keyInfo.order);
          });
      }
  
-@@ -227,18 +277,34 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -227,18 +292,33 @@ export class RTCEncryptionManager implements IEncryptionManager {
          key: Uint8Array<ArrayBuffer>,
          keyIndex: number,
          membership: CallMembershipIdentityParts,
 +        order?: AetherKeyOrder,
-+        receivedAt = Date.now(),
      ): void {
 -        const fullMembership = this.getMemberships().find(
 -            (member) =>
@@ -112,17 +126,17 @@ index f2c46a1..74a8c92 100644
                  `No matching RTC membership for key from ${membership.userId}:${membership.deviceId}, delaying key addition`,
              );
 -            this.keysWithoutMatchingRTCMembership.push({ key, keyIndex, membership });
-+            this.keysWithoutMatchingRTCMembership.push({ key, keyIndex, membership, order, receivedAt });
++            this.aetherKeepWaiting({ key, keyIndex, membership, order });
 +            return;
 +        }
-+        const use = order ? this.aetherTakeKeyOrder(fullMembership, keyIndex, order, receivedAt) : "use";
++        const use = order ? this.aetherTakeKeyOrder(fullMembership, keyIndex, order) : "use";
 +        if (use === "drop") return;
 +        if (use === "wait") {
-+            this.keysWithoutMatchingRTCMembership.push({ key, keyIndex, membership, order, receivedAt });
++            this.aetherKeepWaiting({ key, keyIndex, membership, order });
              return;
          }
          for (const backendIdentity of fullMembership.backendIdentities) {
-@@ -274,8 +340,18 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -274,8 +354,18 @@ export class RTCEncryptionManager implements IEncryptionManager {
  
          this.logger?.info(`Joining room`);
          this.transport.start();
@@ -141,7 +155,7 @@ index f2c46a1..74a8c92 100644
      public leave(): void {
          this.transport.off(KeyTransportEvents.ReceivedKeys, this.onNewKeyReceived);
          this.transport.stop();
-@@ -314,7 +390,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -314,7 +404,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
          }
      }
  
@@ -150,7 +164,7 @@ index f2c46a1..74a8c92 100644
          // `manageMediaKeys` is a stop-gap solution for now. The preferred way to handle this case would be instead
          // to create a NoOpEncryptionManager that does nothing and use it for the session.
          // This will be done when removing the legacy EncryptionManager.
-@@ -335,12 +411,15 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -335,12 +425,15 @@ export class RTCEncryptionManager implements IEncryptionManager {
              creationTS: timestamp,
          };
  
@@ -167,7 +181,7 @@ index f2c46a1..74a8c92 100644
              );
          } else {
              this.logger?.info(
-@@ -373,6 +452,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -373,6 +466,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  creationTS: Date.now(),
                  sharedWith: [],
                  keyId: 0,
@@ -175,7 +189,7 @@ index f2c46a1..74a8c92 100644
              };
              this.outboundSession = firstKey;
              const ids = await this.getOwnBackendIdentities();
-@@ -385,15 +465,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -385,15 +479,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  );
          }
          // get current memberships
@@ -199,7 +213,7 @@ index f2c46a1..74a8c92 100644
                  };
              });
  
-@@ -426,6 +513,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -426,6 +527,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
          //default to current session
          let newOutboundEncryptionSession: OutboundEncryptionSession = this.outboundSession!;
          let hasKeyChanged = false;
@@ -207,7 +221,7 @@ index f2c46a1..74a8c92 100644
  
          // Rotating means sending the new key to every participant, this is expensive in large session.
          if (this.isKeyRotationSuppressed) {
-@@ -436,11 +524,30 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -436,11 +538,30 @@ export class RTCEncryptionManager implements IEncryptionManager {
              }
              toDistributeTo = anyJoined;
          } else {
@@ -240,7 +254,7 @@ index f2c46a1..74a8c92 100644
              } else if (anyJoined.length > 0) {
                  const keyAge = Date.now() - this.outboundSession!.creationTS;
                  if (keyAge < this.keyRotationGracePeriodMs) {
-@@ -457,24 +564,91 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -457,24 +578,91 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  }
              }
          }
@@ -333,7 +347,7 @@ index f2c46a1..74a8c92 100644
                  // Delay a bit before using this key
                  // It is recommended not to start using a key immediately but instead wait for a short time to make sure it is delivered.
                  this.logger?.trace(`Delay Rollout for key:${newOutboundEncryptionSession.keyId}...`);
-@@ -493,12 +667,120 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -493,12 +681,111 @@ export class RTCEncryptionManager implements IEncryptionManager {
          }
      }
  
@@ -416,24 +430,15 @@ index f2c46a1..74a8c92 100644
 +     * Aether: whether a key with this order is to be used for the member now (and if so records it), waits, or is
 +     * dropped.
 +     *
-+     * A key sent for another participation of the member than the one we know waits: either the member
-+     * re-joined and we do not know its new membership yet, or the key is from its previous participation and arrived
-+     * late. It is dropped once it has waited {@link AETHER_KEY_WAIT_MS}. Within a participation, a key older than one
++     * A key sent for another participation of the member than the one we know waits (see
++     * {@link AETHER_KEYS_WAITING_PER_SENDER}): either the member re-joined and we do not know its new membership yet,
++     * or the key is from its previous participation and arrived late. Within a participation, a key older than one
 +     * already taken for its index arrived late, the other delivery path or a resend, and is dropped.
 +     */
-+    private aetherTakeKeyOrder(
-+        member: CallMembership,
-+        index: number,
-+        order: AetherKeyOrder,
-+        receivedAt: number,
-+    ): "use" | "wait" | "drop" {
++    private aetherTakeKeyOrder(member: CallMembership, index: number, order: AetherKeyOrder): "use" | "wait" | "drop" {
 +        const who = `${member.userId}:${member.deviceId}`;
 +        const joinId = member.aetherJoinId;
-+        if (order.join !== undefined && joinId !== undefined && order.join !== joinId) {
-+            if (Date.now() - receivedAt < AETHER_KEY_WAIT_MS) return "wait";
-+            this.logger?.info(`Dropping a key from ${who} at index ${index} for a participation it is not in`);
-+            return "drop";
-+        }
++        if (order.join !== undefined && joinId !== undefined && order.join !== joinId) return "wait";
 +        const orderKey = `${getEncryptionKeyMapKey(member)}|${index}`;
 +        const latest = this.aetherReceivedOrder.get(orderKey);
 +        if (latest && latest.epoch === order.epoch && latest.seq > order.seq) {
@@ -2899,7 +2904,7 @@ diff --git a/src/models/room-state.ts b/src/models/room-state.ts
              try {
                  await matrixClient.decryptEventIfNeeded(event);
 diff --git a/src/matrixrtc/MatrixRTCSession.ts b/src/matrixrtc/MatrixRTCSession.ts
-index dde93b1..4d03a8f 100644
+index dde93b1..cd418c4 100644
 --- a/src/matrixrtc/MatrixRTCSession.ts
 +++ b/src/matrixrtc/MatrixRTCSession.ts
 @@ -18,7 +18,7 @@ import { type Logger, logger as rootLogger } from "../logger.ts";
@@ -2948,7 +2953,21 @@ index dde93b1..4d03a8f 100644
          >,
          private roomSubset: Pick<
              Room,
-@@ -606,6 +618,9 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -586,6 +598,13 @@ export class MatrixRTCSession extends TypedEventEmitter<
+             this.logger.info(`Already joined to session in room ${this.roomSubset.roomId}: ignoring join call`);
+             return;
+         } else {
++            // Aether: the participation the others may still count us in, which our hello replaces (see
++            // HelloContent.replaces): our membership in room state, or else our last join through this session.
++            const ownUserId = this.client.getUserId();
++            const ownDeviceId = this.client.getDeviceId();
++            this.aetherReplacesJoinId =
++                this.memberships.find((m) => m.userId === ownUserId && m.deviceId === ownDeviceId)?.aetherJoinId ??
++                (this.membershipManager as { aetherCurrentJoinId?: string } | undefined)?.aetherCurrentJoinId;
+             // Create MembershipManager and pass the RTCSession logger (with room id info)
+             this.membershipManager = joinConfig?.unstableSendStickyEvents
+                 ? new StickyEventMembershipManager(
+@@ -606,6 +625,9 @@ export class MatrixRTCSession extends TypedEventEmitter<
              // Create Encryption manager
              const [room, client, statistics] = [this.roomSubset, this.client, this.statistics];
              const transport = new ToDeviceKeyTransport(ownMembershipIdentity, room.roomId, client, statistics);
@@ -2958,7 +2977,7 @@ index dde93b1..4d03a8f 100644
              this.encryptionManager = new RTCEncryptionManager(
                  ownMembershipIdentity,
                  () => this.memberships,
-@@ -626,6 +641,9 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -626,6 +648,9 @@ export class MatrixRTCSession extends TypedEventEmitter<
                  },
                  this.logger,
              );
@@ -2968,7 +2987,7 @@ index dde93b1..4d03a8f 100644
          }
  
          this.joinConfig = joinConfig;
-@@ -638,6 +656,9 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -638,6 +663,9 @@ export class MatrixRTCSession extends TypedEventEmitter<
              this.emit(MatrixRTCSessionEvent.JoinStateChanged, this.isJoined());
          });
          this.encryptionManager.join(joinConfig, publishedTransports);
@@ -2978,7 +2997,7 @@ index dde93b1..4d03a8f 100644
  
          this.emit(MatrixRTCSessionEvent.JoinStateChanged, true);
      }
-@@ -659,6 +680,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -659,6 +687,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
          this.logger.info(`Leaving call session in room ${this.roomSubset.roomId}`);
  
          this.encryptionManager!.leave();
@@ -2987,7 +3006,7 @@ index dde93b1..4d03a8f 100644
  
          const leavePromise = this.membershipManager!.leave(timeout);
          this.emit(MatrixRTCSessionEvent.JoinStateChanged, false);
-@@ -666,6 +689,226 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -666,6 +696,244 @@ export class MatrixRTCSession extends TypedEventEmitter<
          return await leavePromise;
      }
  
@@ -2998,7 +3017,7 @@ index dde93b1..4d03a8f 100644
 +    /** Aether: memberships known from a hello, by `user|device`, until their state event arrives or they expire. */
 +    private readonly aetherProvisional = new Map<
 +        string,
-+        { membership: CallMembership; helloTs: number; timer: ReturnType<typeof setTimeout> }
++        { membership: CallMembership; helloTs: number; timer: ReturnType<typeof setTimeout>; replaces?: string }
 +    >();
 +    /** Aether: when each device's last hello was taken, by `user|device`. */
 +    private readonly aetherHelloTakenAt = new Map<string, number>();
@@ -3009,6 +3028,8 @@ index dde93b1..4d03a8f 100644
 +     * or once its membership in room state is the one its hello announced (`joinId`), which may have come first.
 +     */
 +    private readonly aetherHelloWindows = new Map<string, { ends: number; stateEventId?: string; joinId?: string }>();
++    /** Aether: our participation in this call before the current one, see {@link HelloContent.replaces}. */
++    private aetherReplacesJoinId?: string;
 +    /** Aether: the latest join ids each device's membership in room state had, by `user|device`. */
 +    private readonly aetherJoinIdsInState = new Map<string, string[]>();
 +
@@ -3071,7 +3092,12 @@ index dde93b1..4d03a8f 100644
 +        const devices = this.memberships
 +            .filter((m) => !(m.userId === ownUserId && m.deviceId === ownDeviceId))
 +            .map((m) => ({ userId: m.userId, deviceId: m.deviceId }));
-+        const hello: HelloContent = { room_id: this.roomSubset.roomId, membership, ts: Date.now() };
++        const hello: HelloContent = {
++            room_id: this.roomSubset.roomId,
++            membership,
++            ts: Date.now(),
++            ...(this.aetherReplacesJoinId !== undefined ? { replaces: this.aetherReplacesJoinId } : {}),
++        };
 +        try {
 +            const sent = await sendSealed(this.client, carrier, HELLO_EVENT_TYPE, devices, { ...hello });
 +            this.logger.info(`Sent a hello to ${sent.length} device(s) through the media room`);
@@ -3112,7 +3138,6 @@ index dde93b1..4d03a8f 100644
 +        if (!room.hasMembershipState(sender, KnownMembership.Join)) return;
 +        if (!room.currentState?.maySendStateEvent(EventType.GroupCallMemberPrefix, sender)) return;
 +        if (!quickFilterNonRelevantContents(membership)) return;
-+        this.aetherHelloTakenAt.set(key, now);
 +
 +        // The state event the hello stands for, as the joiner's membership manager writes it.
 +        const slot = this.slotDescription;
@@ -3134,6 +3159,12 @@ index dde93b1..4d03a8f 100644
 +        if (parsed.aetherJoinId !== undefined && this.aetherJoinIdsInState.get(key)?.includes(parsed.aetherJoinId)) {
 +            return;
 +        }
++        // A hello takes the place of the participation we count the device in only if it names it: a late hello
++        // of an earlier participation must not replace a later one we know of.
++        const replaces = typeof content.replaces === "string" ? content.replaces : undefined;
++        const counted = this.memberships.find((m) => m.userId === sender && m.deviceId === senderDevice);
++        if (counted && counted.aetherJoinId !== parsed.aetherJoinId && counted.aetherJoinId !== replaces) return;
++        this.aetherHelloTakenAt.set(key, now);
 +
 +        let ends = this.aetherHelloWindows.get(key)?.ends;
 +        if (ends === undefined) {
@@ -3155,7 +3186,7 @@ index dde93b1..4d03a8f 100644
 +            },
 +            ends - Date.now(),
 +        );
-+        this.aetherProvisional.set(key, { membership: parsed, helloTs: now, timer });
++        this.aetherProvisional.set(key, { membership: parsed, helloTs: now, timer, replaces });
 +        this.logger.info(`Took the hello of ${key} through the media room`);
 +        await this.ensureRecalculateSessionMembers();
 +    }
@@ -3183,7 +3214,7 @@ index dde93b1..4d03a8f 100644
 +        if (this.aetherProvisional.size === 0) return fromState;
 +        const memberships = [...fromState];
 +        const room = this.roomSubset as Room;
-+        for (const [key, { membership, helloTs, timer }] of this.aetherProvisional) {
++        for (const [key, { membership, helloTs, timer, replaces }] of this.aetherProvisional) {
 +            // Someone who left or was removed from the room, or lost the right to join its call, since their hello
 +            // is not in the call any more, whatever the hello said.
 +            if (
@@ -3199,7 +3230,13 @@ index dde93b1..4d03a8f 100644
 +                (m) => m.userId === membership.userId && m.deviceId === membership.deviceId,
 +            );
 +            const inState = index === -1 ? undefined : memberships[index];
-+            if (inState && (inState.aetherJoinId === membership.aetherJoinId || inState.createdTs() > helloTs)) {
++            // Room state has the announced membership, or one the hello did not name as the one it replaces.
++            if (
++                inState &&
++                (inState.aetherJoinId === membership.aetherJoinId ||
++                    inState.aetherJoinId !== replaces ||
++                    inState.createdTs() > helloTs)
++            ) {
 +                clearTimeout(timer);
 +                this.aetherProvisional.delete(key);
 +                continue;
@@ -3214,7 +3251,7 @@ index dde93b1..4d03a8f 100644
      /**
       * Get the call intent for the current call, based on what members are advertising. If one or more
       * members disagree on the current call intent, or nobody specifies one then `undefined` is returned.
-@@ -883,10 +1126,12 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -883,10 +1151,12 @@ export class MatrixRTCSession extends TypedEventEmitter<
          // Needs to be computed before `this.memberships` is updated below, since it is derived from it.
          const wasKeyRotationSuppressed = this.isKeyRotationSuppressed;
  
@@ -3231,7 +3268,7 @@ index dde93b1..4d03a8f 100644
          );
  
          const changed =
-@@ -920,9 +1165,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -920,9 +1190,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
              // If anyone else joins the session it is no longer our responsibility to send the notification.
              // (If we were the joiner we already did sent the notification in the block above.)
              if (this.memberships.length > 0) this.pendingNotificationToSend = undefined;
@@ -3244,10 +3281,10 @@ index dde93b1..4d03a8f 100644
          this.encryptionManager?.onMembershipsUpdate(oldMemberships);
 diff --git a/src/matrixrtc/AetherFastLane.ts b/src/matrixrtc/AetherFastLane.ts
 new file mode 100644
-index 0000000..ca717e5
+index 0000000..78dc96b
 --- /dev/null
 +++ b/src/matrixrtc/AetherFastLane.ts
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,128 @@
 +/*
 +Copyright 2026 Gabriel
 +
@@ -3307,6 +3344,11 @@ index 0000000..ca717e5
 +    room_id: string;
 +    /** The call membership content the joiner is writing as its state event. */
 +    membership: Record<string, unknown>;
++    /**
++     * The join id of the device's previous participation in this call, if any, that the members may still count it
++     * in. Only that one may the hello take the place of: room state is the only evidence of which is the newer.
++     */
++    replaces?: string;
 +    /** When it was sent, by the sender's clock. */
 +    ts: number;
 +}
