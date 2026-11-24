@@ -1,5 +1,5 @@
 diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryptionManager.ts
-index f2c46a1..9c3d49a 100644
+index f2c46a1..74a8c92 100644
 --- a/src/matrixrtc/RTCEncryptionManager.ts
 +++ b/src/matrixrtc/RTCEncryptionManager.ts
 @@ -29,12 +29,54 @@ import {
@@ -150,7 +150,16 @@ index f2c46a1..9c3d49a 100644
          // `manageMediaKeys` is a stop-gap solution for now. The preferred way to handle this case would be instead
          // to create a NoOpEncryptionManager that does nothing and use it for the session.
          // This will be done when removing the legacy EncryptionManager.
-@@ -341,6 +417,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -335,12 +411,15 @@ export class RTCEncryptionManager implements IEncryptionManager {
+             creationTS: timestamp,
+         };
+ 
+-        const outdated = this.keyBuffer.isOutdated(membership, candidateInboundSession);
++        // Aether: our keys are ordered by their participation and counter (see aetherTakeKeyOrder), not by when
++        // they arrived by our clock, which may have moved back.
++        const outdated = order ? false : this.keyBuffer.isOutdated(membership, candidateInboundSession);
+         if (!outdated) {
+             this.addKeyToParticipant(
                  candidateInboundSession.key,
                  candidateInboundSession.keyIndex,
                  candidateInboundSession.membership,
@@ -158,7 +167,7 @@ index f2c46a1..9c3d49a 100644
              );
          } else {
              this.logger?.info(
-@@ -373,6 +450,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -373,6 +452,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  creationTS: Date.now(),
                  sharedWith: [],
                  keyId: 0,
@@ -166,7 +175,7 @@ index f2c46a1..9c3d49a 100644
              };
              this.outboundSession = firstKey;
              const ids = await this.getOwnBackendIdentities();
-@@ -385,15 +463,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -385,15 +465,22 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  );
          }
          // get current memberships
@@ -190,7 +199,7 @@ index f2c46a1..9c3d49a 100644
                  };
              });
  
-@@ -426,6 +511,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -426,6 +513,7 @@ export class RTCEncryptionManager implements IEncryptionManager {
          //default to current session
          let newOutboundEncryptionSession: OutboundEncryptionSession = this.outboundSession!;
          let hasKeyChanged = false;
@@ -198,7 +207,7 @@ index f2c46a1..9c3d49a 100644
  
          // Rotating means sending the new key to every participant, this is expensive in large session.
          if (this.isKeyRotationSuppressed) {
-@@ -436,11 +522,30 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -436,11 +524,30 @@ export class RTCEncryptionManager implements IEncryptionManager {
              }
              toDistributeTo = anyJoined;
          } else {
@@ -231,7 +240,7 @@ index f2c46a1..9c3d49a 100644
              } else if (anyJoined.length > 0) {
                  const keyAge = Date.now() - this.outboundSession!.creationTS;
                  if (keyAge < this.keyRotationGracePeriodMs) {
-@@ -457,24 +562,76 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -457,24 +564,91 @@ export class RTCEncryptionManager implements IEncryptionManager {
                  }
              }
          }
@@ -240,6 +249,20 @@ index f2c46a1..9c3d49a 100644
 +        if (this.resendWhenOwnMembershipKnown && ownMembershipKnown) {
 +            this.resendWhenOwnMembershipKnown = false;
 +            if (!hasKeyChanged) toDistributeTo = toShareWith;
++        }
++        // Aether: our participation changed in place (a re-join from scratch) after our key went out for the
++        // previous one, which the others no longer take keys for (see aetherTakeKeyOrder): once they can see us in
++        // the new one, it goes out again for it.
++        const joinNow = this.aetherJoinIdOf?.();
++        const ownInState = this.getMemberships().find((m) => m.sender === ownUserId && m.deviceId === ownDeviceId);
++        if (
++            joinNow !== undefined &&
++            this.aetherKeySentForJoin !== undefined &&
++            this.aetherKeySentForJoin !== joinNow &&
++            ownInState?.aetherJoinId === joinNow &&
++            !hasKeyChanged
++        ) {
++            toDistributeTo = toShareWith;
 +        }
          // return early if we dont have anything to distribute.
          if (toDistributeTo.length === 0) {
@@ -293,6 +316,7 @@ index f2c46a1..9c3d49a 100644
 +                ),
 +            );
              this.logger?.trace(`Sending key...`);
++            this.aetherKeySentForJoin = joinNow;
              await this.transport.sendKey(
                  encodeBase64(newOutboundEncryptionSession.key),
                  newOutboundEncryptionSession.keyId,
@@ -309,7 +333,7 @@ index f2c46a1..9c3d49a 100644
                  // Delay a bit before using this key
                  // It is recommended not to start using a key immediately but instead wait for a short time to make sure it is delivered.
                  this.logger?.trace(`Delay Rollout for key:${newOutboundEncryptionSession.keyId}...`);
-@@ -493,12 +650,117 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -493,12 +667,120 @@ export class RTCEncryptionManager implements IEncryptionManager {
          }
      }
  
@@ -374,6 +398,9 @@ index f2c46a1..9c3d49a 100644
 +     * that the others take them only for it. Set by the session.
 +     */
 +    public aetherJoinIdOf?: () => string | undefined;
++
++    /** Aether: the participation of ours our keys were last sent for. */
++    private aetherKeySentForJoin?: string;
 +
 +    private nextKeyOrder(): AetherKeyOrder {
 +        return { epoch: this.aetherKeyEpoch, seq: ++this.aetherKeySeq };
@@ -2872,7 +2899,7 @@ diff --git a/src/models/room-state.ts b/src/models/room-state.ts
              try {
                  await matrixClient.decryptEventIfNeeded(event);
 diff --git a/src/matrixrtc/MatrixRTCSession.ts b/src/matrixrtc/MatrixRTCSession.ts
-index dde93b1..1c6788d 100644
+index dde93b1..4d03a8f 100644
 --- a/src/matrixrtc/MatrixRTCSession.ts
 +++ b/src/matrixrtc/MatrixRTCSession.ts
 @@ -18,7 +18,7 @@ import { type Logger, logger as rootLogger } from "../logger.ts";
@@ -2960,7 +2987,7 @@ index dde93b1..1c6788d 100644
  
          const leavePromise = this.membershipManager!.leave(timeout);
          this.emit(MatrixRTCSessionEvent.JoinStateChanged, false);
-@@ -666,6 +689,213 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -666,6 +689,226 @@ export class MatrixRTCSession extends TypedEventEmitter<
          return await leavePromise;
      }
  
@@ -2982,6 +3009,8 @@ index dde93b1..1c6788d 100644
 +     * or once its membership in room state is the one its hello announced (`joinId`), which may have come first.
 +     */
 +    private readonly aetherHelloWindows = new Map<string, { ends: number; stateEventId?: string; joinId?: string }>();
++    /** Aether: the latest join ids each device's membership in room state had, by `user|device`. */
++    private readonly aetherJoinIdsInState = new Map<string, string[]>();
 +
 +    /**
 +     * Aether: sets or clears the call's fast lane: the media layer passes it once its media room (LiveKit) is
@@ -3100,6 +3129,11 @@ index dde93b1..1c6788d 100644
 +        });
 +        const parsed = await CallMembership.parseFromEvent(event);
 +        if (!isValidMembership(parsed, room, slot, this.logger)) return;
++        // A hello for a participation room state already had is late (or adds nothing): the device has been in
++        // it, and may have left it or gone on to another one since.
++        if (parsed.aetherJoinId !== undefined && this.aetherJoinIdsInState.get(key)?.includes(parsed.aetherJoinId)) {
++            return;
++        }
 +
 +        let ends = this.aetherHelloWindows.get(key)?.ends;
 +        if (ends === undefined) {
@@ -3131,6 +3165,12 @@ index dde93b1..1c6788d 100644
 +     * room state has the membership it announced (same join id), or a newer one of that device.
 +     */
 +    private aetherWithProvisional(fromState: CallMembership[]): CallMembership[] {
++        for (const m of fromState) {
++            if (m.aetherJoinId === undefined) continue;
++            const key = `${m.userId}|${m.deviceId}`;
++            const seen = this.aetherJoinIdsInState.get(key) ?? [];
++            if (!seen.includes(m.aetherJoinId)) this.aetherJoinIdsInState.set(key, [...seen, m.aetherJoinId].slice(-8));
++        }
 +        // A device's next membership event ends the time its hellos counted for.
 +        for (const [key, { stateEventId, joinId }] of this.aetherHelloWindows) {
 +            // User ids have no "|"; device ids might.
@@ -3174,7 +3214,7 @@ index dde93b1..1c6788d 100644
      /**
       * Get the call intent for the current call, based on what members are advertising. If one or more
       * members disagree on the current call intent, or nobody specifies one then `undefined` is returned.
-@@ -883,10 +1113,12 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -883,10 +1126,12 @@ export class MatrixRTCSession extends TypedEventEmitter<
          // Needs to be computed before `this.memberships` is updated below, since it is derived from it.
          const wasKeyRotationSuppressed = this.isKeyRotationSuppressed;
  
@@ -3191,7 +3231,7 @@ index dde93b1..1c6788d 100644
          );
  
          const changed =
-@@ -920,9 +1152,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
+@@ -920,9 +1165,8 @@ export class MatrixRTCSession extends TypedEventEmitter<
              // If anyone else joins the session it is no longer our responsibility to send the notification.
              // (If we were the joiner we already did sent the notification in the block above.)
              if (this.memberships.length > 0) this.pendingNotificationToSend = undefined;

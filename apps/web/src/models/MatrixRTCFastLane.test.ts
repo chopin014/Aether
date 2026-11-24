@@ -365,11 +365,59 @@ describe("the order of a sender's keys", () => {
         manager.leave();
     });
 
+    it("orders a sender's keys by their participation, not by when they arrived by our clock", () => {
+        const { manager, bobJoins, fromBob } = withBob();
+        manager.onNewKeyReceived(bob, key(1), 0, 10_000, { epoch: "m1", seq: 1, join: "join1" });
+        // Our clock moved back before Bob re-joined and sent his new key at the same index.
+        bobJoins("join2");
+        manager.onNewKeyReceived(bob, key(2), 0, 5_000, { epoch: "m2", seq: 1, join: "join2" });
+        expect(fromBob()).toEqual(["key1", "key2"]);
+        manager.leave();
+    });
+
     it("uses keys without a participation, as other clients send them, as before", () => {
         const { manager, fromBob } = withBob();
         manager.onNewKeyReceived(bob, key(1), 0, Date.now());
         manager.onNewKeyReceived(bob, key(2), 0, Date.now(), { epoch: "m1", seq: 1 });
         expect(fromBob()).toEqual(["key1", "key2"]);
+        manager.leave();
+    });
+
+    it("sends our key again for our new participation once a re-join from scratch shows in room state", async () => {
+        const transport = Object.assign(new TypedEventEmitter<KeyTransportEvents, KeyTransportEventsHandlerMap>(), {
+            start: vi.fn(),
+            stop: vi.fn(),
+            sendKey: vi.fn<IKeyTransport["sendKey"]>(async () => {}),
+        });
+        let ourJoin = "join-a";
+        const memberOf = (userId: string, deviceId: string, joinId?: string): CallMembership =>
+            ({
+                userId,
+                deviceId,
+                sender: userId,
+                memberId: `${userId}:${deviceId}`,
+                backendIdentities: [`${userId}:${deviceId}`],
+                createdTs: () => 1,
+                aetherJoinId: joinId,
+            }) as unknown as CallMembership;
+        const memberships = [memberOf(bob.userId, bob.deviceId), memberOf(own.userId, own.deviceId, "join-a")];
+        const manager = new RTCEncryptionManager(own, () => memberships, transport, vi.fn());
+        manager.aetherJoinIdOf = () => ourJoin;
+        manager.join({ manageMediaKeys: true }, [{ type: "livekit", livekit_service_url: "https://lk" }]);
+        await vi.waitFor(() => expect(transport.sendKey).toHaveBeenCalledTimes(1));
+
+        // We re-join from scratch: nothing goes out until the others can see us in the new participation.
+        ourJoin = "join-b";
+        manager.onMembershipsUpdate();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(transport.sendKey).toHaveBeenCalledTimes(1);
+        memberships[1] = memberOf(own.userId, own.deviceId, "join-b");
+        manager.onMembershipsUpdate();
+        await vi.waitFor(() => expect(transport.sendKey).toHaveBeenCalledTimes(2));
+        const [first, second] = transport.sendKey.mock.calls;
+        expect(second![0]).toBe(first![0]);
+        expect(second![2].map(({ userId }) => userId)).toEqual([bob.userId]);
+        expect(second![3]).toEqual(expect.objectContaining({ join: "join-b" }));
         manager.leave();
     });
 
@@ -659,6 +707,29 @@ describe("a joiner's hello", () => {
         hello({ content: { membership: membershipContent("ALICE", "join-2") } });
         await settle();
         expect(members()).toEqual([`${alice}|ALICE`, `${me}|BOB`]);
+    });
+
+    it("ignores a late hello for a participation room state already had", async () => {
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-1"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        // Alice moved away and back: room state has her new participation when her first one's hello arrives.
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-2"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        hello({ content: { membership: membershipContent("ALICE", "join-1") } });
+        await settle();
+        expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-2");
+        // Nor does it bring her first participation back once she left.
+        room.currentState.setStateEvents([stateEvent(EventType.GroupCallMemberPrefix, aliceKey, {}, alice)]);
+        await session.ensureRecalculateSessionMembers();
+        await vi.advanceTimersByTimeAsync(2000);
+        hello({ content: { membership: membershipContent("ALICE", "join-1") } });
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
     });
 
     it("drops the joiner when no state event follows the hello in time", async () => {
