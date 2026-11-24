@@ -373,10 +373,38 @@ describe("the order of a sender's keys", () => {
         manager.leave();
     });
 
+    it("never uses a key sent for a participation on a membership without one", () => {
+        const { manager, bobJoins, fromBob } = withBob();
+        bobJoins(undefined);
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now(), { epoch: "m1", seq: 1, join: "join1" });
+        expect(fromBob()).toEqual([]);
+        // Keys without one, as that client sends them, are used.
+        manager.onNewKeyReceived(bob, key(2), 0, Date.now());
+        expect(fromBob()).toEqual(["key2"]);
+        manager.leave();
+    });
+
+    it("drops keys for a participation of the sender that room state saw end, and keeps one copy of each waiting", () => {
+        const { manager, bobJoins, fromBob } = withBob();
+        // Room state had Bob in join1, then in join2.
+        bobJoins("join1");
+        bobJoins("join2");
+        manager.onNewKeyReceived(bob, key(1), 0, Date.now(), { epoch: "m1", seq: 1, join: "join1" });
+        for (let seq = 1; seq <= 20; seq++) {
+            manager.onNewKeyReceived(bob, key(seq % 10), 0, Date.now(), { epoch: "m3", seq, join: "join3" });
+        }
+        const waiting = (manager as unknown as { keysWithoutMatchingRTCMembership: { order?: { seq: number } }[] })
+            .keysWithoutMatchingRTCMembership;
+        expect(waiting.map(({ order }) => order?.seq)).toEqual([20]);
+        bobJoins("join3");
+        expect(fromBob()).toEqual(["key0"]);
+        manager.leave();
+    });
+
     it("keeps only a sender's newest keys waiting for participations we do not count it in", () => {
         const { manager, bobJoins, fromBob } = withBob();
         for (let seq = 1; seq <= AETHER_KEYS_WAITING_PER_SENDER + 4; seq++) {
-            manager.onNewKeyReceived(bob, key(seq % 10), seq % 4, Date.now(), { epoch: "old", seq, join: "gone" });
+            manager.onNewKeyReceived(bob, key(seq % 10), seq % 4, Date.now(), { epoch: `e${seq}`, seq, join: "gone" });
         }
         const waiting = (manager as unknown as { keysWithoutMatchingRTCMembership: unknown[] })
             .keysWithoutMatchingRTCMembership;
@@ -760,7 +788,7 @@ describe("a joiner's hello", () => {
             stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-2"), alice),
         ]);
         await session.ensureRecalculateSessionMembers();
-        hello({ content: { membership: membershipContent("ALICE", "join-1"), replaces: "join-0" } });
+        hello({ content: { membership: membershipContent("ALICE", "join-1"), replaces: ["join-0"] } });
         await settle();
         expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-2");
     });
@@ -775,9 +803,66 @@ describe("a joiner's hello", () => {
         hello();
         await settle();
         // Alice moves away and straight back.
-        hello({ content: { membership: membershipContent("ALICE", "join-2"), replaces: "join-1" } });
+        hello({ content: { membership: membershipContent("ALICE", "join-2"), replaces: ["join-1"] } });
         await settle();
         expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-2");
+    });
+
+    it("takes the hello of a new participation right after the last one's, within the repeat limit", async () => {
+        hello();
+        await settle();
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-1"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        // Alice switches away and back within a second.
+        hello({ content: { membership: membershipContent("ALICE", "join-2"), replaces: ["join-1"] } });
+        await settle();
+        expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-2");
+    });
+
+    it("ignores a late hello of a participation the device's leave in room state ended", async () => {
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        // We never saw Alice's join, only her leave right after it.
+        const leave = stateEvent(EventType.GroupCallMemberPrefix, aliceKey, {}, alice);
+        leave.event.unsigned = { prev_content: membershipContent("ALICE", "join-1") };
+        room.currentState.setStateEvents([leave]);
+        await session.ensureRecalculateSessionMembers();
+        hello();
+        await settle();
+        expect(members()).toEqual([`${me}|BOB`]);
+    });
+
+    it("takes a hello naming any of the device's previous participations, without waiting on the last one's", async () => {
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        room.currentState.setStateEvents([
+            stateEvent(EventType.GroupCallMemberPrefix, aliceKey, membershipContent("ALICE", "join-a"), alice),
+        ]);
+        await session.ensureRecalculateSessionMembers();
+        const joinOf = (): string | undefined => session.memberships.find((m) => m.userId === alice)?.aetherJoinId;
+        hello({ content: { membership: membershipContent("ALICE", "join-b"), replaces: ["join-a"] } });
+        await settle();
+        expect(joinOf()).toBe("join-b");
+        // Alice is back again at once: her room state still shows join-a, her last join was join-b.
+        hello({ content: { membership: membershipContent("ALICE", "join-c"), replaces: ["join-b", "join-a"] } });
+        await settle();
+        expect(joinOf()).toBe("join-c");
+    });
+
+    it("lets a hello replace a membership whose room state timestamp is ahead of our clock", async () => {
+        const aliceKey = `_${alice}_ALICE_m.call`;
+        const ahead = stateEvent(
+            EventType.GroupCallMemberPrefix,
+            aliceKey,
+            { ...membershipContent("ALICE", "join-a"), created_ts: Date.now() + 5000 },
+            alice,
+        );
+        room.currentState.setStateEvents([ahead]);
+        await session.ensureRecalculateSessionMembers();
+        hello({ content: { membership: membershipContent("ALICE", "join-b"), replaces: ["join-a"] } });
+        await settle();
+        expect(session.memberships.find((m) => m.userId === alice)?.aetherJoinId).toBe("join-b");
     });
 
     it("drops the joiner when no state event follows the hello in time", async () => {
