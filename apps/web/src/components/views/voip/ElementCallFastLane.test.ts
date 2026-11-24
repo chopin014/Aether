@@ -105,6 +105,20 @@ describe("Element Call's fast lane", () => {
         expect(client.aetherReceiveCarriedToDevice).toHaveBeenCalledWith([{ ...message, sender: "@bob:x" }]);
     });
 
+    it("takes a sealed message that arrives before the media room knows its sender, by the packet's identity", () => {
+        const { room, client, topic } = setup();
+        const message = { type: "m.room.encrypted", content: { ciphertext: "c" } };
+        const payload = new TextEncoder().encode(JSON.stringify(message));
+        room.emit(RoomEvent.DataReceived, payload, undefined, 0, topic);
+        expect(client.aetherReceiveCarriedToDevice).not.toHaveBeenCalled();
+        room.emit(RoomEvent.DataReceived, payload, undefined, 0, topic, 0, "@carol:x:CAROL");
+        expect(client.aetherReceiveCarriedToDevice).toHaveBeenCalledWith([{ ...message, sender: "@carol:x" }]);
+        // LiveKit passes that identity on with each user packet.
+        const dispatch = slice("this.handleDataPacket = (e, t) => {", "this.handleSipDtmf = (e, t) => {");
+        expect(dispatch).toContain("this.handleUserPacket(n, e.value.value, e.kind, t, e.participantIdentity)");
+        expect(dispatch).toContain("this.emit(q.DataReceived, t.payload, e, n, t.topic, r, i)");
+    });
+
     it.each([
         ["another topic", () => [{ type: "m.room.encrypted", content: {} }, "io.aether.soundboard"] as const],
         [
