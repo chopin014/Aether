@@ -55,4 +55,30 @@ describe("MatrixRTC membership re-join", () => {
         expect(second[JOIN_ID]).not.toBe(first[JOIN_ID]);
         expect({ ...second, [JOIN_ID]: null }).toEqual({ ...first, [JOIN_ID]: null });
     });
+
+    it("keeps the join id while the membership goes on, so that the others do not take it for a new join", async () => {
+        const client = fakeClient();
+        // Renewals fall due at once: the headroom exceeds the expiry.
+        manager = new MembershipManager(
+            { membershipEventExpiryMs: 1000, membershipEventExpiryHeadroomMs: 10_000 },
+            { roomId: "!call:example.org", getVersion: () => "11" },
+            client,
+            { application: "m.call", id: "ROOM" },
+        );
+        manager.join([{ type: "livekit", livekit_service_url: "https://sfu.example.org" }]);
+        await vi.waitFor(() => expect(client.sendStateEvent).toHaveBeenCalled());
+        const ownMembership = {
+            sender: "@alice:example.org",
+            deviceId: "DEVICE",
+            createdTs: () => 1,
+        } as unknown as Parameters<MembershipManager["onRTCSessionMemberUpdate"]>[0][number];
+        await manager.onRTCSessionMemberUpdate([ownMembership]);
+        await vi.waitFor(() => expect(client.sendStateEvent.mock.calls.length).toBeGreaterThanOrEqual(3));
+        // A change of the membership's data is sent as a join event of the same membership.
+        await manager.updateApplicationData({ "io.example": 1 });
+
+        const sent = client.sendStateEvent.mock.calls.map((call) => call[2] as Record<string, unknown>);
+        expect(sent.at(-1)!["io.example"]).toBe(1);
+        expect(new Set(sent.map((content) => content[JOIN_ID]))).toEqual(new Set([sent[0][JOIN_ID]]));
+    });
 });

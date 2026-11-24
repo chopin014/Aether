@@ -192,6 +192,25 @@ describe("our MatrixRTC media key when someone joins", () => {
         expect(hex(sent(calls).key)).toBe(hex(await ratchetMediaKey(rotation.key as Uint8Array<ArrayBuffer>)));
     });
 
+    it("uses a new key at once when everyone else left, so that the leavers cannot follow its ratchets", async () => {
+        const { manager, memberships, transport, ownKeys, sent, join } = await inCall([
+            member("@bob:example.org", "BOB"),
+        ]);
+        const before = ownKeys().at(-1)!;
+        const calls = transport.sendKey.mock.calls.length;
+        memberships.splice(0, 1);
+        manager.onMembershipsUpdate();
+        await vi.waitFor(() => expect(ownKeys().at(-1)!.index).toBe((before.index + 1) % 256));
+        // Nobody to send it to, and nobody to wait for.
+        expect(transport.sendKey).toHaveBeenCalledTimes(calls);
+        const fresh = ownKeys().at(-1)!.key as Uint8Array<ArrayBuffer>;
+        expect(hex(fresh)).not.toBe(hex(before.key));
+
+        await join("@carol:example.org");
+        expect(hex(sent(calls).key)).toBe(hex(await ratchetMediaKey(fresh)));
+        expect(hex(sent(calls).key)).not.toBe(hex(await ratchetMediaKey(before.key as Uint8Array<ArrayBuffer>)));
+    });
+
     it("still rotates to a new key when someone leaves", async () => {
         const { manager, memberships, transport, ownKeys, sent } = await inCall([
             member("@bob:example.org", "BOB"),

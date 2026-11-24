@@ -179,6 +179,72 @@ describe("ToDeviceKeyTransport with a carrier", () => {
     });
 });
 
+/** A key from Bob's device BOB as the crypto layer hands it over, by default Olm authenticated as from BOB. */
+function keyMessage(
+    order?: object,
+    { senderDevice = "BOB", encrypted = true }: { senderDevice?: string; encrypted?: boolean } = {},
+): ReceivedToDeviceMessage {
+    return {
+        message: {
+            type: EventType.CallEncryptionKeysPrefix,
+            sender: "@bob:x",
+            content: {
+                room_id: "!r:x",
+                member_id: "@bob:x:BOB",
+                media_key: { index: 1, key: "a2V5" },
+                member: { claimed_device_id: "BOB" },
+                ...(order ? { "io.aether.key_order": order } : {}),
+            },
+        },
+        encryptionInfo: encrypted
+            ? { sender: "@bob:x", senderDevice, senderCurve25519KeyBase64: "curve", senderVerified: false }
+            : null,
+    };
+}
+
+describe("receiving keys", () => {
+    const own = { userId: "@alice:x", deviceId: "ALICE", memberId: "@alice:x:ALICE" };
+    const receiving = (): { client: EventEmitter; received: Mock; transport: ToDeviceKeyTransport } => {
+        const client = new EventEmitter();
+        const transport = new ToDeviceKeyTransport(
+            own,
+            "!r:x",
+            client as never,
+            {
+                counters: { roomEventEncryptionKeysSent: 0, roomEventEncryptionKeysReceived: 0 },
+                totals: { roomEventEncryptionKeysReceivedTotalAge: 0 },
+            } as never,
+        );
+        const received = vi.fn();
+        transport.on(KeyTransportEvents.ReceivedKeys, received);
+        transport.start();
+        return { client, received, transport };
+    };
+
+    it("takes a key for the device Olm authenticated as its sender", () => {
+        const { client, received, transport } = receiving();
+        client.emit(ClientEvent.ReceivedToDeviceMessage, keyMessage());
+        expect(received).toHaveBeenCalledWith(
+            { userId: "@bob:x", deviceId: "BOB", memberId: "@bob:x:BOB" },
+            "a2V5",
+            1,
+            expect.any(Number),
+            undefined,
+        );
+        transport.stop();
+    });
+
+    it.each([
+        ["from another device of the same user, naming this one", { senderDevice: "BOB2" }],
+        ["sent in clear", { encrypted: false }],
+    ])("ignores a key %s", (_, options) => {
+        const { client, received, transport } = receiving();
+        client.emit(ClientEvent.ReceivedToDeviceMessage, keyMessage(undefined, options));
+        expect(received).not.toHaveBeenCalled();
+        transport.stop();
+    });
+});
+
 describe("the order of a sender's keys", () => {
     const own = { userId: "@alice:x", deviceId: "ALICE", memberId: "@alice:x:ALICE" };
     const bob = { userId: "@bob:x", deviceId: "BOB", memberId: "@bob:x:BOB" };
@@ -202,29 +268,22 @@ describe("the order of a sender's keys", () => {
         transport.setCarrier(lane);
         await transport.sendKey("a2V5", 1, [{ userId: "@bob:x", deviceId: "BOB", membershipTs: 1 }], {
             epoch: "e",
+            since: 5,
             seq: 7,
         });
         expect(client.encryptAndSendToDevice.mock.calls[0]![2]).toMatchObject({
-            "io.aether.key_order": { epoch: "e", seq: 7 },
+            "io.aether.key_order": { epoch: "e", since: 5, seq: 7 },
         });
 
         const received = vi.fn();
         transport.on(KeyTransportEvents.ReceivedKeys, received);
         transport.start();
-        const event = new MatrixEvent({
-            type: EventType.CallEncryptionKeysPrefix,
-            sender: "@bob:x",
-            content: {
-                "room_id": "!r:x",
-                "member_id": "@bob:x:BOB",
-                "media_key": { index: 1, key: "a2V5" },
-                "member": { claimed_device_id: "BOB" },
-                "io.aether.key_order": { epoch: "f", seq: 3 },
-            },
+        client.emit(ClientEvent.ReceivedToDeviceMessage, keyMessage({ epoch: "f", since: 4, seq: 3 }));
+        expect(received).toHaveBeenCalledWith(expect.anything(), "a2V5", 1, expect.any(Number), {
+            epoch: "f",
+            since: 4,
+            seq: 3,
         });
-        event.makeEncrypted(EventType.RoomMessageEncrypted, {}, "curve", "ed");
-        client.emit(ClientEvent.ToDeviceEvent, event);
-        expect(received).toHaveBeenCalledWith(expect.anything(), "a2V5", 1, expect.any(Number), { epoch: "f", seq: 3 });
         transport.stop();
     });
 
@@ -248,16 +307,54 @@ describe("the order of a sender's keys", () => {
         const manager = new RTCEncryptionManager(own, () => memberships, transport, keysChanged);
         manager.join({ manageMediaKeys: true }, []);
         const now = Date.now();
-        manager.onNewKeyReceived(bob, "a2V5Mg==", 0, now, { epoch: "join1", seq: 3 });
-        manager.onNewKeyReceived(bob, "a2V5MQ==", 0, now + 1, { epoch: "join1", seq: 2 });
+        manager.onNewKeyReceived(bob, "a2V5Mg==", 0, now, { epoch: "join1", since: 10, seq: 3 });
+        manager.onNewKeyReceived(bob, "a2V5MQ==", 0, now + 1, { epoch: "join1", since: 10, seq: 2 });
         const fromBob = (): string[] =>
             keysChanged.mock.calls
                 .filter(([, , m]) => m.userId === bob.userId)
                 .map(([key]) => new TextDecoder().decode(key));
         expect(fromBob()).toEqual(["key2"]);
         // A key of a later join of the same device counts, whatever its counter.
-        manager.onNewKeyReceived(bob, "a2V5Mw==", 0, now + 2, { epoch: "join2", seq: 1 });
+        manager.onNewKeyReceived(bob, "a2V5Mw==", 0, now + 2, { epoch: "join2", since: 20, seq: 1 });
         expect(fromBob()).toEqual(["key2", "key3"]);
+        // Keys of the earlier join that were still on their way count no more, at any index.
+        manager.onNewKeyReceived(bob, "a2V5NA==", 0, now + 3, { epoch: "join1", since: 10, seq: 4 });
+        manager.onNewKeyReceived(bob, "a2V5NQ==", 1, now + 4, { epoch: "join1", since: 10, seq: 5 });
+        expect(fromBob()).toEqual(["key2", "key3"]);
+        // A key of the later join that arrives after it still counts.
+        manager.onNewKeyReceived(bob, "a2V5Ng==", 0, now + 5, { epoch: "join2", since: 20, seq: 2 });
+        expect(fromBob()).toEqual(["key2", "key3", "key6"]);
+        manager.leave();
+    });
+
+    it("does not let a dropped key of an earlier join undo the order of the later one", () => {
+        const keysChanged = vi.fn();
+        const transport = Object.assign(new TypedEventEmitter<KeyTransportEvents, KeyTransportEventsHandlerMap>(), {
+            start: vi.fn(),
+            stop: vi.fn(),
+            sendKey: vi.fn(async () => {}),
+        });
+        const memberships = [
+            {
+                userId: bob.userId,
+                deviceId: bob.deviceId,
+                sender: bob.userId,
+                memberId: bob.memberId,
+                backendIdentities: [bob.memberId],
+                createdTs: () => 1,
+            } as unknown as CallMembership,
+        ];
+        const manager = new RTCEncryptionManager(own, () => memberships, transport, keysChanged);
+        manager.join({ manageMediaKeys: true }, []);
+        const now = Date.now();
+        manager.onNewKeyReceived(bob, "a2V5Mg==", 0, now, { epoch: "join2", since: 20, seq: 2 });
+        manager.onNewKeyReceived(bob, "a2V5OQ==", 0, now + 1, { epoch: "join1", since: 10, seq: 9 });
+        manager.onNewKeyReceived(bob, "a2V5MQ==", 0, now + 2, { epoch: "join2", since: 20, seq: 1 });
+        expect(
+            keysChanged.mock.calls
+                .filter(([, , m]) => m.userId === bob.userId)
+                .map(([key]) => new TextDecoder().decode(key)),
+        ).toEqual(["key2"]);
         manager.leave();
     });
 });
