@@ -138,6 +138,17 @@ describe("SitePlayer", () => {
         menu.remove();
         await frame();
         expect(api.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 640, height: 360 });
+
+        // The sound board opened from the voice panel in the sidebar: a pop-up dialog, not a menu.
+        const soundboard = document.createElement("div");
+        soundboard.setAttribute("role", "dialog");
+        soundboard.getBoundingClientRect = rect(200, 380, 900, 380);
+        document.body.appendChild(soundboard);
+        await frame();
+        expect(api.setBounds).toHaveBeenLastCalledWith(null);
+        soundboard.remove();
+        await frame();
+        expect(api.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 640, height: 360 });
     });
 
     it("closes the view when disposed", () => {
