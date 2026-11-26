@@ -5,7 +5,15 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { EventType, RoomStateEvent, type MatrixClient, type MatrixEvent, type Room } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    EventType,
+    RoomEvent,
+    RoomStateEvent,
+    type MatrixClient,
+    type MatrixEvent,
+    type Room,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
 /**
@@ -113,8 +121,9 @@ export async function setServerVoiceMute(
 const listeners = new WeakMap<MatrixClient, Set<() => void>>();
 
 /**
- * Calls `listener` whenever a moderator mutes, deafens, unmutes or undeafens someone, or a server's channels or
- * permissions change, all of which can change who is muted where.
+ * Calls `listener` whenever a moderator mutes, deafens, unmutes or undeafens someone, a server's channels change, or
+ * the user joins or leaves a server, all of which can change who is muted where. A newly joined server's records can
+ * arrive before the server counts as joined, so joining is a change too.
  *
  * @returns a function that stops listening.
  */
@@ -124,10 +133,19 @@ export function onServerVoiceMutesChanged(client: MatrixClient, listener: () => 
         const callbacks = new Set<() => void>();
         set = callbacks;
         listeners.set(client, set);
+        const notify = (): void => {
+            for (const callback of callbacks) callback();
+        };
         client.on(RoomStateEvent.Events, (event: MatrixEvent) => {
             const type = event.getType();
             if (type !== SERVER_VOICE_MUTE_EVENT_TYPE && type !== EventType.SpaceChild) return;
-            for (const callback of callbacks) callback();
+            notify();
+        });
+        client.on(RoomEvent.MyMembership, (room: Room) => {
+            if (room.isSpaceRoom()) notify();
+        });
+        client.on(ClientEvent.Room, (room: Room) => {
+            if (room.isSpaceRoom()) notify();
         });
     }
     set.add(listener);

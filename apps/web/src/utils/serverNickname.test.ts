@@ -130,6 +130,18 @@ describe("serverNickname", () => {
         expect(moderatorNickname(server, BOB)).toBeUndefined();
     });
 
+    it("honours a moderator's nickname when the Space has not loaded the moderator's membership", () => {
+        const sparse = new Room("!sparse:example.org", client, ME);
+        sparse.currentState.setStateEvents([
+            state(sparse, EventType.RoomCreate, { creator: ADMIN, room_version: "10", type: RoomType.Space }),
+            state(sparse, EventType.RoomMember, { membership: KnownMembership.Join }, BOB, BOB),
+            state(sparse, EventType.RoomPowerLevels, { users: { [MOD]: 50 }, users_default: 0, state_default: 50 }),
+            state(sparse, MEMBER_NICK_EVENT_TYPE, { nick: "sdds do litz" }, memberNickStateKey(BOB), MOD),
+        ]);
+        expect(sparse.getMember(MOD)).toBeNull();
+        expect(moderatorNickname(sparse, BOB)).toBe("sdds do litz");
+    });
+
     it("reads the user's own nicknames defensively", () => {
         accountData[SERVER_NICKNAMES_EVENT_TYPE] = { own: { a: "x", b: 3 }, shown: "nope" };
         expect(readServerNicknames(client)).toEqual({ own: { a: "x" }, shown: {} });

@@ -8,7 +8,16 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventType, MatrixEvent, Room, RoomStateEvent, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    EventType,
+    MatrixEvent,
+    Room,
+    RoomEvent,
+    RoomStateEvent,
+    RoomType,
+    type MatrixClient,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 
@@ -136,5 +145,16 @@ describe("serverVoiceMute", () => {
         stop();
         emit(SERVER_VOICE_MUTE_EVENT_TYPE);
         expect(listener).toHaveBeenCalledTimes(2);
+    });
+
+    it("tells listeners when the user joins or leaves a server, whose records may have arrived first", () => {
+        const listener = vi.fn();
+        const stop = onServerVoiceMutesChanged(client, listener);
+        client.emit(RoomEvent.MyMembership, server, KnownMembership.Join, KnownMembership.Invite);
+        client.emit(ClientEvent.Room, other);
+        expect(listener).toHaveBeenCalledTimes(2);
+        client.emit(RoomEvent.MyMembership, rooms.get("!chat:example.org")!, KnownMembership.Leave);
+        expect(listener).toHaveBeenCalledTimes(2);
+        stop();
     });
 });
