@@ -608,4 +608,39 @@ describe("sendContentListToRoom upload limit", () => {
         expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
         expect(contentMessages.getUploadLimit()).toBe(10_000_000);
     });
+
+    it("fetches the limit again after signing in to another homeserver", async () => {
+        const matrixOrg = createTestClient();
+        vi.mocked(matrixOrg.getUserId).mockReturnValue("@alice:matrix.org");
+        vi.mocked(matrixOrg.getHomeserverUrl).mockReturnValue("https://matrix-client.matrix.org");
+        vi.mocked(matrixOrg.getDomain).mockReturnValue("matrix.org");
+        vi.mocked(matrixOrg.getMediaConfig).mockResolvedValue({ "m.upload.size": 1073741824 });
+        const other = createTestClient();
+        vi.mocked(other.getUserId).mockReturnValue("@alice:example.org");
+        vi.mocked(other.getHomeserverUrl).mockReturnValue("https://matrix.example.org");
+        vi.mocked(other.getDomain).mockReturnValue("example.org");
+        vi.mocked(other.getMediaConfig).mockResolvedValue({ "m.upload.size": 50_000_000 });
+
+        const contentMessages = new ContentMessages();
+        vi.spyOn(contentMessages, "sendContentToRoom").mockResolvedValue(undefined);
+        const createDialog = vi.spyOn(Modal, "createDialog").mockImplementation((component: unknown) => {
+            if (component === UploadFailureDialog) return { finished: Promise.resolve([false]) } as any;
+            if (component === UploadConfirmDialog) return { finished: Promise.resolve([true, false]) } as any;
+            return { finished: new Promise(() => {}), close: vi.fn() } as any;
+        });
+        const file = new File(["zip"], "early_xmas.zip", { type: "application/zip" });
+        Object.defineProperty(file, "size", { value: 20_000_000 });
+
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, matrixOrg);
+        expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
+
+        createDialog.mockClear();
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, other);
+        expect(other.getMediaConfig).toHaveBeenCalled();
+        expect(contentMessages.getUploadLimit()).toBe(50_000_000);
+        expect(createDialog).not.toHaveBeenCalledWith(UploadFailureDialog, expect.anything());
+        const [sentFile, , , sentWith] = vi.mocked(contentMessages.sendContentToRoom).mock.calls[0];
+        expect(sentFile).toBe(file);
+        expect(sentWith).toBe(other);
+    });
 });

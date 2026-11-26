@@ -155,9 +155,7 @@ const ALWAYS_INCLUDE_THUMBNAIL = ["image/avif", "image/webp", "image/svg+xml"];
  * answers 413; past that it resets the connection, which the app can only show as a generic failure, after the
  * person has waited for most of the file to be sent.
  */
-const ENFORCED_UPLOAD_LIMITS: Record<string, number> = {
-    "matrix.org": 10_000_000,
-};
+const ENFORCED_UPLOAD_LIMITS = new Map<string, number>([["matrix.org", 10_000_000]]);
 
 /**
  * Applies the limit the homeserver is known to enforce, if lower than the one it reports.
@@ -166,10 +164,19 @@ const ENFORCED_UPLOAD_LIMITS: Record<string, number> = {
  * @returns The config with the limit that the homeserver actually enforces.
  */
 export function withEnforcedUploadLimit(config: IMediaConfig, serverName: string | null): IMediaConfig {
-    const enforced = serverName ? ENFORCED_UPLOAD_LIMITS[serverName] : undefined;
+    const enforced = serverName ? ENFORCED_UPLOAD_LIMITS.get(serverName) : undefined;
     const reported = config["m.upload.size"];
     if (enforced === undefined || (reported !== undefined && reported <= enforced)) return config;
     return { ...config, "m.upload.size": enforced };
+}
+
+/**
+ * Identifies the account and homeserver a media config was fetched for.
+ * @param matrixClient - The client the config is fetched with.
+ * @returns A key that changes when a different account or homeserver is used.
+ */
+function mediaConfigOwnerOf(matrixClient: MatrixClient): string {
+    return `${matrixClient.getUserId()}|${matrixClient.getHomeserverUrl()}`;
 }
 
 /**
@@ -456,6 +463,8 @@ export interface SendContentListOptions {
 export default class ContentMessages {
     private inprogress: RoomUpload[] = [];
     private mediaConfig: IMediaConfig | null = null;
+    /** The account and homeserver that {@link mediaConfig} was fetched for. */
+    private mediaConfigOwner: string | null = null;
 
     public sendStickerContentToRoom(
         url: string,
@@ -503,6 +512,9 @@ export default class ContentMessages {
             dis.dispatch({ action: "require_registration" });
             return;
         }
+
+        // The limits belong to one account's homeserver; after signing in to another, fetch them again.
+        if (this.mediaConfigOwner !== mediaConfigOwnerOf(matrixClient)) this.mediaConfig = null;
 
         if (!this.mediaConfig) {
             // hot-path optimization to not flash a spinner if we don't need to
@@ -807,6 +819,7 @@ export default class ContentMessages {
             })
             .then((config) => {
                 this.mediaConfig = withEnforcedUploadLimit(config, matrixClient.getDomain());
+                this.mediaConfigOwner = mediaConfigOwnerOf(matrixClient);
             });
     }
 
