@@ -7,12 +7,14 @@ Please see LICENSE in the repository root for full details.
 
 // @vitest-environment happy-dom
 
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { EventType, type MatrixClient, MatrixEvent, type Room, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 
 import {
     BACKGROUND_TOKEN_LIMIT,
     BACKGROUND_TOKEN_WINDOW_MS,
+    OLM_SESSION_CHECK_MS,
     prepareCallInBackground,
     prepareCallSoon,
     prepareElementCall,
@@ -32,11 +34,22 @@ vi.mock("../../../audio/desktop/DesktopVoicePipeline", () => ({
 
 describe("prepareElementCall", () => {
     const getStateEvent = vi.fn();
-    const client = {
+    const aetherEnsureOlmSessions = vi.fn();
+    /** The people in each room's call. */
+    const callMembers = new Map<string, string[]>();
+    const rooms = new Map<string, Room>();
+    const client = Object.assign(new EventEmitter(), {
         getUserId: () => "@alice:example.org",
         getDeviceId: () => "ALICE",
         getStateEvent,
-    } as unknown as MatrixClient;
+        aetherEnsureOlmSessions,
+        getRoom: (roomId: string) => rooms.get(roomId) ?? null,
+        matrixRTC: {
+            getRoomSession: (room: Room) => ({
+                memberships: (callMembers.get(room.roomId) ?? []).map((userId) => ({ userId })),
+            }),
+        },
+    }) as unknown as MatrixClient;
 
     beforeEach(() => {
         vi.useFakeTimers();
@@ -45,6 +58,9 @@ describe("prepareElementCall", () => {
         vi.mocked(getCallOpenIdToken).mockResolvedValue({} as never);
         vi.mocked(prefetchElementCallTransport).mockResolvedValue(undefined);
         getStateEvent.mockRejectedValue(new Error("M_NOT_FOUND"));
+        aetherEnsureOlmSessions.mockResolvedValue(undefined);
+        callMembers.clear();
+        rooms.clear();
         vi.stubGlobal("requestIdleCallback", undefined);
     });
     afterEach(() => {
@@ -193,7 +209,8 @@ describe("prepareElementCall", () => {
     });
 
     describe("call tokens", () => {
-        const room = (roomId: string, version = "11"): Room => ({ roomId, getVersion: () => version }) as Room;
+        const room = (roomId: string, version = "11"): Room =>
+            ({ roomId, getVersion: () => version, hasEncryptionStateEvent: () => false }) as unknown as Room;
         const fetched = (): string[] => vi.mocked(prefetchElementCallTransport).mock.calls.map(([, roomId]) => roomId);
 
         it("fetches a room's token at once when someone is about to join it, even before release", async () => {
@@ -291,6 +308,96 @@ describe("prepareElementCall", () => {
             prepareCallInBackground(room("!voice"));
             await vi.advanceTimersByTimeAsync(1000);
             expect(fetched()).toEqual([]);
+        });
+    });
+
+    describe("Olm sessions", () => {
+        const encrypted = (roomId: string, members: string[]): Room => {
+            const room = { roomId, getVersion: () => "11", hasEncryptionStateEvent: () => true } as unknown as Room;
+            rooms.set(roomId, room);
+            callMembers.set(roomId, members);
+            return room;
+        };
+        const memberEvent = (roomId: string, sender: string, content: object): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.GroupCallMemberPrefix,
+                state_key: `_${sender}_DEVICE_m.call`,
+                sender,
+                room_id: roomId,
+                content,
+            });
+
+        it("are made sure of with the people in an encrypted call the user can see, once released, in one go", async () => {
+            const cancel = prepareElementCall(client, (start) => {
+                setTimeout(start, 500);
+                return vi.fn();
+            });
+            prepareCallInBackground(encrypted("!voice", ["@bob:example.org", "@carol:example.org"]));
+            prepareCallSoon(encrypted("!other", ["@dave:example.org"]));
+            await vi.advanceTimersByTimeAsync(400);
+            expect(aetherEnsureOlmSessions).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(aetherEnsureOlmSessions).toHaveBeenCalledExactlyOnceWith([
+                "@bob:example.org",
+                "@carol:example.org",
+                "@dave:example.org",
+            ]);
+            // Not again while the check is recent.
+            prepareCallSoon(rooms.get("!voice")!);
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(aetherEnsureOlmSessions).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(OLM_SESSION_CHECK_MS);
+            prepareCallSoon(rooms.get("!voice")!);
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(aetherEnsureOlmSessions).toHaveBeenCalledTimes(2);
+            cancel();
+        });
+
+        it("are made sure of with someone joining a call in an encrypted room, but not for a leave", async () => {
+            const cancel = prepareElementCall(client);
+            encrypted("!voice", []);
+            rooms.set("!plain", { roomId: "!plain", hasEncryptionStateEvent: () => false } as unknown as Room);
+            client.emit(RoomStateEvent.Events, memberEvent("!voice", "@bob:example.org", {}), {} as never, null);
+            client.emit(
+                RoomStateEvent.Events,
+                memberEvent("!plain", "@carol:example.org", { application: "m.call" }),
+                {} as never,
+                null,
+            );
+            client.emit(
+                RoomStateEvent.Events,
+                memberEvent("!voice", "@dave:example.org", { application: "m.call" }),
+                {} as never,
+                null,
+            );
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(aetherEnsureOlmSessions).toHaveBeenCalledExactlyOnceWith(["@dave:example.org"]);
+            cancel();
+        });
+
+        it("are checked again later when making sure of them failed", async () => {
+            aetherEnsureOlmSessions.mockRejectedValueOnce(new Error("offline"));
+            const cancel = prepareElementCall(client);
+            prepareCallSoon(encrypted("!voice", ["@bob:example.org"]));
+            await vi.advanceTimersByTimeAsync(2000);
+            prepareCallSoon(rooms.get("!voice")!);
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(aetherEnsureOlmSessions).toHaveBeenCalledTimes(2);
+            cancel();
+        });
+
+        it("are not made sure of after logout", async () => {
+            const cancel = prepareElementCall(client);
+            cancel();
+            client.emit(
+                RoomStateEvent.Events,
+                memberEvent("!voice", "@dave:example.org", { application: "m.call" }),
+                {} as never,
+                null,
+            );
+            prepareCallSoon(encrypted("!voice", ["@bob:example.org"]));
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(aetherEnsureOlmSessions).not.toHaveBeenCalled();
         });
     });
 });

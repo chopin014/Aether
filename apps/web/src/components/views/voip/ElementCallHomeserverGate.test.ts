@@ -40,6 +40,7 @@ interface GateOptions {
     membershipConnected: boolean;
     probablyLeft: boolean;
     outageLimitMs: number;
+    firstJoinMs?: number;
 }
 
 /** A minimal Observable, standing in for the RxJS one Element Call bundles. */
@@ -324,7 +325,7 @@ describe("Element Call homeserver gate", () => {
     });
 
     it("starts from the state it is given", () => {
-        expect(gate({ membershipConnected: false }).published).toEqual([[false, "membership"]]);
+        expect(gate({ membershipConnected: false, firstJoinMs: 0 }).published).toEqual([[false, "membership"]]);
         expect(gate({ probablyLeft: true }).published).toEqual([[false, "probablyLeft"]]);
         const { published, limit } = gate({ syncing: false });
         vi.advanceTimersByTime(limit);
@@ -333,6 +334,40 @@ describe("Element Call homeserver gate", () => {
             [false, "sync"],
         ]);
         expect(gate({ syncing: false, outageLimitMs: 0 }).published).toEqual([[false, "sync"]]);
+    });
+
+    it("lets a join's media out while its first membership write is on its way, for a bounded time", () => {
+        const { gate: g, published } = gate({ membershipConnected: false, firstJoinMs: 5000 });
+        expect(published).toEqual([[true, null]]);
+        vi.advanceTimersByTime(4999);
+        expect(published).toEqual([[true, null]]);
+        // A write that has not returned by then holds the media back, as any missing membership does.
+        vi.advanceTimersByTime(1);
+        expect(published).toEqual([
+            [true, null],
+            [false, "membership"],
+        ]);
+        g.membership(true);
+        expect(published.at(-1)).toEqual([true, null]);
+    });
+
+    it("holds media back when a membership is lost after the first write returned", () => {
+        const { gate: g, published } = gate({ membershipConnected: false, firstJoinMs: 5000 });
+        g.membership(true);
+        g.membership(false);
+        expect(published).toEqual([
+            [true, null],
+            [false, "membership"],
+        ]);
+        // The first join's allowance is spent: no later timer lets media out again.
+        vi.advanceTimersByTime(10_000);
+        expect(published.at(-1)).toEqual([false, "membership"]);
+    });
+
+    it("still reports a sync outage or a probable leave during the first write", () => {
+        const { gate: g, published } = gate({ membershipConnected: false, firstJoinMs: 5000 });
+        g.probablyLeft(true);
+        expect(published.at(-1)).toEqual([false, "probablyLeft"]);
     });
 
     it("reports nothing after it is disposed", async () => {

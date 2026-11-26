@@ -9,7 +9,15 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import EventEmitter from "node:events";
-import { EventType, MatrixEvent, Room, RoomStateEvent, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    EventType,
+    MatrixEvent,
+    Room,
+    RoomStateEvent,
+    RoomType,
+    type MatrixClient,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { type CallMembership, type MatrixRTCSession } from "matrix-js-sdk/src/matrixrtc";
 import { stubClient } from "test-utils";
@@ -153,6 +161,105 @@ describe("VoiceMoveFollower", () => {
         inCall.clear();
         await receive(request({ id: "b" }));
         expect(disconnect).not.toHaveBeenCalled();
+    });
+
+    /** A move request as it arrives through the call's media room, as an Olm-decrypted to-device message. */
+    const fast = async (
+        content: object,
+        {
+            sender = MOD,
+            olmSender = sender,
+            encrypted = true,
+        }: { sender?: string; olmSender?: string; encrypted?: boolean } = {},
+    ): Promise<void> => {
+        client.emit(ClientEvent.ReceivedToDeviceMessage, {
+            message: {
+                type: VOICE_MOVE_EVENT_TYPE,
+                sender,
+                content: { room_id: GERAL1, ts: Date.now(), ...content },
+            },
+            encryptionInfo: encrypted
+                ? { sender: olmSender, senderDevice: "MODDEVICE", senderCurve25519KeyBase64: "", senderVerified: false }
+                : null,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+
+    it("follows a move that comes through the call's media room", async () => {
+        await fast({ to: GERAL2, id: "a" });
+        expect(follow).toHaveBeenCalledWith(rooms.get(GERAL2));
+    });
+
+    it.each([
+        ["not Olm encrypted", { encrypted: false }],
+        ["whose sender Olm did not authenticate", { olmSender: BOB }],
+        ["from someone without the power to move people", { sender: BOB }],
+    ])("ignores a move through the media room %s", async (_, options) => {
+        await fast({ to: GERAL2, id: "a" }, options);
+        expect(follow).not.toHaveBeenCalled();
+    });
+
+    it("ignores a move through the media room sent before this device joined the call", async () => {
+        const session = client.matrixRTC.getRoomSession(rooms.get(GERAL1)!);
+        session.memberships = [
+            { userId: ME, deviceId: "DEVICE", createdTs: () => Date.now() } as unknown as CallMembership,
+        ];
+        await fast({ to: GERAL2, id: "a", ts: Date.now() - 5000 });
+        expect(follow).not.toHaveBeenCalled();
+    });
+
+    it("follows the state event of a request whose fast copy it turned down", async () => {
+        // The moderator's clock is far behind: the copy through the media room looks too old.
+        await fast({ to: GERAL2, id: "a", ts: Date.now() - VOICE_MOVE_MAX_AGE_MS - 5000 });
+        expect(follow).not.toHaveBeenCalled();
+        await receive(request({ to: GERAL2, id: "a" }));
+        expect(follow).toHaveBeenCalledOnce();
+    });
+
+    it("ignores a move through the media room from a moderator removed from the room", async () => {
+        const room = rooms.get(GERAL1)!;
+        room.currentState.setStateEvents([
+            new MatrixEvent({
+                type: EventType.RoomMember,
+                state_key: MOD,
+                room_id: GERAL1,
+                sender: ME,
+                content: { membership: KnownMembership.Leave },
+            }),
+        ]);
+        await fast({ to: GERAL2, id: "a" });
+        expect(follow).not.toHaveBeenCalled();
+    });
+
+    it("follows a request to a channel it learns of only after the request's first copy", async () => {
+        const server = rooms.get(SERVER)!;
+        const link = server.currentState.getStateEvents(EventType.SpaceChild, GERAL2)!;
+        server.currentState.setStateEvents([
+            new MatrixEvent({
+                type: EventType.SpaceChild,
+                state_key: GERAL2,
+                room_id: SERVER,
+                sender: ME,
+                content: {},
+            }),
+        ]);
+        await fast({ to: GERAL2, id: "a" });
+        expect(follow).not.toHaveBeenCalled();
+        server.currentState.setStateEvents([link]);
+        await receive(request({ to: GERAL2, id: "a" }));
+        expect(follow).toHaveBeenCalledOnce();
+    });
+
+    it("lets nobody without the power to move people use up a request's id", async () => {
+        await fast({ to: GERAL2, id: "a" }, { sender: BOB });
+        await receive(request({ to: GERAL2, id: "a" }));
+        expect(follow).toHaveBeenCalledOnce();
+    });
+
+    it("follows a request once, whichever way it arrives first", async () => {
+        await fast({ to: GERAL2, id: "a" });
+        await receive(request({ to: GERAL2, id: "a" }));
+        expect(follow).toHaveBeenCalledTimes(1);
     });
 
     it("follows each request once", async () => {

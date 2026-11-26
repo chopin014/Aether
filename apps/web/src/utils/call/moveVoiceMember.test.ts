@@ -83,7 +83,10 @@ describe("moveVoiceMember", () => {
             if (!sessions.has(room.roomId)) {
                 sessions.set(
                     room.roomId,
-                    Object.assign(new EventEmitter(), { memberships: [] }) as unknown as MatrixRTCSession,
+                    Object.assign(new EventEmitter(), {
+                        memberships: [],
+                        aetherSendSealed: vi.fn().mockResolvedValue([]),
+                    }) as unknown as MatrixRTCSession,
                 );
             }
             return sessions.get(room.roomId)!;
