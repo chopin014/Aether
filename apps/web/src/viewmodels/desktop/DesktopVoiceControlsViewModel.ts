@@ -634,7 +634,7 @@ export class DesktopVoiceControlsViewModel
     private setMicrophoneMuted = async (requested: boolean): Promise<void> => {
         // While a moderator's mute holds, the microphone stays off. Asking the call to turn it on would let it be heard
         // until the enforcer turns it off again, and saving it as on would turn it on at the next join.
-        const muted = requested || this.snapshot.current.serverMuted;
+        const muted = requested || this.snapshot.current.serverMuted === true;
         if (this.call) await this.call.setDeviceMute({ audio_enabled: !muted });
         await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, muted);
     };
