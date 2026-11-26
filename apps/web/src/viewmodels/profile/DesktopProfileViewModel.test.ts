@@ -42,7 +42,8 @@ import { showServerNicknameDialog } from "../../components/views/desktop/Desktop
 import { mayChangeNickname, serverOfRoom } from "../../utils/serverNickname";
 
 vi.mock("../../components/views/desktop/DesktopServerNicknameDialog", () => ({ showServerNicknameDialog: vi.fn() }));
-vi.mock("../../utils/serverNickname", () => ({
+vi.mock("../../utils/serverNickname", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/serverNickname")>()),
     serverOfRoom: vi.fn(),
     mayChangeNickname: vi.fn(() => false),
 }));
