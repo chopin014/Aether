@@ -119,12 +119,20 @@ export function moderatedVoiceMute(
     return servers.length ? combined(servers.map((server) => readRecord(server, userId))) : undefined;
 }
 
+/** A record with a change applied. Lifting a mute lifts a deafen too, and a deafen includes the mute. */
+function applied(record: ServerVoiceMute, change: Partial<ServerVoiceMute>): ServerVoiceMute {
+    if (change.deafened === true) return { muted: true, deafened: true };
+    if (change.muted === false) return { muted: false, deafened: false };
+    return { ...record, ...change };
+}
+
 /**
  * Mutes, deafens, unmutes or undeafens someone in every voice channel of the servers holding `roomId` that the user
- * moderates. Lifting a mute from someone who is deafened lifts both, as Discord's deafen includes the mute.
+ * moderates, as Discord's deafen includes the mute.
  *
- * Every such server already holding a record about the person gets the new one, so a mute set in any of them can be
- * lifted; otherwise the first of them gets it.
+ * A lift goes to each of those servers whose own record it changes, so a mute set in any of them can be lifted and
+ * nothing else is set again. A mute or deafen goes to one server: the first already holding a record about the
+ * person, or else the first of them.
  *
  * @returns once the homeserver accepted the change.
  */
@@ -137,23 +145,25 @@ export async function setServerVoiceMute(
     const servers = serversForVoiceMute(client, roomId, client.getSafeUserId());
     if (!servers.length) throw new Error("Not allowed to mute people in this channel");
     const records = servers.map((server) => readRecord(server, userId));
-    let next: ServerVoiceMute = { ...combined(records), ...change };
-    if (change.deafened === true) next = { muted: true, deafened: true };
-    if (change.muted === false) next = { muted: false, deafened: false };
-    const content: ServerVoiceMuteContent = {};
-    if (next.muted) content.muted = true;
-    if (next.deafened) content.deafened = true;
-    const holding = servers.filter((_, i) => records[i].muted || records[i].deafened);
-    await Promise.all(
-        (holding.length ? holding : [servers[0]]).map((server) =>
+    const lifting = change.muted === false || change.deafened === false;
+    const holding = servers.findIndex((_, i) => records[i].muted || records[i].deafened);
+    const targets = lifting ? servers.map((_, i) => i) : [Math.max(holding, 0)];
+    const writes = targets.flatMap((i) => {
+        const next = applied(records[i], change);
+        if (next.muted === records[i].muted && next.deafened === records[i].deafened) return [];
+        const content: ServerVoiceMuteContent = {};
+        if (next.muted) content.muted = true;
+        if (next.deafened) content.deafened = true;
+        return [
             client.sendStateEvent(
-                server.roomId,
+                servers[i].roomId,
                 SERVER_VOICE_MUTE_EVENT_TYPE,
                 content,
                 serverVoiceMuteStateKey(userId),
             ),
-        ),
-    );
+        ];
+    });
+    await Promise.all(writes);
 }
 
 /** Everyone listening for changes to moderators' mutes, for each client. One client listener serves them all. */

@@ -168,6 +168,22 @@ describe("serverVoiceMute", () => {
         );
     });
 
+    it("lifts a deafen only where it was set, leaving the other server's records as they are", async () => {
+        other.currentState.setStateEvents([state(other, EventType.SpaceChild, { via: ["example.org"] }, VOICE)]);
+        // The other server's mute was lifted by its own moderators, which has not arrived here yet: writing it again
+        // would set it back.
+        record(server, BOB, { muted: true, deafened: true });
+        record(other, BOB, { muted: true });
+        await setServerVoiceMute(client, VOICE, BOB, { deafened: false });
+        expect(client.sendStateEvent).toHaveBeenCalledTimes(1);
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            server.roomId,
+            SERVER_VOICE_MUTE_EVENT_TYPE,
+            { muted: true },
+            serverVoiceMuteStateKey(BOB),
+        );
+    });
+
     it("refuses to change anything without the power", async () => {
         vi.mocked(client.getSafeUserId).mockReturnValue(ME);
         await expect(setServerVoiceMute(client, VOICE, BOB, { muted: true })).rejects.toThrow();
