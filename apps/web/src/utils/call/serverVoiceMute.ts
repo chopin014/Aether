@@ -93,13 +93,6 @@ function serversForVoiceMute(client: MatrixClient, roomId: string, userId: strin
     );
 }
 
-/**
- * The server in which `userId` may mute or deafen the people in `roomId`'s call, or undefined when they may not.
- */
-export function serverForVoiceMute(client: MatrixClient, roomId: string, userId: string): Room | undefined {
-    return serversForVoiceMute(client, roomId, userId)[0];
-}
-
 function combined(records: ServerVoiceMute[]): ServerVoiceMute {
     return records.reduce((a, b) => ({ muted: a.muted || b.muted, deafened: a.deafened || b.deafened }), NOT_MUTED);
 }

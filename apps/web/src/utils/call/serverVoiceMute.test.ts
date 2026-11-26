@@ -26,7 +26,6 @@ import {
     moderatedVoiceMute,
     onServerVoiceMutesChanged,
     SERVER_VOICE_MUTE_EVENT_TYPE,
-    serverForVoiceMute,
     serverVoiceMuteStateKey,
     setServerVoiceMute,
 } from "./serverVoiceMute";
@@ -105,9 +104,9 @@ describe("serverVoiceMute", () => {
     });
 
     it("lets only those with the event's power level mute people, and only in voice channels", () => {
-        expect(serverForVoiceMute(client, VOICE, MOD)).toBe(server);
-        expect(serverForVoiceMute(client, VOICE, ME)).toBeUndefined();
-        expect(serverForVoiceMute(client, "!chat:example.org", MOD)).toBeUndefined();
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: false, deafened: false });
+        expect(moderatedVoiceMute(client, VOICE, ME, BOB)).toBeUndefined();
+        expect(moderatedVoiceMute(client, "!chat:example.org", MOD, BOB)).toBeUndefined();
     });
 
     it.each([
