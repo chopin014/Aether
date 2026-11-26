@@ -567,25 +567,32 @@ export class DesktopVoiceControlsViewModel
     /**
      * Saves the microphone state the call reports as the user's own choice. A moderator's mute turns the microphone
      * off without the user choosing to: their own choice is kept, so it is what they get back once the mute is
-     * lifted. While a change made for such a mute is under way, a report can be late news of it or the user's own
-     * click, so the state the call settles on is saved once the change is over.
+     * lifted.
+     *
+     * While a change made for such a mute is under way, a report can be late news of it or the user's own click.
+     * Mistakes keep the microphone off: a microphone reported off is saved at once, and one reported on only when
+     * the call still has it on once the change is over. At worst the user unmutes after the mute is lifted, as they
+     * would without the moderator's microphone being given back; a microphone they turned off is never turned on.
      */
     private saveMicrophoneChoice = (): void => {
         window.clearTimeout(this.microphoneChoiceTimer);
         this.microphoneChoiceTimer = undefined;
         const call = this.call;
         if (!call?.deviceMuteState || this.isDisposed || this.snapshot.current.serverMuted) return;
+        const muted = !call.deviceMuteState.audio_enabled;
         if (isMicrophoneChangeForced(call)) {
+            if (muted) this.saveMicrophoneMuted(true);
             this.microphoneChoiceTimer = window.setTimeout(this.saveMicrophoneChoice, FORCED_REPORT_GRACE_MS);
             return;
         }
-        void SettingsStore.setValue(
-            "audioInputMuted",
-            null,
-            SettingLevel.DEVICE,
-            !call.deviceMuteState.audio_enabled,
-        ).catch((error) => logger.warn("Could not save microphone preference", error));
+        this.saveMicrophoneMuted(muted);
     };
+
+    private saveMicrophoneMuted(muted: boolean): void {
+        void SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, muted).catch((error) =>
+            logger.warn("Could not save microphone preference", error),
+        );
+    }
 
     private readonly onCallsChanged = (): void => {
         const isElementCall = (call: unknown): call is ElementCall => call instanceof ElementCall;
@@ -600,6 +607,9 @@ export class DesktopVoiceControlsViewModel
             if (panel === "noise" || panel === "connection" || panel === "soundboard")
                 this.snapshot.merge({ panel: null });
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
+            // A choice still to be saved belongs to the call left; the next call reports its own.
+            window.clearTimeout(this.microphoneChoiceTimer);
+            this.microphoneChoiceTimer = undefined;
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
             this.clearPendingLeaves();
