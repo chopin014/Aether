@@ -170,6 +170,12 @@ export function withEnforcedUploadLimit(config: IMediaConfig, serverName: string
     return { ...config, "m.upload.size": enforced };
 }
 
+/** Whether a file is within the upload limit in a media config, if it has one. */
+function isFileSizeAcceptable(file: File, config: IMediaConfig): boolean {
+    const limit = config["m.upload.size"];
+    return limit === undefined || file.size <= limit;
+}
+
 /**
  * Identifies the account and homeserver a media config was fetched for.
  * @param matrixClient - The client the config is fetched with.
@@ -513,26 +519,26 @@ export default class ContentMessages {
             return;
         }
 
-        // The limits belong to one account's homeserver; after signing in to another, fetch them again.
-        if (this.mediaConfigOwner !== mediaConfigOwnerOf(matrixClient)) this.mediaConfig = null;
-
-        if (!this.mediaConfig) {
+        // The limits belong to one account's homeserver. Files are checked against what this account's own fetch
+        // returned: a fetch made for an account signed out of meanwhile can still finish and fill the cache.
+        let mediaConfig = this.mediaConfigFor(matrixClient);
+        if (!mediaConfig) {
             // hot-path optimization to not flash a spinner if we don't need to
             const modal = Modal.createDialog(Spinner, undefined, "mx_Dialog_spinner");
-            await Promise.race([this.ensureMediaConfigFetched(matrixClient), modal.finished]);
-            if (!this.mediaConfig) {
+            const fetched = await Promise.race([this.fetchMediaConfig(matrixClient), modal.finished.then(() => null)]);
+            if (!fetched) {
                 // User cancelled by clicking away on the spinner
                 return;
-            } else {
-                modal.close();
             }
+            modal.close();
+            mediaConfig = fetched;
         }
 
         const tooBigFiles: File[] = [];
         const okFiles: File[] = [];
 
         for (const file of files) {
-            if (this.isFileSizeAcceptable(file)) {
+            if (isFileSizeAcceptable(file, mediaConfig)) {
                 okFiles.push(file);
             } else {
                 tooBigFiles.push(file);
@@ -543,7 +549,8 @@ export default class ContentMessages {
             const { finished } = Modal.createDialog(UploadFailureDialog, {
                 badFiles: tooBigFiles,
                 totalFiles: files.length,
-                contentMessages: this,
+                // Only files over a limit are too big, so there is one.
+                uploadLimit: mediaConfig["m.upload.size"]!,
             });
             const [shouldContinue] = await finished;
             if (!shouldContinue) return;
@@ -795,15 +802,15 @@ export default class ContentMessages {
         }
     }
 
-    private isFileSizeAcceptable(file: File): boolean {
-        if (this.mediaConfig?.["m.upload.size"] !== undefined && file.size > this.mediaConfig["m.upload.size"]) {
-            return false;
-        }
-        return true;
+    /** The media config fetched for this account and homeserver, if there is one. */
+    private mediaConfigFor(matrixClient: MatrixClient): IMediaConfig | null {
+        return this.mediaConfigOwner === mediaConfigOwnerOf(matrixClient) ? this.mediaConfig : null;
     }
 
-    private ensureMediaConfigFetched(matrixClient: MatrixClient): Promise<void> {
-        if (this.mediaConfig !== null) return Promise.resolve();
+    /** Fetches this account's media config, or returns the one fetched already. */
+    private fetchMediaConfig(matrixClient: MatrixClient): Promise<IMediaConfig> {
+        const cached = this.mediaConfigFor(matrixClient);
+        if (cached) return Promise.resolve(cached);
 
         logger.log("[Media Config] Fetching");
         return matrixClient
@@ -817,9 +824,11 @@ export default class ContentMessages {
                 logger.log("[Media Config] Could not fetch config, so not limiting uploads.");
                 return {};
             })
-            .then((config) => {
-                this.mediaConfig = withEnforcedUploadLimit(config, matrixClient.getDomain());
+            .then((reported) => {
+                const config = withEnforcedUploadLimit(reported, matrixClient.getDomain());
+                this.mediaConfig = config;
                 this.mediaConfigOwner = mediaConfigOwnerOf(matrixClient);
+                return config;
             });
     }
 

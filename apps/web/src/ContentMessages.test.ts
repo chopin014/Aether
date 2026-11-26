@@ -604,9 +604,57 @@ describe("sendContentListToRoom upload limit", () => {
 
         await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, client);
 
-        expect(createDialog).toHaveBeenCalledWith(UploadFailureDialog, expect.objectContaining({ badFiles: [file] }));
+        expect(createDialog).toHaveBeenCalledWith(
+            UploadFailureDialog,
+            expect.objectContaining({ badFiles: [file], uploadLimit: 10_000_000 }),
+        );
         expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
         expect(contentMessages.getUploadLimit()).toBe(10_000_000);
+    });
+
+    it("does not check files against the previous account's limit when its fetch finishes late", async () => {
+        type MediaConfig = Awaited<ReturnType<MatrixClient["getMediaConfig"]>>;
+        let resolveOld!: (config: MediaConfig) => void;
+        const oldFetch = {
+            promise: new Promise<MediaConfig>((resolve) => (resolveOld = resolve)),
+            resolve: (config: MediaConfig) => resolveOld(config),
+        };
+        const matrixOrg = createTestClient();
+        vi.mocked(matrixOrg.getUserId).mockReturnValue("@alice:matrix.org");
+        vi.mocked(matrixOrg.getHomeserverUrl).mockReturnValue("https://matrix-client.matrix.org");
+        vi.mocked(matrixOrg.getDomain).mockReturnValue("matrix.org");
+        vi.mocked(matrixOrg.getMediaConfig).mockReturnValue(oldFetch.promise);
+        const other = createTestClient();
+        vi.mocked(other.getUserId).mockReturnValue("@alice:example.org");
+        vi.mocked(other.getHomeserverUrl).mockReturnValue("https://matrix.example.org");
+        vi.mocked(other.getDomain).mockReturnValue("example.org");
+        vi.mocked(other.getMediaConfig).mockReturnValue(new Promise(() => {}));
+
+        const contentMessages = new ContentMessages();
+        vi.spyOn(contentMessages, "sendContentToRoom").mockResolvedValue(undefined);
+        let spinners = 0;
+        let dismissSecond!: () => void;
+        const createDialog = vi.spyOn(Modal, "createDialog").mockImplementation((component: unknown) => {
+            if (component === UploadFailureDialog) return { finished: Promise.resolve([false]) } as any;
+            if (component === UploadConfirmDialog) return { finished: Promise.resolve([true, false]) } as any;
+            // The person dismisses both spinners, the second one after the first account's limit arrived.
+            const finished =
+                spinners++ === 0 ? Promise.resolve([]) : new Promise<unknown[]>((r) => (dismissSecond = () => r([])));
+            return { finished, close: vi.fn() } as any;
+        });
+        const file = new File(["zip"], "early_xmas.zip", { type: "application/zip" });
+        Object.defineProperty(file, "size", { value: 20_000_000 });
+
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, matrixOrg);
+        const sending = contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, other);
+        oldFetch.resolve({ "m.upload.size": 1073741824 });
+        await flushPromises();
+        dismissSecond();
+        await sending;
+
+        // The other account's limit never arrived, so nothing is checked against matrix.org's and nothing is sent.
+        expect(createDialog).not.toHaveBeenCalledWith(UploadFailureDialog, expect.anything());
+        expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
     });
 
     it("fetches the limit again after signing in to another homeserver", async () => {
