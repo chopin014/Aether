@@ -9,6 +9,7 @@ import { EventType, type MatrixClient, type Room } from "matrix-js-sdk/src/matri
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { MatrixRTCSessionEvent } from "matrix-js-sdk/src/matrixrtc";
 import { secureRandomString } from "matrix-js-sdk/src/randomstring";
+import { logger } from "matrix-js-sdk/src/logger";
 
 import { sortBy } from "lodash";
 
@@ -108,8 +109,7 @@ export async function requestVoiceMove(
     userId: string,
     toRoomId: string,
 ): Promise<void> {
-    const content: VoiceMoveContent = { to: toRoomId, id: secureRandomString(16) };
-    await client.sendStateEvent(fromRoomId, VOICE_MOVE_EVENT_TYPE, content, voiceMoveStateKey(userId));
+    await sendVoiceMove(client, fromRoomId, userId, { to: toRoomId, id: secureRandomString(16) });
 }
 
 /**
@@ -118,7 +118,43 @@ export async function requestVoiceMove(
  * @returns once the homeserver has accepted the request; it rejects it when the sender may not move people.
  */
 export async function requestVoiceDisconnect(client: MatrixClient, roomId: string, userId: string): Promise<void> {
-    const content: VoiceMoveContent = { id: secureRandomString(16) };
+    await sendVoiceMove(client, roomId, userId, { id: secureRandomString(16) });
+}
+
+/**
+ * The content of the {@link VOICE_MOVE_EVENT_TYPE} to-device message that carries a move through the call's media
+ * room: the request, with the voice channel it is about and when it was sent.
+ */
+export interface FastVoiceMoveContent extends VoiceMoveContent {
+    /** The voice channel whose call the person is asked to leave. */
+    room_id: string;
+    /** When the request was sent, by the sender's clock. */
+    ts: number;
+}
+
+/**
+ * Sends a move request. When the sender is in the call too, the request also goes straight to the person's devices
+ * through the call's media room, Olm encrypted, and arrives in a few tens of milliseconds rather than after the
+ * homeserver's round trip and the person's next sync. The state event still goes out: it is what the homeserver
+ * checks the sender's power against, the record, and the way the request reaches the person in any other case.
+ */
+async function sendVoiceMove(
+    client: MatrixClient,
+    roomId: string,
+    userId: string,
+    content: VoiceMoveContent,
+): Promise<void> {
+    const room = client.getRoom(roomId);
+    if (room) {
+        const session = client.matrixRTC.getRoomSession(room);
+        const devices = session.memberships
+            .filter((membership) => membership.userId === userId)
+            .map(({ userId, deviceId }) => ({ userId, deviceId }));
+        const fast: FastVoiceMoveContent = { ...content, room_id: roomId, ts: Date.now() };
+        session
+            .aetherSendSealed(devices, VOICE_MOVE_EVENT_TYPE, { ...fast })
+            .catch((error) => logger.warn("Could not send the move through the call's media room", error));
+    }
     await client.sendStateEvent(roomId, VOICE_MOVE_EVENT_TYPE, content, voiceMoveStateKey(userId));
 }
 

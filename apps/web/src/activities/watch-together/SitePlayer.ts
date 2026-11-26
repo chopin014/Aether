@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import type { SiteViewApi, SiteViewBounds, SiteViewEvent, SiteViewState } from "shared-types";
 
+import { appPaintsOver, floatingUiOver } from "./appCover";
 import type { WatchItem } from "./WatchTogetherProtocol";
 import type { WatchPlayer, WatchPlayerEvent, WatchPlayerStatus } from "./WatchPlayer";
 
@@ -37,27 +38,19 @@ export function samePage(a: string, b: string): boolean {
     }
 }
 
+/** How many frames pass between full checks of what the app draws over the player; a few times a second. */
+const PAINT_CHECK_FRAMES = 6;
 /**
- * The app's own pop-up menus and lists. Any of them reaching over the player hides the embedded browser, wherever in
- * the app it was opened from (the voice channel member menu in the sidebar, the header search, …).
+ * How many full checks in a row must find nothing before the player shows again. Something moving over the player
+ * can fall between the sample points on one check and not the next; waiting keeps the player from flickering.
  */
-const FLOATING_UI = "[role='menu'], [role='listbox'], .mx_ContextualMenu";
-
-/** Whether one of the app's pop-up menus is shown over the given part of the window. */
-function menuOver(doc: Document, box: DOMRect): boolean {
-    for (const menu of doc.querySelectorAll(FLOATING_UI)) {
-        const r = menu.getBoundingClientRect();
-        if (r.width < 1 || r.height < 1) continue;
-        if (r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top) return true;
-    }
-    return false;
-}
+const PAINT_CLEAR_CHECKS = 3;
 
 /**
  * A website shown in the desktop app's own embedded browser and laid over the player tile. Everyone opens the page
  * themselves, signs in and clicks through like in a browser; once the page shows a video, it is kept in sync. The
- * embedded browser always draws above the app, so it is hidden, showing a still frame instead, whenever part of the
- * app's own interface needs to be on top.
+ * embedded browser always draws above the app, so it is hidden, showing a still frame instead, whenever any part of
+ * the app's own interface is drawn over it.
  */
 export class SitePlayer implements WatchPlayer {
     public readonly source = "site";
@@ -71,6 +64,9 @@ export class SitePlayer implements WatchPlayer {
     private frame = 0;
     private lastBounds = "";
     private obscured = false;
+    /** How many more full checks must find nothing drawn over the player before it shows again. */
+    private paintedFor = 0;
+    private paintCheckIn = 0;
     private disposed = false;
 
     public constructor(
@@ -200,8 +196,16 @@ export class SitePlayer implements WatchPlayer {
         if (!this.obscured && element.isConnected && view === window) {
             const box = element.getBoundingClientRect();
             const hidden = getComputedStyle(element).visibility === "hidden";
-            if (!hidden && box.width >= 2 && box.height >= 2 && !menuOver(element.ownerDocument, box)) {
-                bounds = { x: box.left, y: box.top, width: box.width, height: box.height };
+            if (!hidden && box.width >= 2 && box.height >= 2) {
+                // Known pop-ups are looked for every frame, so a menu shows at once; anything else within a moment.
+                if (--this.paintCheckIn <= 0) {
+                    this.paintCheckIn = PAINT_CHECK_FRAMES;
+                    if (appPaintsOver(element, box)) this.paintedFor = PAINT_CLEAR_CHECKS;
+                    else if (this.paintedFor > 0) this.paintedFor--;
+                }
+                if (this.paintedFor === 0 && !floatingUiOver(element, box)) {
+                    bounds = { x: box.left, y: box.top, width: box.width, height: box.height };
+                }
             }
         }
         const key = bounds ? `${bounds.x},${bounds.y},${bounds.width},${bounds.height}` : "";
