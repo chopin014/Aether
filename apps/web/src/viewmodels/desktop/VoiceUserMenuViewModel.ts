@@ -55,9 +55,8 @@ import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/des
 import { mayMoveVoiceMembers, voiceMoveDestinations } from "../../utils/call/voiceMove";
 import { disconnectVoiceMember, moveVoiceMember } from "../../utils/call/moveVoiceMember";
 import {
-    getServerVoiceMute,
+    moderatedVoiceMute,
     onServerVoiceMutesChanged,
-    serverForVoiceMute,
     setServerVoiceMute,
     type ServerVoiceMute,
 } from "../../utils/call/serverVoiceMute";
@@ -136,10 +135,8 @@ export class VoiceUserMenuViewModel
             roles: room ? VoiceUserMenuViewModel.roles(client, room, userId) : [],
             moveDestinations: room ? VoiceUserMenuViewModel.moveDestinations(client, room, userId) : [],
             canDisconnect: !!room && VoiceUserMenuViewModel.mayMoveFromCall(client, room, userId),
-            serverVoiceMute:
-                room && serverForVoiceMute(client, room.roomId, client.getSafeUserId())
-                    ? getServerVoiceMute(client, room.roomId, userId)
-                    : undefined,
+            // The record this moderator's toggle changes, not a mute another server put on the person.
+            serverVoiceMute: room ? moderatedVoiceMute(client, room.roomId, client.getSafeUserId(), userId) : undefined,
             canChangeNickname: VoiceUserMenuViewModel.canChangeNickname(client, room, userId),
         };
     }

@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import { EventType, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { shouldUseHydraForRoomVersion } from "matrix-js-sdk/src/utils/roomVersion";
 
 /**
  * The server (Space) state event in which a moderator gives someone a nickname in the server, as Discord's "Change
@@ -72,8 +73,41 @@ export function roomsOfServer(client: MatrixClient, server: Room): Room[] {
     return [server, ...channels];
 }
 
+/** A server's power levels, read defensively. */
+function powerLevelsOf(server: Room): {
+    users?: Record<string, unknown>;
+    users_default?: unknown;
+    events?: Record<string, unknown>;
+    state_default?: unknown;
+} {
+    return server.currentState.getStateEvents(EventType.RoomPowerLevels, "")?.getContent() ?? {};
+}
+
+/**
+ * Someone's power level in a server. A Space listed without history may not have loaded everyone's membership, so
+ * without it the level is read from the power levels, and from the creators in rooms where creators outrank everyone.
+ */
 function levelOf(server: Room, userId: string): number {
-    return server.getMember(userId)?.powerLevel ?? 0;
+    const member = server.getMember(userId);
+    if (member) return member.powerLevel;
+    const create = server.currentState.getStateEvents(EventType.RoomCreate, "");
+    if (create && shouldUseHydraForRoomVersion(server.getVersion())) {
+        const additional = create.getContent().additional_creators;
+        if (create.getSender() === userId || (Array.isArray(additional) && additional.includes(userId))) {
+            return Infinity;
+        }
+    }
+    const content = powerLevelsOf(server);
+    const level = content.users?.[userId] ?? content.users_default;
+    return Number.isSafeInteger(level) ? (level as number) : 0;
+}
+
+/** Whether `userId` has the power level the homeserver asks for to send {@link MEMBER_NICK_EVENT_TYPE}. */
+function maySetNicknames(server: Room, userId: string): boolean {
+    const content = powerLevelsOf(server);
+    const eventLevel = content.events?.[MEMBER_NICK_EVENT_TYPE];
+    const stateDefault = Number.isSafeInteger(content.state_default) ? (content.state_default as number) : 50;
+    return levelOf(server, userId) >= (Number.isSafeInteger(eventLevel) ? (eventLevel as number) : stateDefault);
 }
 
 /**
@@ -83,10 +117,7 @@ function levelOf(server: Room, userId: string): number {
  */
 export function mayChangeNickname(server: Room, userId: string, targetId: string): boolean {
     if (userId === targetId) return true;
-    return (
-        server.currentState.maySendStateEvent(MEMBER_NICK_EVENT_TYPE, userId) &&
-        levelOf(server, userId) > levelOf(server, targetId)
-    );
+    return maySetNicknames(server, userId) && levelOf(server, userId) > levelOf(server, targetId);
 }
 
 /**

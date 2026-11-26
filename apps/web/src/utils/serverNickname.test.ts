@@ -130,6 +130,32 @@ describe("serverNickname", () => {
         expect(moderatorNickname(server, BOB)).toBeUndefined();
     });
 
+    it("honours a moderator's nickname when the Space has not loaded the moderator's membership", () => {
+        const sparse = new Room("!sparse:example.org", client, ME);
+        sparse.currentState.setStateEvents([
+            state(sparse, EventType.RoomCreate, { creator: ADMIN, room_version: "10", type: RoomType.Space }),
+            state(sparse, EventType.RoomMember, { membership: KnownMembership.Join }, BOB, BOB),
+            state(sparse, EventType.RoomPowerLevels, { users: { [MOD]: 50 }, users_default: 0, state_default: 50 }),
+            state(sparse, MEMBER_NICK_EVENT_TYPE, { nick: "sdds do litz" }, memberNickStateKey(BOB), MOD),
+        ]);
+        expect(sparse.getMember(MOD)).toBeNull();
+        expect(moderatorNickname(sparse, BOB)).toBe("sdds do litz");
+    });
+
+    it("ranks the creators of a Space above everyone when their membership is not loaded", () => {
+        const space = new Room("!hydra:example.org", client, ME);
+        vi.spyOn(space, "getVersion").mockReturnValue("12");
+        space.currentState.setStateEvents([
+            state(space, EventType.RoomCreate, { room_version: "12", type: RoomType.Space }, "", ADMIN),
+            state(space, EventType.RoomPowerLevels, { users: { [MOD]: 50 }, users_default: 0, state_default: 50 }),
+            state(space, MEMBER_NICK_EVENT_TYPE, { nick: "chefe" }, memberNickStateKey(ADMIN), MOD),
+            state(space, MEMBER_NICK_EVENT_TYPE, { nick: "sdds do litz" }, memberNickStateKey(MOD), ADMIN),
+        ]);
+        expect(space.getMember(ADMIN)).toBeNull();
+        expect(moderatorNickname(space, ADMIN)).toBeUndefined();
+        expect(moderatorNickname(space, MOD)).toBe("sdds do litz");
+    });
+
     it("reads the user's own nicknames defensively", () => {
         accountData[SERVER_NICKNAMES_EVENT_TYPE] = { own: { a: "x", b: 3 }, shown: "nope" };
         expect(readServerNicknames(client)).toEqual({ own: { a: "x" }, shown: {} });

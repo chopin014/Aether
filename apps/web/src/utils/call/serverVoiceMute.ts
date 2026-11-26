@@ -5,7 +5,15 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { EventType, RoomStateEvent, type MatrixClient, type MatrixEvent, type Room } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    EventType,
+    RoomEvent,
+    RoomStateEvent,
+    type MatrixClient,
+    type MatrixEvent,
+    type Room,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
 /**
@@ -75,19 +83,49 @@ export function getServerVoiceMute(client: MatrixClient, roomId: string, userId:
 }
 
 /**
- * The server in which `userId` may mute or deafen the people in `roomId`'s call, or undefined when they may not. The
+ * The servers in which `userId` may mute or deafen the people in `roomId`'s call; none when they may not. The
  * homeserver checks the same power level when the record is sent.
  */
-export function serverForVoiceMute(client: MatrixClient, roomId: string, userId: string): Room | undefined {
-    if (!client.getRoom(roomId)?.isCallRoom()) return undefined;
-    return serversHolding(client, roomId).find((server) =>
+function serversForVoiceMute(client: MatrixClient, roomId: string, userId: string): Room[] {
+    if (!client.getRoom(roomId)?.isCallRoom()) return [];
+    return serversHolding(client, roomId).filter((server) =>
         server.currentState.maySendStateEvent(SERVER_VOICE_MUTE_EVENT_TYPE, userId),
     );
 }
 
+function combined(records: ServerVoiceMute[]): ServerVoiceMute {
+    return records.reduce((a, b) => ({ muted: a.muted || b.muted, deafened: a.deafened || b.deafened }), NOT_MUTED);
+}
+
 /**
- * Mutes, deafens, unmutes or undeafens someone in every voice channel of the server holding `roomId`. Lifting a mute
- * from someone who is deafened lifts both, as Discord's deafen includes the mute.
+ * What the records `moderatorId` can change say about `userId`: those in the servers holding `roomId` where they may
+ * mute people, or undefined when there are none. A server where they have no such power can mute the person too, but
+ * this moderator can neither show nor lift that.
+ */
+export function moderatedVoiceMute(
+    client: MatrixClient,
+    roomId: string,
+    moderatorId: string,
+    userId: string,
+): ServerVoiceMute | undefined {
+    const servers = serversForVoiceMute(client, roomId, moderatorId);
+    return servers.length ? combined(servers.map((server) => readRecord(server, userId))) : undefined;
+}
+
+/** A record with a change applied. Lifting a mute lifts a deafen too, and a deafen includes the mute. */
+function applied(record: ServerVoiceMute, change: Partial<ServerVoiceMute>): ServerVoiceMute {
+    if (change.deafened === true) return { muted: true, deafened: true };
+    if (change.muted === false) return { muted: false, deafened: false };
+    return { ...record, ...change };
+}
+
+/**
+ * Mutes, deafens, unmutes or undeafens someone in every voice channel of the servers holding `roomId` that the user
+ * moderates, as Discord's deafen includes the mute.
+ *
+ * An unmute clears the record in each of those servers, so a mute set in any of them can be lifted. Lifting a deafen,
+ * which keeps the mute, goes to the first of them holding a deafen; a mute or deafen goes to the first already holding
+ * a record about the person, or else the first of them. Only a record the change alters is written.
  *
  * @returns once the homeserver accepted the change.
  */
@@ -97,24 +135,55 @@ export async function setServerVoiceMute(
     userId: string,
     change: Partial<ServerVoiceMute>,
 ): Promise<void> {
-    const server = serverForVoiceMute(client, roomId, client.getSafeUserId());
-    if (!server) throw new Error("Not allowed to mute people in this channel");
-    const current = readRecord(server, userId);
-    let next: ServerVoiceMute = { ...current, ...change };
-    if (change.deafened === true) next = { muted: true, deafened: true };
-    if (change.muted === false) next = { muted: false, deafened: false };
-    const content: ServerVoiceMuteContent = {};
-    if (next.muted) content.muted = true;
-    if (next.deafened) content.deafened = true;
-    await client.sendStateEvent(server.roomId, SERVER_VOICE_MUTE_EVENT_TYPE, content, serverVoiceMuteStateKey(userId));
+    const servers = serversForVoiceMute(client, roomId, client.getSafeUserId());
+    if (!servers.length) throw new Error("Not allowed to mute people in this channel");
+    const records = servers.map((server) => readRecord(server, userId));
+    let targets: number[];
+    if (change.muted === false) {
+        // Clearing a record is right whatever it held, even if another moderator already cleared it.
+        targets = servers.map((_, i) => i);
+    } else if (change.deafened === false) {
+        // Lifting a deafen keeps the mute, which written to a server whose moderators just lifted both would set
+        // their mute again: one server at a time, and the menu still shows a deafen held by another.
+        targets = [
+            Math.max(
+                records.findIndex((record) => record.deafened),
+                0,
+            ),
+        ];
+    } else {
+        targets = [
+            Math.max(
+                records.findIndex((record) => record.muted || record.deafened),
+                0,
+            ),
+        ];
+    }
+    const writes = targets.flatMap((i) => {
+        const next = applied(records[i], change);
+        if (next.muted === records[i].muted && next.deafened === records[i].deafened) return [];
+        const content: ServerVoiceMuteContent = {};
+        if (next.muted) content.muted = true;
+        if (next.deafened) content.deafened = true;
+        return [
+            client.sendStateEvent(
+                servers[i].roomId,
+                SERVER_VOICE_MUTE_EVENT_TYPE,
+                content,
+                serverVoiceMuteStateKey(userId),
+            ),
+        ];
+    });
+    await Promise.all(writes);
 }
 
 /** Everyone listening for changes to moderators' mutes, for each client. One client listener serves them all. */
 const listeners = new WeakMap<MatrixClient, Set<() => void>>();
 
 /**
- * Calls `listener` whenever a moderator mutes, deafens, unmutes or undeafens someone, or a server's channels or
- * permissions change, all of which can change who is muted where.
+ * Calls `listener` whenever a moderator mutes, deafens, unmutes or undeafens someone, a server's channels change, or
+ * the user joins or leaves a server, all of which can change who is muted where. A newly joined server's records can
+ * arrive before the server counts as joined, so joining is a change too.
  *
  * @returns a function that stops listening.
  */
@@ -124,10 +193,19 @@ export function onServerVoiceMutesChanged(client: MatrixClient, listener: () => 
         const callbacks = new Set<() => void>();
         set = callbacks;
         listeners.set(client, set);
+        const notify = (): void => {
+            for (const callback of callbacks) callback();
+        };
         client.on(RoomStateEvent.Events, (event: MatrixEvent) => {
             const type = event.getType();
             if (type !== SERVER_VOICE_MUTE_EVENT_TYPE && type !== EventType.SpaceChild) return;
-            for (const callback of callbacks) callback();
+            notify();
+        });
+        client.on(RoomEvent.MyMembership, (room: Room) => {
+            if (room.isSpaceRoom()) notify();
+        });
+        client.on(ClientEvent.Room, (room: Room) => {
+            if (room.isSpaceRoom()) notify();
         });
     }
     set.add(listener);

@@ -230,6 +230,11 @@ export class DesktopVoiceControlsViewModel
         return { serverMuted: mute?.muted ?? false, serverDeafened: mute?.deafened ?? false };
     }
 
+    /** Whether the call may play, as far as moderators are concerned: not while one has deafened the user. */
+    private mayPlay(call: ElementCall): boolean {
+        return !this.serverVoiceMute(call).serverDeafened;
+    }
+
     private readonly refresh = (): void => {
         if (this.isDisposed) return;
         const call = this.call?.locallyLeaving ? undefined : this.call;
@@ -389,14 +394,16 @@ export class DesktopVoiceControlsViewModel
         const restore = this.restoreAfterTest;
         this.restoreAfterTest = undefined;
         if (!restore) return;
+        // A moderator who muted the user during the test keeps the microphone off.
+        const microphoneMuted = restore.microphoneMuted || this.serverVoiceMute(restore.call).serverMuted;
         try {
             if (this.call === restore.call && this.props.callStore.connectedCalls.has(restore.call)) {
-                restore.call.setAudioOutputEnabled(true);
-                await restore.call.setDeviceMute({ audio_enabled: !restore.microphoneMuted });
+                restore.call.setAudioOutputEnabled(this.mayPlay(restore.call));
+                await restore.call.setDeviceMute({ audio_enabled: !microphoneMuted });
             }
         } finally {
             // Restore preferences even if the call ended or its media controls are already unavailable.
-            await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, restore.microphoneMuted);
+            await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, microphoneMuted);
             await SettingsStore.setValue("desktopDeafened", null, SettingLevel.DEVICE, false);
         }
     }
@@ -590,7 +597,7 @@ export class DesktopVoiceControlsViewModel
                 if (this.call !== call || this.isDisposed) return;
                 const deafened = SettingsStore.getValue("desktopDeafened");
                 if (deafened) await call.setDeviceMute({ audio_enabled: false });
-                if (this.call === call && !this.isDisposed) call.setAudioOutputEnabled(!deafened);
+                if (this.call === call && !this.isDisposed) call.setAudioOutputEnabled(!deafened && this.mayPlay(call));
             });
         }
         this.refresh();
@@ -624,7 +631,10 @@ export class DesktopVoiceControlsViewModel
         return result;
     };
 
-    private setMicrophoneMuted = async (muted: boolean): Promise<void> => {
+    private setMicrophoneMuted = async (requested: boolean): Promise<void> => {
+        // While a moderator's mute holds, the microphone stays off. Asking the call to turn it on would let it be heard
+        // until the enforcer turns it off again, and saving it as on would turn it on at the next join.
+        const muted = requested || this.snapshot.current.serverMuted === true;
         if (this.call) await this.call.setDeviceMute({ audio_enabled: !muted });
         await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, muted);
     };
@@ -642,7 +652,7 @@ export class DesktopVoiceControlsViewModel
             }
             await SettingsStore.setValue("desktopMicMutedBeforeDeafen", null, SettingLevel.DEVICE, wasMuted);
         } else {
-            this.call?.setAudioOutputEnabled(true);
+            if (this.call) this.call.setAudioOutputEnabled(this.mayPlay(this.call));
             try {
                 await this.setMicrophoneMuted(restoreMuted);
             } catch (error) {

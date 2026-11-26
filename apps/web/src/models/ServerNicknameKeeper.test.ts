@@ -182,6 +182,24 @@ describe("ServerNicknameKeeper", () => {
         expect(written()).toEqual({ [SERVER]: "chopin", [GENERAL]: "chopin", [VOICE]: "chopin" });
     });
 
+    it("applies a moderator's nickname that arrived before its server was stored", async () => {
+        const server = rooms.get(SERVER)!;
+        rooms.delete(SERVER);
+        keeper.start(client);
+        await settle();
+        // A first sync of the server: its state comes in before the room is stored.
+        const nick = state(SERVER, MEMBER_NICK_EVENT_TYPE, { nick: "sdds" }, memberNickStateKey(ME));
+        server.currentState.setStateEvents([nick]);
+        client.emit(RoomStateEvent.Events, nick, server.currentState, null);
+        await settle();
+        expect(written()).toEqual({});
+
+        rooms.set(SERVER, server);
+        client.emit(ClientEvent.Room, server);
+        await settle();
+        expect(written()).toEqual({ [SERVER]: "sdds", [GENERAL]: "sdds", [VOICE]: "sdds" });
+    });
+
     it("puts the user's own name back where a nickname they reset still shows", async () => {
         for (const roomId of [SERVER, GENERAL]) arrive(myMembership(roomId, "chopin"));
         // The voice channel shows a name the user set some other way, which is left alone.

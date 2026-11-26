@@ -8,15 +8,24 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventType, MatrixEvent, Room, RoomStateEvent, RoomType, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    EventType,
+    MatrixEvent,
+    Room,
+    RoomEvent,
+    RoomStateEvent,
+    RoomType,
+    type MatrixClient,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 
 import {
     getServerVoiceMute,
+    moderatedVoiceMute,
     onServerVoiceMutesChanged,
     SERVER_VOICE_MUTE_EVENT_TYPE,
-    serverForVoiceMute,
     serverVoiceMuteStateKey,
     setServerVoiceMute,
 } from "./serverVoiceMute";
@@ -95,9 +104,9 @@ describe("serverVoiceMute", () => {
     });
 
     it("lets only those with the event's power level mute people, and only in voice channels", () => {
-        expect(serverForVoiceMute(client, VOICE, MOD)).toBe(server);
-        expect(serverForVoiceMute(client, VOICE, ME)).toBeUndefined();
-        expect(serverForVoiceMute(client, "!chat:example.org", MOD)).toBeUndefined();
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: false, deafened: false });
+        expect(moderatedVoiceMute(client, VOICE, ME, BOB)).toBeUndefined();
+        expect(moderatedVoiceMute(client, "!chat:example.org", MOD, BOB)).toBeUndefined();
     });
 
     it.each([
@@ -113,6 +122,78 @@ describe("serverVoiceMute", () => {
             server.roomId,
             SERVER_VOICE_MUTE_EVENT_TYPE,
             after,
+            serverVoiceMuteStateKey(BOB),
+        );
+    });
+
+    it("reads the record a moderator would change, in the server where they may mute people", () => {
+        record(other, BOB, { muted: true });
+        other.currentState.setStateEvents([state(other, EventType.SpaceChild, { via: ["example.org"] }, VOICE)]);
+        other.currentState.setStateEvents([
+            state(other, EventType.RoomPowerLevels, { users: {}, users_default: 0, state_default: 50 }),
+        ]);
+        expect(getServerVoiceMute(client, VOICE, BOB)).toEqual({ muted: true, deafened: false });
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: false, deafened: false });
+        record(server, BOB, { deafened: true });
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: true, deafened: true });
+        expect(moderatedVoiceMute(client, VOICE, ME, BOB)).toBeUndefined();
+    });
+
+    it("lets a moderator of two servers holding the channel see and lift a mute set in either", async () => {
+        other.currentState.setStateEvents([state(other, EventType.SpaceChild, { via: ["example.org"] }, VOICE)]);
+        record(other, BOB, { muted: true });
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: true, deafened: false });
+
+        await setServerVoiceMute(client, VOICE, BOB, { muted: false });
+        // Only the server holding the mute gets the lifted record.
+        expect(client.sendStateEvent).toHaveBeenCalledTimes(1);
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            other.roomId,
+            SERVER_VOICE_MUTE_EVENT_TYPE,
+            {},
+            serverVoiceMuteStateKey(BOB),
+        );
+
+        // With no record anywhere, a new mute goes to the first of them.
+        record(other, BOB, {});
+        vi.mocked(client.sendStateEvent).mockClear();
+        await setServerVoiceMute(client, VOICE, BOB, { deafened: true });
+        expect(client.sendStateEvent).toHaveBeenCalledTimes(1);
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            server.roomId,
+            SERVER_VOICE_MUTE_EVENT_TYPE,
+            { muted: true, deafened: true },
+            serverVoiceMuteStateKey(BOB),
+        );
+    });
+
+    it("lifts a deafen only where it was set, leaving the other server's records as they are", async () => {
+        other.currentState.setStateEvents([state(other, EventType.SpaceChild, { via: ["example.org"] }, VOICE)]);
+        // The other server's mute was lifted by its own moderators, which has not arrived here yet: writing it again
+        // would set it back.
+        record(server, BOB, { muted: true, deafened: true });
+        record(other, BOB, { muted: true });
+        await setServerVoiceMute(client, VOICE, BOB, { deafened: false });
+        expect(client.sendStateEvent).toHaveBeenCalledTimes(1);
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            server.roomId,
+            SERVER_VOICE_MUTE_EVENT_TYPE,
+            { muted: true },
+            serverVoiceMuteStateKey(BOB),
+        );
+    });
+
+    it("lifts a deafen in one server at a time, so a stale copy of another's is never set again", async () => {
+        other.currentState.setStateEvents([state(other, EventType.SpaceChild, { via: ["example.org"] }, VOICE)]);
+        // The other server's moderators lifted both, which has not arrived here yet.
+        record(server, BOB, { muted: true, deafened: true });
+        record(other, BOB, { muted: true, deafened: true });
+        await setServerVoiceMute(client, VOICE, BOB, { deafened: false });
+        expect(client.sendStateEvent).toHaveBeenCalledTimes(1);
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            server.roomId,
+            SERVER_VOICE_MUTE_EVENT_TYPE,
+            { muted: true },
             serverVoiceMuteStateKey(BOB),
         );
     });
@@ -136,5 +217,16 @@ describe("serverVoiceMute", () => {
         stop();
         emit(SERVER_VOICE_MUTE_EVENT_TYPE);
         expect(listener).toHaveBeenCalledTimes(2);
+    });
+
+    it("tells listeners when the user joins or leaves a server, whose records may have arrived first", () => {
+        const listener = vi.fn();
+        const stop = onServerVoiceMutesChanged(client, listener);
+        client.emit(RoomEvent.MyMembership, server, KnownMembership.Join, KnownMembership.Invite);
+        client.emit(ClientEvent.Room, other);
+        expect(listener).toHaveBeenCalledTimes(2);
+        client.emit(RoomEvent.MyMembership, rooms.get("!chat:example.org")!, KnownMembership.Leave);
+        expect(listener).toHaveBeenCalledTimes(2);
+        stop();
     });
 });

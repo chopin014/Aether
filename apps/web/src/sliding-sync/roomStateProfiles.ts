@@ -29,6 +29,8 @@ import { SOUNDBOARD_EVENT } from "../audio/soundboard/Soundboard";
 import { SPACE_TAG_EVENT_TYPE } from "../profile/spaceTag";
 import { SPACE_LAYOUT_EVENT_TYPES } from "../stores/space-layout/SpaceLayout";
 import { VOICE_STATE_EVENT_TYPE } from "../utils/call/publishedVoiceState";
+import { SERVER_VOICE_MUTE_EVENT_TYPE } from "../utils/call/serverVoiceMute";
+import { MEMBER_NICK_EVENT_TYPE } from "../utils/serverNickname";
 import { WIDGET_LAYOUT_EVENT_TYPE } from "../stores/widgets/types";
 
 /** Room settings its admins choose for everyone, read by the room settings handler. */
@@ -83,10 +85,25 @@ export const CATALOG_STATE: string[][] = [
 ];
 
 /**
- * State for every Space the user is in, in the Spaces list: the catalog, and the Space's soundboard, which a voice
- * channel offers from every Space the user has joined, not only the one being looked at.
+ * What a server's moderators decided about its members: who is muted or deafened in its voice channels, and the
+ * nicknames they gave. Each member's own app carries these out whichever Space is open, so every Space asks for them.
+ * The Spaces list has no history, so without asking for them they would never arrive.
  */
-export const SPACE_LIST_STATE: string[][] = [...CATALOG_STATE, [SOUNDBOARD_EVENT, MSC3575_WILDCARD]];
+const SERVER_MEMBER_STATE: string[][] = [
+    [SERVER_VOICE_MUTE_EVENT_TYPE, MSC3575_WILDCARD],
+    [MEMBER_NICK_EVENT_TYPE, MSC3575_WILDCARD],
+];
+
+/**
+ * State for every Space the user is in, in the Spaces list: the catalog, the Space's soundboard, which a voice
+ * channel offers from every Space the user has joined, not only the one being looked at, and what its moderators
+ * decided about its members.
+ */
+export const SPACE_LIST_STATE: string[][] = [
+    ...CATALOG_STATE,
+    [SOUNDBOARD_EVENT, MSC3575_WILDCARD],
+    ...SERVER_MEMBER_STATE,
+];
 
 /**
  * State the room view, its header, composer and settings read, beyond the catalog. Without it, a room that was
@@ -150,10 +167,13 @@ export const CHANNEL_SUBSCRIPTION: MSC3575RoomSubscription = {
     required_state: CATALOG_STATE,
 };
 
-/** A Space someone is looking at: its children, permissions and soundboard, without history. */
+/**
+ * A Space someone is looking at: its children, permissions, soundboard and what its moderators decided about its
+ * members, without history.
+ */
 export const SPACE_SUBSCRIPTION: MSC3575RoomSubscription = {
     timeline_limit: 0,
-    required_state: ROOM_STATE,
+    required_state: [...ROOM_STATE, ...SERVER_MEMBER_STATE],
 };
 
 /**

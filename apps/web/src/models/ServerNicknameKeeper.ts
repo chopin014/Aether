@@ -9,6 +9,7 @@ import {
     ClientEvent,
     EventType,
     MatrixError,
+    RoomEvent,
     RoomStateEvent,
     type MatrixClient,
     type MatrixEvent,
@@ -63,12 +64,16 @@ export class ServerNicknameKeeper {
         this.client = client;
         client.on(RoomStateEvent.Events, this.onStateEvent);
         client.on(ClientEvent.AccountData, this.onAccountData);
+        client.on(ClientEvent.Room, this.onServerChanged);
+        client.on(RoomEvent.MyMembership, this.onServerChanged);
         this.scheduleAll();
     }
 
     public stop(): void {
         this.client?.off(RoomStateEvent.Events, this.onStateEvent);
         this.client?.off(ClientEvent.AccountData, this.onAccountData);
+        this.client?.off(ClientEvent.Room, this.onServerChanged);
+        this.client?.off(RoomEvent.MyMembership, this.onServerChanged);
         this.client = undefined;
         window.clearTimeout(this.timer);
         this.pending.clear();
@@ -86,6 +91,14 @@ export class ServerNicknameKeeper {
             // The homeserver replaced the name, or the user joined another of the server's channels.
             this.scheduleServerOf(room);
         }
+    };
+
+    /**
+     * A server was added or joined. Its records can arrive before the room is stored, when there was no room yet to
+     * schedule them for.
+     */
+    private readonly onServerChanged = (room: Room): void => {
+        if (room.isSpaceRoom()) this.schedule(room.roomId);
     };
 
     private readonly onAccountData = (event: MatrixEvent): void => {

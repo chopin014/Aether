@@ -18,6 +18,7 @@ import {
     RoomSubscriptionName,
     roomStateProfiles,
     SPACE_LIST_STATE,
+    SPACE_SUBSCRIPTION,
 } from "./roomStateProfiles";
 
 describe("roomStateProfiles", () => {
@@ -30,6 +31,15 @@ describe("roomStateProfiles", () => {
         expect(SPACE_LIST_STATE).toContainEqual(["io.aether.soundboard.sound", "*"]);
         const keys = SPACE_LIST_STATE.map(([type, stateKey]) => `${type}|${stateKey}`);
         expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it("asks every Space for its moderators' server mutes and nicknames, which arrive no other way", () => {
+        // Spaces are synced without history, so a record nobody asks for never reaches the app it is about.
+        for (const requiredState of [SPACE_LIST_STATE, SPACE_SUBSCRIPTION.required_state]) {
+            expect(requiredState).toContainEqual(["io.aether.voice.server_mute", MSC3575_WILDCARD]);
+            expect(requiredState).toContainEqual(["io.aether.member.nick", MSC3575_WILDCARD]);
+        }
+        expect(SPACE_SUBSCRIPTION.timeline_limit).toBe(0);
     });
 
     it("asks for no older rooms, which simplified sliding sync does not serve", () => {

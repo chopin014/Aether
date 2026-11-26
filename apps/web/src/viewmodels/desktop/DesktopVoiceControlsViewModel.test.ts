@@ -318,6 +318,40 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(vm.getSnapshot()).toMatchObject({ serverMuted: false, serverDeafened: false });
     });
 
+    it("saves the microphone a moderator's mute holds off, so the next join starts muted", async () => {
+        await connect();
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
+    });
+
+    it("keeps the microphone off when the user undeafens while a moderator's mute holds", async () => {
+        // Deafened with the microphone on, then muted by a moderator.
+        await connect();
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+        await vm.toggleDeafened();
+        expect(preferences.get("desktopMicMutedBeforeDeafen")).toBe(false);
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+
+        vi.mocked(call.setDeviceMute).mockClear();
+        await vm.toggleDeafened();
+        expect(call.setDeviceMute).not.toHaveBeenCalledWith({ audio_enabled: true });
+        expect(preferences.get("audioInputMuted")).toBe(true);
+    });
+
+    it("keeps the call silent on joining while a moderator has the user deafened", async () => {
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: true });
+        await connect();
+        expect(call.setAudioOutputEnabled).toHaveBeenCalledWith(false);
+        expect(call.setAudioOutputEnabled).not.toHaveBeenCalledWith(true);
+    });
+
     it("serializes overlapping shortcut/device actions and preserves mute intent", async () => {
         await connect();
         await Promise.all([vm.toggleMicrophone(), vm.toggleDeafened()]);
