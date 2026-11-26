@@ -140,6 +140,34 @@ describe("serverVoiceMute", () => {
         expect(moderatedVoiceMute(client, VOICE, ME, BOB)).toBeUndefined();
     });
 
+    it("lets a moderator of two servers holding the channel see and lift a mute set in either", async () => {
+        other.currentState.setStateEvents([state(other, EventType.SpaceChild, { via: ["example.org"] }, VOICE)]);
+        record(other, BOB, { muted: true });
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: true, deafened: false });
+
+        await setServerVoiceMute(client, VOICE, BOB, { muted: false });
+        // Only the server holding the mute gets the lifted record.
+        expect(client.sendStateEvent).toHaveBeenCalledTimes(1);
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            other.roomId,
+            SERVER_VOICE_MUTE_EVENT_TYPE,
+            {},
+            serverVoiceMuteStateKey(BOB),
+        );
+
+        // With no record anywhere, a new mute goes to the first of them.
+        record(other, BOB, {});
+        vi.mocked(client.sendStateEvent).mockClear();
+        await setServerVoiceMute(client, VOICE, BOB, { deafened: true });
+        expect(client.sendStateEvent).toHaveBeenCalledTimes(1);
+        expect(client.sendStateEvent).toHaveBeenCalledWith(
+            server.roomId,
+            SERVER_VOICE_MUTE_EVENT_TYPE,
+            { muted: true, deafened: true },
+            serverVoiceMuteStateKey(BOB),
+        );
+    });
+
     it("refuses to change anything without the power", async () => {
         vi.mocked(client.getSafeUserId).mockReturnValue(ME);
         await expect(setServerVoiceMute(client, VOICE, BOB, { muted: true })).rejects.toThrow();
