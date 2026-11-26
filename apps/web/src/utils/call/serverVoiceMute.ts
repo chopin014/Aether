@@ -94,6 +94,21 @@ export function serverForVoiceMute(client: MatrixClient, roomId: string, userId:
 }
 
 /**
+ * What the record that `moderatorId` would change says about `userId`: the one in the server where they may mute
+ * people in `roomId`'s call, or undefined when they may not. Another server holding the channel can mute the person
+ * too, but this moderator's menu can neither show nor lift that.
+ */
+export function moderatedVoiceMute(
+    client: MatrixClient,
+    roomId: string,
+    moderatorId: string,
+    userId: string,
+): ServerVoiceMute | undefined {
+    const server = serverForVoiceMute(client, roomId, moderatorId);
+    return server ? readRecord(server, userId) : undefined;
+}
+
+/**
  * Mutes, deafens, unmutes or undeafens someone in every voice channel of the server holding `roomId`. Lifting a mute
  * from someone who is deafened lifts both, as Discord's deafen includes the mute.
  *

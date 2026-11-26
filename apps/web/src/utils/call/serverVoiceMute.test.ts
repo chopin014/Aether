@@ -23,6 +23,7 @@ import { stubClient } from "test-utils";
 
 import {
     getServerVoiceMute,
+    moderatedVoiceMute,
     onServerVoiceMutesChanged,
     SERVER_VOICE_MUTE_EVENT_TYPE,
     serverForVoiceMute,
@@ -124,6 +125,19 @@ describe("serverVoiceMute", () => {
             after,
             serverVoiceMuteStateKey(BOB),
         );
+    });
+
+    it("reads the record a moderator would change, in the server where they may mute people", () => {
+        record(other, BOB, { muted: true });
+        other.currentState.setStateEvents([state(other, EventType.SpaceChild, { via: ["example.org"] }, VOICE)]);
+        other.currentState.setStateEvents([
+            state(other, EventType.RoomPowerLevels, { users: {}, users_default: 0, state_default: 50 }),
+        ]);
+        expect(getServerVoiceMute(client, VOICE, BOB)).toEqual({ muted: true, deafened: false });
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: false, deafened: false });
+        record(server, BOB, { deafened: true });
+        expect(moderatedVoiceMute(client, VOICE, MOD, BOB)).toEqual({ muted: true, deafened: true });
+        expect(moderatedVoiceMute(client, VOICE, ME, BOB)).toBeUndefined();
     });
 
     it("refuses to change anything without the power", async () => {

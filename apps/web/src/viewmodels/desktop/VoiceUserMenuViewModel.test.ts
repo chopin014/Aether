@@ -405,6 +405,36 @@ describe("VoiceUserMenuViewModel", () => {
             vm.dispose();
         });
 
+        it("shows and changes the record of the server the user moderates, not another server's", async () => {
+            // Another server holds the channel too, where the user has no power, and has muted the person there.
+            const other = new Room("!other:example.org", client, ME);
+            const event = (eventType: string, content: object, stateKey = ""): MatrixEvent =>
+                new MatrixEvent({ type: eventType, state_key: stateKey, room_id: other.roomId, sender: BOB, content });
+            other.currentState.setStateEvents([
+                event(EventType.RoomCreate, { creator: BOB, room_version: "10", type: RoomType.Space }),
+                join(other, ME),
+                join(other, BOB),
+                event(EventType.RoomPowerLevels, { users: { [BOB]: 100 }, users_default: 0, state_default: 50 }),
+                event(EventType.SpaceChild, { via: ["example.org"] }, voice.roomId),
+                event(SERVER_VOICE_MUTE_EVENT_TYPE, { muted: true }, `u:${BOB}`),
+            ]);
+            other.updateMyMembership(KnownMembership.Join);
+            vi.mocked(client.getRooms).mockReturnValue([server, other, voice]);
+
+            const vm = create();
+            expect(vm.getSnapshot().serverVoiceMute).toEqual({ muted: false, deafened: false });
+            vm.toggleServerMuted();
+            await vi.waitFor(() =>
+                expect(client.sendStateEvent).toHaveBeenCalledWith(
+                    server.roomId,
+                    SERVER_VOICE_MUTE_EVENT_TYPE,
+                    { muted: true },
+                    `u:${BOB}`,
+                ),
+            );
+            vm.dispose();
+        });
+
         it("offers nothing to someone without the power in the server", () => {
             server.currentState.setStateEvents([
                 new MatrixEvent({
