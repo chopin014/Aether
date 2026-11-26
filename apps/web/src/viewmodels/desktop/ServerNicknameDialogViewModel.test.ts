@@ -14,7 +14,8 @@ import { stubClient } from "test-utils";
 import { ServerNicknameDialogViewModel } from "./ServerNicknameDialogViewModel";
 import { currentNickname, moderatorNickname, setNickname } from "../../utils/serverNickname";
 
-vi.mock("../../utils/serverNickname", () => ({
+vi.mock("../../utils/serverNickname", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/serverNickname")>()),
     currentNickname: vi.fn(() => ""),
     moderatorNickname: vi.fn(() => undefined),
     setNickname: vi.fn(async () => {}),
