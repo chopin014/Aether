@@ -318,6 +318,26 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(vm.getSnapshot()).toMatchObject({ serverMuted: false, serverDeafened: false });
     });
 
+    it("keeps the user's own microphone choice while a moderator's mute holds the microphone off", async () => {
+        await connect();
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
+
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+        expect(vm.getSnapshot()).toMatchObject({ serverMuted: true, microphoneMuted: true });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(preferences.get("audioInputMuted")).toBe(false);
+
+        // Once the mute is lifted, the microphone changes the call reports are the user's again.
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
+        onChanged();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
+    });
+
     it("serializes overlapping shortcut/device actions and preserves mute intent", async () => {
         await connect();
         await Promise.all([vm.toggleMicrophone(), vm.toggleDeafened()]);

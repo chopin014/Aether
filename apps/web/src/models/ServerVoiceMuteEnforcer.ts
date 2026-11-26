@@ -19,8 +19,9 @@ const logger = rootLogger.getChild("ServerVoiceMuteEnforcer");
  * silent where a moderator deafened them, as Discord's server mute and server deafen do. Whatever turns the microphone
  * back on (the dock, the call's own controls, push to talk) is undone at once.
  *
- * When a moderator lifts the mute, the microphone stays off until the user turns it on, so that it never goes live
- * without them knowing. When they lift the deafen, the call plays again unless the user deafened themselves.
+ * When a moderator lifts the mute or the deafen, the user is back as they were, as in Discord: the microphone comes
+ * back on if this enforcer turned it off and the user has not muted or deafened themselves, and the call plays again
+ * unless the user deafened themselves.
  */
 export class ServerVoiceMuteEnforcer {
     private disposed = false;
@@ -28,6 +29,8 @@ export class ServerVoiceMuteEnforcer {
     private readonly watched = new Map<ElementCall, () => void>();
     /** The calls this enforcer silenced, which it plays again once the deafen is lifted. */
     private readonly silenced = new Set<ElementCall>();
+    /** The calls in which this enforcer turned the microphone off, which it turns on again once the mute is lifted. */
+    private readonly microphoneTurnedOff = new Set<ElementCall>();
     private readonly stopListening: () => void;
 
     /** @param getCalls - The calls this device is in or joining. */
@@ -45,6 +48,7 @@ export class ServerVoiceMuteEnforcer {
         for (const stop of this.watched.values()) stop();
         this.watched.clear();
         this.silenced.clear();
+        this.microphoneTurnedOff.clear();
     }
 
     /** Watches the calls this device is in now and applies every moderator's mute to them. */
@@ -56,6 +60,7 @@ export class ServerVoiceMuteEnforcer {
             stop();
             this.watched.delete(call);
             this.silenced.delete(call);
+            this.microphoneTurnedOff.delete(call);
         }
         for (const call of calls) {
             if (!this.watched.has(call)) {
@@ -74,9 +79,17 @@ export class ServerVoiceMuteEnforcer {
     private enforce(call: ElementCall): void {
         if (this.disposed || !call.connected) return;
         const { muted, deafened } = getServerVoiceMute(this.client, call.roomId, this.client.getSafeUserId());
-        if (muted && call.deviceMuteState?.audio_enabled !== false) {
-            call.setDeviceMute({ audio_enabled: false }).catch((error) =>
-                logger.warn(`Could not keep the microphone off in ${call.roomId}`, error),
+        if (muted) {
+            if (call.deviceMuteState?.audio_enabled !== false) {
+                this.microphoneTurnedOff.add(call);
+                call.setDeviceMute({ audio_enabled: false }).catch((error) =>
+                    logger.warn(`Could not keep the microphone off in ${call.roomId}`, error),
+                );
+            }
+        } else if (this.microphoneTurnedOff.delete(call) && !this.mutedThemselves()) {
+            // Asked even when the call reports the microphone on: turning it off may still be under way.
+            call.setDeviceMute({ audio_enabled: true }).catch((error) =>
+                logger.warn(`Could not turn the microphone back on in ${call.roomId}`, error),
             );
         }
         try {
@@ -90,5 +103,10 @@ export class ServerVoiceMuteEnforcer {
         } catch (error) {
             logger.warn(`Could not change playback in ${call.roomId}`, error);
         }
+    }
+
+    /** Whether the user muted or deafened themselves, which the dock keeps whatever a moderator does. */
+    private mutedThemselves(): boolean {
+        return SettingsStore.getValue("audioInputMuted") || SettingsStore.getValue("desktopDeafened");
     }
 }

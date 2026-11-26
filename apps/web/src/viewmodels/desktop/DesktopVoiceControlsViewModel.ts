@@ -536,7 +536,9 @@ export class DesktopVoiceControlsViewModel
         if (!busy && mediaConnected && wasMuted !== microphoneMuted) {
             void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
         }
-        if (this.call?.deviceMuteState) {
+        // A moderator's mute turns the microphone off without the user choosing to: their own choice is kept, so it
+        // is what they get back once the mute is lifted.
+        if (this.call?.deviceMuteState && !this.snapshot.current.serverMuted) {
             void SettingsStore.setValue(
                 "audioInputMuted",
                 null,
