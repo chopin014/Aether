@@ -318,59 +318,31 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(vm.getSnapshot()).toMatchObject({ serverMuted: false, serverDeafened: false });
     });
 
-    it("keeps the user's own microphone choice while a moderator's mute holds the microphone off", async () => {
+    it("saves the microphone a moderator's mute holds off, so the next join starts muted", async () => {
         await connect();
         call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
         await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
-
         vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
         const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
-        onChanged();
-        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
-        expect(vm.getSnapshot()).toMatchObject({ serverMuted: true, microphoneMuted: true });
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(preferences.get("audioInputMuted")).toBe(false);
-
-        // Once the mute is lifted, the microphone changes the call reports are the user's again.
-        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
         onChanged();
         call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
         await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
     });
 
-    it("keeps the user's own microphone choice for after a deafen taken while a moderator's mute holds", async () => {
+    it("keeps the microphone off when the user undeafens while a moderator's mute holds", async () => {
+        // Deafened with the microphone on, then muted by a moderator.
         await connect();
         call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
-        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
-        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
-        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
-        onChanged();
-        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
-
         await vm.toggleDeafened();
         expect(preferences.get("desktopMicMutedBeforeDeafen")).toBe(false);
-        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: false, deafened: false });
-        onChanged();
-        await vm.toggleDeafened();
-        expect(preferences.get("audioInputMuted")).toBe(false);
-        expect(call.setDeviceMute).toHaveBeenLastCalledWith({ audio_enabled: true });
-    });
-
-    it("keeps the microphone off when the user undeafens while a moderator's mute holds", async () => {
-        await connect();
-        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
-        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
         vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
         const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
         onChanged();
-        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
 
-        await vm.toggleDeafened();
         vi.mocked(call.setDeviceMute).mockClear();
         await vm.toggleDeafened();
-        // The choice is kept for when the mute is lifted, without asking the call to turn the microphone on.
         expect(call.setDeviceMute).not.toHaveBeenCalledWith({ audio_enabled: true });
-        expect(preferences.get("audioInputMuted")).toBe(false);
+        expect(preferences.get("audioInputMuted")).toBe(true);
     });
 
     it("keeps the call silent on joining while a moderator has the user deafened", async () => {

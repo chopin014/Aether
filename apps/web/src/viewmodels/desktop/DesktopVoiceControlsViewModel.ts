@@ -230,16 +230,6 @@ export class DesktopVoiceControlsViewModel
         return { serverMuted: mute?.muted ?? false, serverDeafened: mute?.deafened ?? false };
     }
 
-    /**
-     * Whether the user's own choice is a muted microphone. While a moderator's mute holds the microphone off, that is
-     * the saved preference, not what the call reports.
-     */
-    private ownMicrophoneMuted(): boolean {
-        return this.snapshot.current.serverMuted
-            ? SettingsStore.getValue("audioInputMuted")
-            : this.snapshot.current.microphoneMuted;
-    }
-
     /** Whether the call may play, as far as moderators are concerned: not while one has deafened the user. */
     private mayPlay(call: ElementCall): boolean {
         return !this.serverVoiceMute(call).serverDeafened;
@@ -404,16 +394,16 @@ export class DesktopVoiceControlsViewModel
         const restore = this.restoreAfterTest;
         this.restoreAfterTest = undefined;
         if (!restore) return;
+        // A moderator who muted the user during the test keeps the microphone off.
+        const microphoneMuted = restore.microphoneMuted || this.serverVoiceMute(restore.call).serverMuted;
         try {
             if (this.call === restore.call && this.props.callStore.connectedCalls.has(restore.call)) {
                 restore.call.setAudioOutputEnabled(this.mayPlay(restore.call));
-                if (restore.microphoneMuted || !this.serverVoiceMute(restore.call).serverMuted) {
-                    await restore.call.setDeviceMute({ audio_enabled: !restore.microphoneMuted });
-                }
+                await restore.call.setDeviceMute({ audio_enabled: !microphoneMuted });
             }
         } finally {
             // Restore preferences even if the call ended or its media controls are already unavailable.
-            await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, restore.microphoneMuted);
+            await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, microphoneMuted);
             await SettingsStore.setValue("desktopDeafened", null, SettingLevel.DEVICE, false);
         }
     }
@@ -460,7 +450,7 @@ export class DesktopVoiceControlsViewModel
             if (generation !== this.testGeneration) return;
             try {
                 if (this.call && !SettingsStore.getValue("desktopDeafened")) {
-                    this.restoreAfterTest = { call: this.call, microphoneMuted: this.ownMicrophoneMuted() };
+                    this.restoreAfterTest = { call: this.call, microphoneMuted: this.snapshot.current.microphoneMuted };
                     await this.setDeafened(true);
                 }
                 if (generation !== this.testGeneration || this.isDisposed) return;
@@ -553,9 +543,7 @@ export class DesktopVoiceControlsViewModel
         if (!busy && mediaConnected && wasMuted !== microphoneMuted) {
             void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
         }
-        // A moderator's mute turns the microphone off without the user choosing to: their own choice is kept for
-        // the rest of the dock (deafening, the microphone test) while it holds.
-        if (this.call?.deviceMuteState && !this.snapshot.current.serverMuted) {
+        if (this.call?.deviceMuteState) {
             void SettingsStore.setValue(
                 "audioInputMuted",
                 null,
@@ -643,16 +631,16 @@ export class DesktopVoiceControlsViewModel
         return result;
     };
 
-    private setMicrophoneMuted = async (muted: boolean): Promise<void> => {
-        // While a moderator's mute holds, only the choice is kept. Asking the call to turn the microphone on would let
-        // it be heard until the enforcer turns it off again.
-        const held = !muted && this.snapshot.current.serverMuted;
-        if (this.call && !held) await this.call.setDeviceMute({ audio_enabled: !muted });
+    private setMicrophoneMuted = async (requested: boolean): Promise<void> => {
+        // While a moderator's mute holds, the microphone stays off. Asking the call to turn it on would let it be heard
+        // until the enforcer turns it off again, and saving it as on would turn it on at the next join.
+        const muted = requested || this.snapshot.current.serverMuted;
+        if (this.call) await this.call.setDeviceMute({ audio_enabled: !muted });
         await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, muted);
     };
 
     private setDeafened = async (deafened: boolean, forceUnmute = false): Promise<void> => {
-        const wasMuted = this.ownMicrophoneMuted();
+        const wasMuted = this.snapshot.current.microphoneMuted;
         const restoreMuted = forceUnmute ? false : SettingsStore.getValue("desktopMicMutedBeforeDeafen");
         if (deafened) {
             await this.setMicrophoneMuted(true);
