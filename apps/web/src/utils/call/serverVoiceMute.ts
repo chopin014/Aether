@@ -123,9 +123,9 @@ function applied(record: ServerVoiceMute, change: Partial<ServerVoiceMute>): Ser
  * Mutes, deafens, unmutes or undeafens someone in every voice channel of the servers holding `roomId` that the user
  * moderates, as Discord's deafen includes the mute.
  *
- * A lift goes to each of those servers whose own record it changes, so a mute set in any of them can be lifted and
- * nothing else is set again. A mute or deafen goes to one server: the first already holding a record about the
- * person, or else the first of them.
+ * An unmute clears the record in each of those servers, so a mute set in any of them can be lifted. Lifting a deafen,
+ * which keeps the mute, goes to the first of them holding a deafen; a mute or deafen goes to the first already holding
+ * a record about the person, or else the first of them. Only a record the change alters is written.
  *
  * @returns once the homeserver accepted the change.
  */
@@ -138,9 +138,27 @@ export async function setServerVoiceMute(
     const servers = serversForVoiceMute(client, roomId, client.getSafeUserId());
     if (!servers.length) throw new Error("Not allowed to mute people in this channel");
     const records = servers.map((server) => readRecord(server, userId));
-    const lifting = change.muted === false || change.deafened === false;
-    const holding = servers.findIndex((_, i) => records[i].muted || records[i].deafened);
-    const targets = lifting ? servers.map((_, i) => i) : [Math.max(holding, 0)];
+    let targets: number[];
+    if (change.muted === false) {
+        // Clearing a record is right whatever it held, even if another moderator already cleared it.
+        targets = servers.map((_, i) => i);
+    } else if (change.deafened === false) {
+        // Lifting a deafen keeps the mute, which written to a server whose moderators just lifted both would set
+        // their mute again: one server at a time, and the menu still shows a deafen held by another.
+        targets = [
+            Math.max(
+                records.findIndex((record) => record.deafened),
+                0,
+            ),
+        ];
+    } else {
+        targets = [
+            Math.max(
+                records.findIndex((record) => record.muted || record.deafened),
+                0,
+            ),
+        ];
+    }
     const writes = targets.flatMap((i) => {
         const next = applied(records[i], change);
         if (next.muted === records[i].muted && next.deafened === records[i].deafened) return [];
