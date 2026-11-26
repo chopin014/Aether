@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { appPaintsOver, floatingUiOver, samplePoints } from "./appCover";
+import { appPaintsOver, floatingUiOver, samplePoints, transparent } from "./appCover";
 
 /** A call stage like the real one: a tile with a background, the rounded player layer above it, a see-through header. */
 function buildStage(): { stage: HTMLDivElement; site: HTMLDivElement } {
@@ -102,6 +102,31 @@ describe("app UI over the embedded browser", () => {
         expect(covered()).toBe(false);
     });
 
+    it("ignores a closed dialog kept in the page, and one drawn behind the player", () => {
+        const hidden = addFloating(
+            "left:400px;top:100px;width:300px;height:300px;background:#2b2d31;visibility:hidden",
+            {
+                role: "dialog",
+            },
+        );
+        expect(covered()).toBe(false);
+        hidden.remove();
+        // Inside the stage, under the player's layer.
+        const behind = document.createElement("div");
+        behind.setAttribute("role", "dialog");
+        behind.style.cssText =
+            "position:absolute;left:100px;top:100px;width:300px;height:200px;z-index:1;background:#2b2d31";
+        stage.appendChild(behind);
+        expect(covered()).toBe(false);
+        behind.style.zIndex = "4";
+        expect(floatingUiOver(site, site.getBoundingClientRect())).toBe(true);
+    });
+
+    it("notices a solid black backdrop with nothing written on it", () => {
+        addFloating("inset:0;background:rgb(0, 0, 0)");
+        expect(appPaintsOver(site, site.getBoundingClientRect())).toBe(true);
+    });
+
     it("ignores dialogs the player itself sits in", () => {
         stage.setAttribute("role", "dialog");
         expect(covered()).toBe(false);
@@ -130,5 +155,17 @@ describe("samplePoints", () => {
             .sort((a, b) => a - b);
         expect(Math.max(...top.slice(1).map((x, i) => x - top[i]))).toBeLessThanOrEqual(32);
         expect(samplePoints(new DOMRect(400, 10, 100, 100), 250, 800)).toEqual([]);
+    });
+});
+
+describe("transparent", () => {
+    it("reads only an alpha of zero as see-through", () => {
+        expect(transparent("transparent")).toBe(true);
+        expect(transparent("rgba(0, 0, 0, 0)")).toBe(true);
+        expect(transparent("oklch(0.5 0.1 200 / 0)")).toBe(true);
+        expect(transparent("color(srgb 0 0 0 / 0)")).toBe(true);
+        expect(transparent("rgb(0, 0, 0)")).toBe(false);
+        expect(transparent("rgba(0, 0, 0, 0.5)")).toBe(false);
+        expect(transparent("rgb(10, 20, 0)")).toBe(false);
     });
 });

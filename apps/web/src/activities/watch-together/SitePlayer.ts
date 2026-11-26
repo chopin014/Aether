@@ -40,6 +40,11 @@ export function samePage(a: string, b: string): boolean {
 
 /** How many frames pass between full checks of what the app draws over the player; a few times a second. */
 const PAINT_CHECK_FRAMES = 6;
+/**
+ * How many full checks in a row must find nothing before the player shows again. Something moving over the player
+ * can fall between the sample points on one check and not the next; waiting keeps the player from flickering.
+ */
+const PAINT_CLEAR_CHECKS = 3;
 
 /**
  * A website shown in the desktop app's own embedded browser and laid over the player tile. Everyone opens the page
@@ -59,8 +64,8 @@ export class SitePlayer implements WatchPlayer {
     private frame = 0;
     private lastBounds = "";
     private obscured = false;
-    /** The last full check found part of the app drawn over the player. */
-    private painted = false;
+    /** How many more full checks must find nothing drawn over the player before it shows again. */
+    private paintedFor = 0;
     private paintCheckIn = 0;
     private disposed = false;
 
@@ -195,9 +200,10 @@ export class SitePlayer implements WatchPlayer {
                 // Known pop-ups are looked for every frame, so a menu shows at once; anything else within a moment.
                 if (--this.paintCheckIn <= 0) {
                     this.paintCheckIn = PAINT_CHECK_FRAMES;
-                    this.painted = appPaintsOver(element, box);
+                    if (appPaintsOver(element, box)) this.paintedFor = PAINT_CLEAR_CHECKS;
+                    else if (this.paintedFor > 0) this.paintedFor--;
                 }
-                if (!this.painted && !floatingUiOver(element, box)) {
+                if (this.paintedFor === 0 && !floatingUiOver(element, box)) {
                     bounds = { x: box.left, y: box.top, width: box.width, height: box.height };
                 }
             }

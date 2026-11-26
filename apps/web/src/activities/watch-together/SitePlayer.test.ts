@@ -12,6 +12,12 @@ import type { SiteViewApi, SiteViewEvent, SiteViewState } from "shared-types";
 
 import { samePage, SitePlayer, UnsupportedSitePlayer } from "./SitePlayer";
 import type { WatchPlayerEvent } from "./WatchPlayer";
+import { appPaintsOver } from "./appCover";
+
+vi.mock("./appCover", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("./appCover")>();
+    return { ...actual, appPaintsOver: vi.fn(actual.appPaintsOver) };
+});
 
 const item = { id: "i1", source: "site" as const, ref: "https://archive.org/details/movie", addedBy: "@a:example.org" };
 
@@ -149,6 +155,27 @@ describe("SitePlayer", () => {
         soundboard.remove();
         await frame();
         expect(api.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 100, width: 640, height: 360 });
+    });
+
+    it("waits for a few clean checks before showing the view again after something was drawn over it", async () => {
+        document.body.appendChild(player.element);
+        player.element.getBoundingClientRect = (): DOMRect =>
+            ({ x: 300, y: 100, left: 300, top: 100, width: 640, height: 360, right: 940, bottom: 460 }) as DOMRect;
+        const shown = { x: 300, y: 100, width: 640, height: 360 };
+        await frame();
+        expect(api.setBounds).toHaveBeenLastCalledWith(shown);
+        // Something moving over the player is found by one check and falls between the sample points on the next.
+        vi.mocked(appPaintsOver).mockReturnValueOnce(true);
+        for (let i = 0; i < 8 && vi.mocked(api.setBounds).mock.lastCall?.[0] !== null; i++) await frame();
+        expect(api.setBounds).toHaveBeenLastCalledWith(null);
+        let frames = 0;
+        while (vi.mocked(api.setBounds).mock.lastCall?.[0] === null && frames < 40) {
+            await frame();
+            frames++;
+        }
+        // Three more checks, a few frames apart, found nothing before the view came back.
+        expect(frames).toBeGreaterThanOrEqual(13);
+        expect(api.setBounds).toHaveBeenLastCalledWith(shown);
     });
 
     it("closes the view when disposed", () => {
