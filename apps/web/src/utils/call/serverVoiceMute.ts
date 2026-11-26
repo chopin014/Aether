@@ -151,3 +151,29 @@ export function onServerVoiceMutesChanged(client: MatrixClient, listener: () => 
     set.add(listener);
     return () => set.delete(listener);
 }
+
+/** For each call, how many microphone changes made to carry out a moderator's mute are still under way. */
+const forcedChanges = new WeakMap<object, number>();
+
+/**
+ * Marks a microphone change made to carry out a moderator's mute (or its lifting) while it is under way, so that what
+ * the call reports meanwhile is not taken for the user's own choice.
+ *
+ * @param call - The call whose microphone is changed.
+ * @param change - The change; it is returned as it is.
+ */
+export function forceMicrophoneChange<T>(call: object, change: Promise<T>): Promise<T> {
+    forcedChanges.set(call, (forcedChanges.get(call) ?? 0) + 1);
+    const settle = (): void => {
+        const left = (forcedChanges.get(call) ?? 1) - 1;
+        if (left > 0) forcedChanges.set(call, left);
+        else forcedChanges.delete(call);
+    };
+    change.then(settle, settle);
+    return change;
+}
+
+/** Whether a microphone change made for a moderator's mute is under way in `call`. */
+export function isMicrophoneChangeForced(call: object): boolean {
+    return forcedChanges.has(call);
+}

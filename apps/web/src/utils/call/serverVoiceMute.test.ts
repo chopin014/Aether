@@ -22,7 +22,9 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 
 import {
+    forceMicrophoneChange,
     getServerVoiceMute,
+    isMicrophoneChangeForced,
     onServerVoiceMutesChanged,
     SERVER_VOICE_MUTE_EVENT_TYPE,
     serverForVoiceMute,
@@ -156,5 +158,22 @@ describe("serverVoiceMute", () => {
         client.emit(RoomEvent.MyMembership, rooms.get("!chat:example.org")!, KnownMembership.Leave);
         expect(listener).toHaveBeenCalledTimes(2);
         stop();
+    });
+
+    it("marks a microphone change made for a moderator's mute until it is done", async () => {
+        const call = {};
+        let finish!: () => void;
+        const change = forceMicrophoneChange(call, new Promise<void>((resolve) => (finish = resolve)));
+        expect(isMicrophoneChangeForced(call)).toBe(true);
+        expect(isMicrophoneChangeForced({})).toBe(false);
+        finish();
+        await change;
+        await Promise.resolve();
+        expect(isMicrophoneChangeForced(call)).toBe(false);
+
+        const failed = forceMicrophoneChange(call, Promise.reject(new Error("no")));
+        await expect(failed).rejects.toThrow("no");
+        await Promise.resolve();
+        expect(isMicrophoneChangeForced(call)).toBe(false);
     });
 });

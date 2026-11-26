@@ -35,7 +35,11 @@ import { customizeDesktopVoiceProfile } from "../../audio/desktop/DesktopVoicePr
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
-import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
+import {
+    getServerVoiceMute,
+    isMicrophoneChangeForced,
+    onServerVoiceMutesChanged,
+} from "../../utils/call/serverVoiceMute";
 
 interface Props {
     client: MatrixClient;
@@ -230,6 +234,21 @@ export class DesktopVoiceControlsViewModel
         return { serverMuted: mute?.muted ?? false, serverDeafened: mute?.deafened ?? false };
     }
 
+    /**
+     * Whether the user's own choice is a muted microphone. While a moderator's mute holds the microphone off, that is
+     * the saved preference, not what the call reports.
+     */
+    private ownMicrophoneMuted(): boolean {
+        return this.snapshot.current.serverMuted
+            ? SettingsStore.getValue("audioInputMuted")
+            : this.snapshot.current.microphoneMuted;
+    }
+
+    /** Whether the call may play, as far as moderators are concerned: not while one has deafened the user. */
+    private mayPlay(call: ElementCall): boolean {
+        return !this.serverVoiceMute(call).serverDeafened;
+    }
+
     private readonly refresh = (): void => {
         if (this.isDisposed) return;
         const call = this.call?.locallyLeaving ? undefined : this.call;
@@ -391,7 +410,7 @@ export class DesktopVoiceControlsViewModel
         if (!restore) return;
         try {
             if (this.call === restore.call && this.props.callStore.connectedCalls.has(restore.call)) {
-                restore.call.setAudioOutputEnabled(true);
+                restore.call.setAudioOutputEnabled(this.mayPlay(restore.call));
                 await restore.call.setDeviceMute({ audio_enabled: !restore.microphoneMuted });
             }
         } finally {
@@ -443,7 +462,7 @@ export class DesktopVoiceControlsViewModel
             if (generation !== this.testGeneration) return;
             try {
                 if (this.call && !SettingsStore.getValue("desktopDeafened")) {
-                    this.restoreAfterTest = { call: this.call, microphoneMuted: this.snapshot.current.microphoneMuted };
+                    this.restoreAfterTest = { call: this.call, microphoneMuted: this.ownMicrophoneMuted() };
                     await this.setDeafened(true);
                 }
                 if (generation !== this.testGeneration || this.isDisposed) return;
@@ -537,8 +556,9 @@ export class DesktopVoiceControlsViewModel
             void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
         }
         // A moderator's mute turns the microphone off without the user choosing to: their own choice is kept, so it
-        // is what they get back once the mute is lifted.
-        if (this.call?.deviceMuteState && !this.snapshot.current.serverMuted) {
+        // is what they get back once the mute is lifted. What the call reports while such a change is still under
+        // way can arrive after the mute changed again, so it is not saved either.
+        if (this.call?.deviceMuteState && !this.snapshot.current.serverMuted && !isMicrophoneChangeForced(this.call)) {
             void SettingsStore.setValue(
                 "audioInputMuted",
                 null,
@@ -592,7 +612,7 @@ export class DesktopVoiceControlsViewModel
                 if (this.call !== call || this.isDisposed) return;
                 const deafened = SettingsStore.getValue("desktopDeafened");
                 if (deafened) await call.setDeviceMute({ audio_enabled: false });
-                if (this.call === call && !this.isDisposed) call.setAudioOutputEnabled(!deafened);
+                if (this.call === call && !this.isDisposed) call.setAudioOutputEnabled(!deafened && this.mayPlay(call));
             });
         }
         this.refresh();
@@ -632,7 +652,7 @@ export class DesktopVoiceControlsViewModel
     };
 
     private setDeafened = async (deafened: boolean, forceUnmute = false): Promise<void> => {
-        const wasMuted = this.snapshot.current.microphoneMuted;
+        const wasMuted = this.ownMicrophoneMuted();
         const restoreMuted = forceUnmute ? false : SettingsStore.getValue("desktopMicMutedBeforeDeafen");
         if (deafened) {
             await this.setMicrophoneMuted(true);
@@ -644,7 +664,7 @@ export class DesktopVoiceControlsViewModel
             }
             await SettingsStore.setValue("desktopMicMutedBeforeDeafen", null, SettingLevel.DEVICE, wasMuted);
         } else {
-            this.call?.setAudioOutputEnabled(true);
+            if (this.call) this.call.setAudioOutputEnabled(this.mayPlay(this.call));
             try {
                 await this.setMicrophoneMuted(restoreMuted);
             } catch (error) {

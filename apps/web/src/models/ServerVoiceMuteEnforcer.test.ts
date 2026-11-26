@@ -15,7 +15,11 @@ import { stubClient } from "test-utils";
 import { ServerVoiceMuteEnforcer } from "./ServerVoiceMuteEnforcer";
 import { CallEvent, ConnectionState, ElementCall, type Call } from "./Call";
 import SettingsStore from "../settings/SettingsStore";
-import { SERVER_VOICE_MUTE_EVENT_TYPE, serverVoiceMuteStateKey } from "../utils/call/serverVoiceMute";
+import {
+    isMicrophoneChangeForced,
+    SERVER_VOICE_MUTE_EVENT_TYPE,
+    serverVoiceMuteStateKey,
+} from "../utils/call/serverVoiceMute";
 
 const ME = "@me:example.org";
 const MOD = "@mod:example.org";
@@ -108,6 +112,20 @@ describe("ServerVoiceMuteEnforcer", () => {
         call.setDeviceMute.mockClear();
         call.reportMicrophone(true);
         expect(call.setDeviceMute).toHaveBeenCalledWith({ audio_enabled: false });
+    });
+
+    it("marks its own microphone changes while they are under way, so they are not taken for the user's", async () => {
+        const call = fakeCall();
+        calls.push(call);
+        enforcer.update();
+        moderate({ muted: true });
+        expect(isMicrophoneChangeForced(call)).toBe(true);
+        await vi.waitFor(() => expect(isMicrophoneChangeForced(call)).toBe(false));
+
+        moderate({});
+        expect(call.setDeviceMute).toHaveBeenLastCalledWith({ audio_enabled: true });
+        expect(isMicrophoneChangeForced(call)).toBe(true);
+        await vi.waitFor(() => expect(isMicrophoneChangeForced(call)).toBe(false));
     });
 
     it("turns the microphone back on once the mute is lifted, as it was before", () => {

@@ -10,7 +10,7 @@ import { logger as rootLogger } from "matrix-js-sdk/src/logger";
 
 import { CallEvent, ElementCall, type Call } from "./Call";
 import SettingsStore from "../settings/SettingsStore";
-import { getServerVoiceMute, onServerVoiceMutesChanged } from "../utils/call/serverVoiceMute";
+import { forceMicrophoneChange, getServerVoiceMute, onServerVoiceMutesChanged } from "../utils/call/serverVoiceMute";
 
 const logger = rootLogger.getChild("ServerVoiceMuteEnforcer");
 
@@ -82,13 +82,13 @@ export class ServerVoiceMuteEnforcer {
         if (muted) {
             if (call.deviceMuteState?.audio_enabled !== false) {
                 this.microphoneTurnedOff.add(call);
-                call.setDeviceMute({ audio_enabled: false }).catch((error) =>
+                forceMicrophoneChange(call, call.setDeviceMute({ audio_enabled: false })).catch((error) =>
                     logger.warn(`Could not keep the microphone off in ${call.roomId}`, error),
                 );
             }
         } else if (this.microphoneTurnedOff.delete(call) && !this.mutedThemselves()) {
             // Asked even when the call reports the microphone on: turning it off may still be under way.
-            call.setDeviceMute({ audio_enabled: true }).catch((error) =>
+            forceMicrophoneChange(call, call.setDeviceMute({ audio_enabled: true })).catch((error) =>
                 logger.warn(`Could not turn the microphone back on in ${call.roomId}`, error),
             );
         }
