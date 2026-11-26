@@ -35,6 +35,7 @@ const defaults: Record<string, unknown> = {
     "desktopPushToTalkReleaseDelay": 0,
     "audioInputMuted": false,
     "desktopDeafened": false,
+    "webrtc_audio_echoCancellation": true,
 };
 let values: Record<string, unknown>;
 let watchers: Map<string, () => void>;
@@ -57,7 +58,7 @@ describe("getMicrophoneGateConfig", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    const plain = { noiseSuppression: null, voiceDetection: false };
+    const plain = { noiseSuppression: null, voiceDetection: false, cancelPlayback: true };
 
     it("follows the automatic sensitivity by default, at full volume", () => {
         expect(getMicrophoneGateConfig()).toEqual({ volume: 1, threshold: "auto", pushToTalk: false, ...plain });
@@ -87,6 +88,7 @@ describe("getMicrophoneGateConfig", () => {
             pushToTalk: false,
             noiseSuppression: 100,
             voiceDetection: true,
+            cancelPlayback: true,
         });
         expect(getBrowserNoiseSuppression()).toBe(false);
     });
@@ -109,6 +111,16 @@ describe("getMicrophoneGateConfig", () => {
         expect(getMicrophoneGateConfig()).toEqual(expect.objectContaining(plain));
         expect(getBrowserNoiseSuppression()).toBe(true);
     });
+
+    it.each(["custom", "studio", "voice_isolation"])(
+        "removes other applications' sound from the microphone only with echo cancellation, in the %s profile",
+        (profile) => {
+            values.desktopInputProfile = profile;
+            expect(getMicrophoneGateConfig().cancelPlayback).toBe(true);
+            values.webrtc_audio_echoCancellation = false;
+            expect(getMicrophoneGateConfig().cancelPlayback).toBe(false);
+        },
+    );
 
     it("keeps push to talk gated even before a key is assigned", () => {
         values.desktopInputMode = "push_to_talk";
@@ -251,7 +263,16 @@ describe("DesktopVoicePipeline", () => {
             pushToTalk: false,
             noiseSuppression: null,
             voiceDetection: false,
+            cancelPlayback: true,
         });
+    });
+
+    it("stops removing other applications' sound during a call when echo cancellation is turned off", () => {
+        const setConfig = vi.spyOn(pipeline.microphoneProcessor, "setConfig");
+        pipeline.attach(fakeHandle());
+        vi.mocked(MediaDeviceHandler.getAudioEchoCancellation).mockReturnValue(false);
+        change("webrtc_audio_echoCancellation", false);
+        expect(setConfig).toHaveBeenLastCalledWith(expect.objectContaining({ cancelPlayback: false }));
     });
 
     it("stops listening once the last component is gone", () => {

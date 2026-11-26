@@ -59,12 +59,29 @@ const ANS_STRENGTH = 100;
 export function getMicrophoneGateConfig(): MicrophoneGateConfig {
     const volume = SettingsStore.getValue("desktopMicrophoneVolume") / 100;
     const pushToTalk = SettingsStore.getValue("desktopInputMode") === "push_to_talk";
+    // Echo cancellation already promises that what is played does not come back through the microphone; other
+    // applications' sound is played too.
+    const cancelPlayback = MediaDeviceHandler.getAudioEchoCancellation();
     switch (SettingsStore.getValue("desktopInputProfile")) {
         // Studio sends the microphone as it is, so it never gates.
         case "studio":
-            return { volume, threshold: null, pushToTalk, noiseSuppression: null, voiceDetection: false };
+            return {
+                volume,
+                threshold: null,
+                pushToTalk,
+                noiseSuppression: null,
+                voiceDetection: false,
+                cancelPlayback,
+            };
         case "voice_isolation":
-            return { volume, threshold: "auto", pushToTalk, noiseSuppression: ANS_STRENGTH, voiceDetection: true };
+            return {
+                volume,
+                threshold: "auto",
+                pushToTalk,
+                noiseSuppression: ANS_STRENGTH,
+                voiceDetection: true,
+                cancelPlayback,
+            };
     }
     const enhanced = SettingsStore.getValue("desktopNoiseSuppression") === "enhanced";
     return {
@@ -75,6 +92,7 @@ export function getMicrophoneGateConfig(): MicrophoneGateConfig {
         pushToTalk,
         noiseSuppression: enhanced ? ANS_STRENGTH : null,
         voiceDetection: enhanced && SettingsStore.getValue("desktopVoiceDetection"),
+        cancelPlayback,
     };
 }
 

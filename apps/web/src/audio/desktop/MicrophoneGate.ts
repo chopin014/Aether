@@ -26,6 +26,11 @@ export interface MicrophoneGateConfig {
      * gate however loud they are. Has no effect without noise suppression.
      */
     voiceDetection?: boolean;
+    /**
+     * Remove the sound of other applications from the microphone, using what the system plays as a reference. It
+     * reaches the microphone through speakers, or inside a headset even while its microphone is muted.
+     */
+    cancelPlayback?: boolean;
 }
 
 /** The quietest level the meters and the sensitivity setting use. */
