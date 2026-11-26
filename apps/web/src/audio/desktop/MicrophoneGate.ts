@@ -38,9 +38,13 @@ const VOICE_HOLD_MS = 500;
 /** How fast the gain follows the gate, so it opens and closes without clicking. */
 const OPEN_RAMP_MS = 3;
 const CLOSE_RAMP_MS = 25;
-/** The automatic threshold sits this far above the noise floor, which may be anywhere in this range. */
+/**
+ * The automatic threshold sits this far above the noise floor, which may be anywhere in this range. The floor stops
+ * at -70 dB: a muted or very quiet microphone would otherwise pull the threshold down to where faint sounds open the
+ * gate, such as music leaking inside a headset after the browser's gain control has raised it.
+ */
 const AUTO_MARGIN_DB = 10;
-const AUTO_FLOOR_RANGE_DB = [-80, -40] as const;
+const AUTO_FLOOR_RANGE_DB = [-70, -40] as const;
 /** How quickly the noise floor estimate may rise, so that long speech does not become the "noise". */
 const AUTO_FLOOR_RISE_DB_PER_SECOND = 0.5;
 

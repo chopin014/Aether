@@ -129,7 +129,15 @@ describe("MicrophoneGate with an automatic threshold", () => {
         run(gate, -2, 20000);
         expect(gate.threshold!).toBeLessThanOrEqual(-30);
         run(gate, -100, 20000);
-        expect(gate.threshold!).toBeGreaterThanOrEqual(-70);
+        expect(gate.threshold!).toBeGreaterThanOrEqual(-60);
+    });
+
+    it("stays closed for a faint leak after a muted microphone pulled the noise floor down", () => {
+        const gate = gateWith({ threshold: "auto" });
+        // A headset muted at its cable is near silence, until music played in it leaks into the microphone.
+        run(gate, -85, 3000);
+        run(gate, -65, 200);
+        expect(gate.open).toBe(false);
     });
 });
 
