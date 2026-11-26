@@ -21,4 +21,9 @@ export interface DesktopAudioApi {
     start: (sessionId: string) => Promise<boolean>;
     stop: (sessionId: string) => Promise<void>;
     onData: (listener: (packet: DesktopAudioPacket) => void) => () => void;
+    /**
+     * Lets the next audio-only display capture of the app's own page receive the system's playback, for the
+     * microphone to remove it. That audio stays on the device.
+     */
+    preparePlaybackReference: () => Promise<void>;
 }

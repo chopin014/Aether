@@ -54,11 +54,34 @@ export function getPendingDisplayMediaAudio(): boolean | null {
     return pendingAudioRequest;
 }
 
+/** The browser's own display capture and the desktop bridge, kept for the playback reference. */
+let playbackReferenceSource: { api: DesktopAudioApi; getDisplayMedia: MediaDevices["getDisplayMedia"] } | undefined;
+
+/**
+ * Captures what the system plays, for the microphone processing to remove from the microphone: other applications'
+ * sound reaches it through speakers, or inside a headset even while its microphone is muted. The audio stays on this
+ * device. Resolves to null where the desktop app cannot provide it.
+ */
+export async function capturePlaybackReference(): Promise<MediaStream | null> {
+    if (!playbackReferenceSource) return null;
+    const { api, getDisplayMedia } = playbackReferenceSource;
+    await api.preparePlaybackReference();
+    // Untouched audio: the microphone processing compares it with the microphone sample for sample.
+    const stream = await getDisplayMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        video: false,
+    });
+    if (stream.getAudioTracks().length > 0) return stream;
+    for (const track of stream.getTracks()) track.stop();
+    return null;
+}
+
 /** Attach native source audio to display capture, including preferences changed while the picker was open. */
 export function installDesktopAudioCapture(api: DesktopAudioApi): void {
     const devices = navigator.mediaDevices;
     if (!devices?.getDisplayMedia) return;
     const getDisplayMedia = devices.getDisplayMedia.bind(devices);
+    playbackReferenceSource = { api, getDisplayMedia };
     devices.getDisplayMedia = async (options): Promise<MediaStream> => {
         if (!SettingsStore.getValue("feature_desktop_shell")) return getDisplayMedia(options);
         // Follow this request rather than the saved preference: a share restarted to add audio asks for it

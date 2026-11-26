@@ -221,4 +221,48 @@ describe("MicrophoneGateWorklet with noise suppression", { timeout: 30000 }, () 
         runNoise(processor, 2.1);
         expect(processor.port.postMessage).not.toHaveBeenCalledWith({ denoiser: "overloaded" });
     });
+    it("removes the system's playback, fed to its second input, from the microphone", () => {
+        const processor = new Processor({
+            processorOptions: { ...state, config: { ...state.config, pushToTalk: false } },
+        });
+        // Music-like playback whose loudness changes every 100 ms, leaking 80 ms later at -50 dB.
+        let seed = 3;
+        const random = (): number => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+        const delay = 3840;
+        const history: number[] = [];
+        let gain = 0.1;
+        let inputEnergy = 0;
+        let outputEnergy = 0;
+        const blocks = (6 * 48000) / 128;
+        for (let b = 0; b < blocks; b++) {
+            const reference = new Float32Array(128);
+            const mic = new Float32Array(128);
+            const output = new Float32Array(128);
+            for (let i = 0; i < 128; i++) {
+                if ((b * 128 + i) % 4800 === 0) gain = 0.1 * 10 ** ((random() * 20 - 10) / 20);
+                reference[i] = gain * (random() * 2 - 1);
+                history.push(reference[i]);
+                const past = history.length > delay ? history[history.length - 1 - delay] : 0;
+                mic[i] = past * 10 ** (-50 / 20);
+            }
+            processor.process([[mic], [reference]], [[output]]);
+            if (b >= blocks - 375) {
+                for (let i = 0; i < 128; i++) {
+                    inputEnergy += mic[i] * mic[i];
+                    outputEnergy += output[i] * output[i];
+                }
+            }
+        }
+        expect(10 * Math.log10(outputEnergy / inputEnergy)).toBeLessThan(-25);
+    });
+
+    it("passes the microphone untouched while no playback is connected", () => {
+        const processor = new Processor({
+            processorOptions: { ...state, config: { ...state.config, pushToTalk: false } },
+        });
+        const input = new Float32Array(128).map((_, i) => Math.sin(i / 5) * 0.3);
+        const output = new Float32Array(128);
+        for (let b = 0; b < 20; b++) processor.process([[input], []], [[output]]);
+        for (let i = 0; i < 128; i++) expect(output[i]).toBeCloseTo(input[i], 6);
+    });
 });

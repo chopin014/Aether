@@ -97,10 +97,17 @@ export class DesktopAudioCapture {
 
 let capture: DesktopAudioCapture | undefined;
 let portalAudioRequested = false;
+let captureOwner: WebContents | undefined;
+/** When the renderer last asked for the playback reference; the request it makes right after is answered with it. */
+let playbackReferenceRequestedAt: number | null = null;
+/** How long a playback reference request waits for its display capture. */
+const PLAYBACK_REFERENCE_WINDOW_MS = 5000;
 
 /** Install audio IPC restricted to the app's top-level renderer. `native` replaces the native module in tests. */
 export function setupDesktopAudio(owner: WebContents, native?: NativeCapture): void {
     capture = new DesktopAudioCapture(owner, native);
+    captureOwner = owner;
+    playbackReferenceRequestedAt = null;
     const assertOwner = (event: Electron.IpcMainInvokeEvent): void => {
         if (event.sender !== owner || event.senderFrame !== owner.mainFrame) throw new Error("Invalid audio sender");
     };
@@ -119,6 +126,30 @@ export function setupDesktopAudio(owner: WebContents, native?: NativeCapture): v
         assertOwner(event);
         capture!.stop(sessionId);
     });
+    ipcMain.removeHandler("aether:playback-reference-prepare");
+    ipcMain.handle("aether:playback-reference-prepare", (event) => {
+        assertOwner(event);
+        playbackReferenceRequestedAt = Date.now();
+    });
+}
+
+/**
+ * Answers the display capture the renderer makes right after asking for the playback reference: audio only, from
+ * the app's own page. The system loopback it receives is what the microphone processing removes from the microphone,
+ * and never leaves the device. Any other request, a screen share included, is left to the picker.
+ *
+ * @returns Whether the request was answered.
+ */
+export function answerPlaybackReferenceRequest(
+    request: Pick<Electron.DisplayMediaRequestHandlerHandlerRequest, "frame" | "audioRequested" | "videoRequested">,
+    callback: (streams: Electron.Streams | null) => void,
+): boolean {
+    if (request.videoRequested || !request.audioRequested || playbackReferenceRequestedAt === null) return false;
+    const fresh = Date.now() - playbackReferenceRequestedAt <= PLAYBACK_REFERENCE_WINDOW_MS;
+    playbackReferenceRequestedAt = null;
+    if (!fresh || !captureOwner || captureOwner.isDestroyed() || request.frame !== captureOwner.mainFrame) return false;
+    callback({ audio: "loopback" });
+    return true;
 }
 
 /** Record the selected source only when the pending display-media callback is consumed. */

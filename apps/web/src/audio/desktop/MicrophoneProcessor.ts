@@ -17,6 +17,7 @@ import { PreparedMicrophoneGraph } from "./PreparedMicrophoneGraph";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 import { keepRealtimeClock } from "./keepRealtimeClock";
 import { lingerCapture } from "./lingerCapture";
+import { capturePlaybackReference } from "./DesktopAudioCapture";
 
 /** How long after a call's microphone is released before the next call's graph is prepared, if it left none. */
 export const REPREPARE_AFTER_LEAVE_MS = 3000;
@@ -77,6 +78,11 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     private denoiserStatus?: DenoiserStatus;
     /** Whether this graph's processor broke, so that no other call is given it. */
     private crashed = false;
+    /** The system's playback, fed to the processor's second input so that it can be removed from the microphone. */
+    private playback?: { stream: MediaStream; source: MediaStreamAudioSourceNode };
+    /** Counts playback requests, so that one that resolves after its graph changed is let go. */
+    private playbackTicket = 0;
+    private playbackPending = false;
     private pushToTalkActive = false;
     private shortcutMuted = false;
     private generation = 0;
@@ -214,6 +220,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         if (this.prepared && this.prepared.denoiser !== this.wantsDenoiser(config)) this.discardPrepared();
         this.config = config;
         this.sendState();
+        this.updatePlayback();
         // A graph started without noise suppression receives it once it is compiled.
         if (wantsDenoiser && this.processor) void this.sendDenoiser(this.generation);
         for (const child of this.children) child.setConfig(config);
@@ -313,7 +320,8 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             this.processor =
                 prepared?.graph.processor ??
                 new AudioWorkletNode(context, "aether-microphone-gate", {
-                    numberOfInputs: 1,
+                    // The microphone, then the system's playback that is removed from it.
+                    numberOfInputs: 2,
                     numberOfOutputs: 1,
                     outputChannelCount: [1],
                     channelCount: 1,
@@ -348,6 +356,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             };
             this.source.connect(this.processor);
             this.processor.connect(this.destination);
+            this.updatePlayback();
             // Nothing in this graph reaches the speakers, which would otherwise let Chromium slow its clock.
             keepRealtimeClock(context);
             // Electron lets audio start without a gesture, but a context can still begin suspended.
@@ -372,12 +381,55 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     }
 
     /**
+     * Connects the system's playback to this microphone's processor while the settings ask for it to be removed,
+     * and lets go of it when they no longer do. Without a playback reference, as on the web or macOS, the microphone
+     * works as before.
+     */
+    private updatePlayback(): void {
+        if (!this.config.cancelPlayback) {
+            this.releasePlayback();
+            return;
+        }
+        const { context, processor } = this;
+        if (!context || !processor || this.playback || this.playbackPending) return;
+        const ticket = ++this.playbackTicket;
+        this.playbackPending = true;
+        capturePlaybackReference()
+            .then((stream) => {
+                if (ticket !== this.playbackTicket) {
+                    for (const track of stream?.getTracks() ?? []) track.stop();
+                    return;
+                }
+                this.playbackPending = false;
+                if (!stream) return;
+                const source = context.createMediaStreamSource(stream);
+                source.connect(processor, 0, 1);
+                this.playback = { stream, source };
+            })
+            .catch((error) => {
+                if (ticket === this.playbackTicket) this.playbackPending = false;
+                logger.warn("Could not capture the system's playback; other applications' sound is not removed", error);
+            });
+    }
+
+    /** Disconnects and stops the playback reference, including one still being captured. */
+    private releasePlayback(): void {
+        ++this.playbackTicket;
+        this.playbackPending = false;
+        if (!this.playback) return;
+        this.playback.source.disconnect();
+        for (const track of this.playback.stream.getTracks()) track.stop();
+        this.playback = undefined;
+    }
+
+    /**
      * Takes this microphone's graph apart.
      *
      * @param keep - Whether the call is done with a working graph, which then goes back to the root for the next call
      *     (see {@link PreparedMicrophoneGraph.fromCall}). Otherwise only its context goes back (see SPARE_CONTEXT_MS).
      */
     private closeGraph(keep = false): void {
+        this.releasePlayback();
         this.releaseCapture?.();
         this.releaseCapture = undefined;
         const { context, processor } = this;

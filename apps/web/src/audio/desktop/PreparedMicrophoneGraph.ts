@@ -64,7 +64,8 @@ export class PreparedMicrophoneGraph {
             if (this.closed) throw new Error("Microphone preparation was cancelled");
             if (wantsDenoiser && !denoiserModule) this.denoiserStatus = "failed";
             const processor = (this.processor = new AudioWorkletNode(this.context, "aether-microphone-gate", {
-                numberOfInputs: 1,
+                // The microphone, then the system's playback that is removed from it (see MicrophoneProcessor).
+                numberOfInputs: 2,
                 numberOfOutputs: 1,
                 outputChannelCount: [1],
                 channelCount: 1,

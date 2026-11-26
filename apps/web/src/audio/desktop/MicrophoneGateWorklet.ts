@@ -9,6 +9,7 @@ import { MicrophoneGate } from "./MicrophoneGate";
 import { type MicrophoneGateWorkletOptions, type MicrophoneProcessorState } from "./MicrophoneProcessorState";
 import { attenuationLimitDb, Denoiser, type DenoiserExports } from "./denoiser/Denoiser";
 import { type DenoiserStatus } from "./denoiser/DenoiserStatus";
+import { PlaybackLeakSuppressor } from "./PlaybackLeakSuppressor";
 
 declare const sampleRate: number;
 
@@ -33,6 +34,9 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
     private denoiseMs = 0;
     private framesSinceLoadCheck = 0;
     private overloadedSeconds = 0;
+    /** Removes other applications' sound from the microphone while a playback reference is connected. */
+    private leakSuppressor?: PlaybackLeakSuppressor;
+    private leakFree = new Float32Array(128);
 
     public constructor(options: AudioWorkletNodeOptions = {}) {
         super();
@@ -106,6 +110,23 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
         return this.denoised;
     }
 
+    /**
+     * Removes what the second input, the system's playback, leaks into the microphone. Without that input the
+     * microphone passes untouched, and the suppressor starts afresh when one is connected again.
+     */
+    private removePlaybackLeak(input: Float32Array, reference: Float32Array | undefined): Float32Array {
+        if (!reference) {
+            this.leakSuppressor = undefined;
+            return input;
+        }
+        this.leakSuppressor ??= new PlaybackLeakSuppressor(sampleRate);
+        if (this.leakFree.length !== input.length) this.leakFree = new Float32Array(input.length);
+        // Whether noise suppression heard someone talking tells the suppressor which sound is only the leak.
+        const speech = this.noiseSuppression !== null ? this.denoiser?.speechDetected : undefined;
+        this.leakSuppressor.process(input, reference, this.leakFree, speech);
+        return this.leakFree;
+    }
+
     public process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
         const output = outputs[0]?.[0];
         if (!output) return !this.stopped;
@@ -115,8 +136,9 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
         }
         const input = inputs[0]?.[0];
         if (input) {
-            const block = this.denoise(input);
-            const speech = block === input ? undefined : this.denoiser?.speechDetected;
+            const leakFree = this.removePlaybackLeak(input, inputs[1]?.[0]);
+            const block = this.denoise(leakFree);
+            const speech = block === leakFree ? undefined : this.denoiser?.speechDetected;
             this.gate.processBlock(block, output, speech);
         } else {
             output.fill(0);

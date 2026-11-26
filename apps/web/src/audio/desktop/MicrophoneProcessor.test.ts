@@ -14,14 +14,17 @@ import { MicrophoneProcessor, REPREPARE_AFTER_LEAVE_MS, SPARE_CONTEXT_MS } from 
 import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 import { INAUDIBLE_LEVEL } from "./keepRealtimeClock";
+import { capturePlaybackReference } from "./DesktopAudioCapture";
 
 vi.mock("./microphoneGateWorkletFactory", () => ({ loadMicrophoneGateWorklet: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("./denoiser/loadDenoiserModule", () => ({ loadDenoiserModule: vi.fn() }));
+vi.mock("./DesktopAudioCapture", () => ({ capturePlaybackReference: vi.fn() }));
 
 interface FakeContext {
     options: AudioContextOptions;
     state: AudioContextState;
     source: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
+    createMediaStreamSource: ReturnType<typeof vi.fn>;
     outputTrack: { stop: ReturnType<typeof vi.fn>; enabled: boolean };
     destination: object;
     clockSource: { offset: { value: number }; connect: ReturnType<typeof vi.fn>; start: ReturnType<typeof vi.fn> };
@@ -51,6 +54,7 @@ describe("MicrophoneProcessor", () => {
     beforeEach(() => {
         vi.mocked(loadMicrophoneGateWorklet).mockReset().mockResolvedValue(undefined);
         vi.mocked(loadDenoiserModule).mockReset().mockResolvedValue(denoiserModule);
+        vi.mocked(capturePlaybackReference).mockReset().mockResolvedValue(null);
         nodes = [];
         contexts = [];
         vi.stubGlobal(
@@ -541,5 +545,80 @@ describe("MicrophoneProcessor", () => {
         expect(contexts[1].source.connect).toHaveBeenCalledWith(nodes[1]);
         root.clearPrepared();
         await root.destroy();
+    });
+    describe("with the system's playback as a reference", () => {
+        const playback = (): MediaStream & { stop: ReturnType<typeof vi.fn> } => {
+            const stop = vi.fn();
+            return { stop, getTracks: () => [{ stop }] } as unknown as MediaStream & { stop: typeof stop };
+        };
+        const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+        it("feeds the playback to the processor's second input while echo cancellation is on", async () => {
+            const stream = playback();
+            vi.mocked(capturePlaybackReference).mockResolvedValue(stream);
+            await init(new MicrophoneProcessor({ ...config, cancelPlayback: true }));
+            await settle();
+            expect(nodes[0].options.numberOfInputs).toBe(2);
+            expect(capturePlaybackReference).toHaveBeenCalledOnce();
+            expect(contexts[0].createMediaStreamSource).toHaveBeenCalledWith(stream);
+            expect(contexts[0].source.connect).toHaveBeenCalledWith(nodes[0], 0, 1);
+        });
+
+        it("leaves the playback alone while echo cancellation is off", async () => {
+            await init(new MicrophoneProcessor({ ...config, cancelPlayback: false }));
+            await settle();
+            expect(capturePlaybackReference).not.toHaveBeenCalled();
+            expect(contexts[0].source.connect).not.toHaveBeenCalledWith(nodes[0], 0, 1);
+        });
+
+        it("lets go of the playback when echo cancellation is turned off, and takes it again when back on", async () => {
+            const first = playback();
+            const second = playback();
+            vi.mocked(capturePlaybackReference).mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+            const root = new MicrophoneProcessor({ ...config, cancelPlayback: true });
+            await init(root.createProcessor());
+            await settle();
+
+            root.setConfig({ ...config, cancelPlayback: false });
+            expect(first.stop).toHaveBeenCalled();
+            expect(contexts[0].source.disconnect).toHaveBeenCalled();
+
+            root.setConfig({ ...config, cancelPlayback: true });
+            await settle();
+            expect(capturePlaybackReference).toHaveBeenCalledTimes(2);
+            expect(second.stop).not.toHaveBeenCalled();
+        });
+
+        it("stops the playback when the call ends", async () => {
+            const stream = playback();
+            vi.mocked(capturePlaybackReference).mockResolvedValue(stream);
+            const processor = new MicrophoneProcessor({ ...config, cancelPlayback: true });
+            await init(processor);
+            await settle();
+            await processor.destroy();
+            expect(stream.stop).toHaveBeenCalled();
+        });
+
+        it("stops a playback capture that only arrives after the call ended", async () => {
+            const stream = playback();
+            let deliver!: (value: MediaStream) => void;
+            vi.mocked(capturePlaybackReference).mockReturnValue(new Promise((resolve) => (deliver = resolve)));
+            const processor = new MicrophoneProcessor({ ...config, cancelPlayback: true });
+            await init(processor);
+            await processor.destroy();
+            deliver(stream);
+            await settle();
+            expect(stream.stop).toHaveBeenCalled();
+            expect(contexts[0].source.connect).not.toHaveBeenCalledWith(nodes[0], 0, 1);
+        });
+
+        it("keeps the microphone working when the playback cannot be captured", async () => {
+            vi.mocked(capturePlaybackReference).mockRejectedValue(new Error("not supported"));
+            const processor = new MicrophoneProcessor({ ...config, cancelPlayback: true });
+            await init(processor);
+            await settle();
+            expect(processor.processedTrack).toBe(contexts[0].outputTrack);
+            expect(contexts[0].source.connect).toHaveBeenCalledWith(nodes[0]);
+        });
     });
 });

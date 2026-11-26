@@ -10,7 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 // Squirrel on windows starts the app with various flags as hooks to tell us when we've been installed/uninstalled etc.
 import "./squirrelhooks.js";
-import { setupDesktopAudio, selectPortalDesktopAudio } from "./desktop-audio.js";
+import { setupDesktopAudio, selectPortalDesktopAudio, answerPlaybackReferenceRequest } from "./desktop-audio.js";
 import { configureMediaAcceleration, mediaRelaunchCommand } from "./mediaAcceleration.js";
 
 import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
@@ -420,7 +420,9 @@ app.on("ready", async () => {
     setupDesktopAudio(global.mainWindow.webContents);
 
     session.defaultSession.setDisplayMediaRequestHandler(
-        (_, callback) => {
+        (request, callback) => {
+            // The microphone's playback reference is answered directly: it shows no picker and no portal.
+            if (answerPlaybackReferenceRequest(request, callback)) return;
             if (process.env.XDG_SESSION_TYPE === "wayland") {
                 // On Wayland, calling getSources() opens the xdg-desktop-portal picker.
                 // The user can only select a single source there, so Electron will return an array with exactly one entry.
