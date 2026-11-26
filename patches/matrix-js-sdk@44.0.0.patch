@@ -3946,3 +3946,21 @@ index 3904a9d..1082668 100644
          toDeviceEvents,
          deviceLists,
          oneTimeKeysCounts,
+diff --git a/src/http-api/index.ts b/src/http-api/index.ts
+index 9f60401..6c1800b 100644
+--- a/src/http-api/index.ts
++++ b/src/http-api/index.ts
+@@ -103,7 +103,12 @@ export class MatrixHttpApi<O extends IHttpOpts> extends FetchHttpApi<O> {
+                 callbacks.clearTimeout(timeoutTimer);
+                 upload.loaded = ev.loaded;
+                 upload.total = ev.total;
+-                timeoutTimer = callbacks.setTimeout(timeoutFn, 30000);
++                // Chromium reports the whole body as sent once it is buffered, which over HTTP/2 or HTTP/3 can be long
++                // before the server has received it, and then reports no further progress. From then on, allow time
++                // for the body to reach the server at a slow but working speed (32 KB/s), so the upload is not aborted
++                // while it is still going out but a server that never answers still times out.
++                const allSent = ev.lengthComputable && ev.loaded >= ev.total;
++                timeoutTimer = callbacks.setTimeout(timeoutFn, allSent ? 30000 + Math.ceil(ev.total / 32) : 30000);
+                 opts.progressHandler?.({
+                     loaded: ev.loaded,
+                     total: ev.total,

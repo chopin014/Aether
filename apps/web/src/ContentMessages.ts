@@ -149,6 +149,43 @@ const IMAGE_THUMBNAIL_MIN_REDUCTION_PERCENT = 0.1; // 10%
 const ALWAYS_INCLUDE_THUMBNAIL = ["image/avif", "image/webp", "image/svg+xml"];
 
 /**
+ * Upload limits, in bytes, that homeservers enforce below the one their media config reports, by server name.
+ *
+ * matrix.org reports 1 GiB but refuses any upload over 10,000,000 bytes (measured 2026-11-23). Up to about 23 MB it
+ * answers 413; past that it resets the connection, which the app can only show as a generic failure, after the
+ * person has waited for most of the file to be sent.
+ */
+const ENFORCED_UPLOAD_LIMITS = new Map<string, number>([["matrix.org", 10_000_000]]);
+
+/**
+ * Applies the limit the homeserver is known to enforce, if lower than the one it reports.
+ * @param config - The media config the homeserver reported.
+ * @param serverName - The homeserver's server name.
+ * @returns The config with the limit that the homeserver actually enforces.
+ */
+export function withEnforcedUploadLimit(config: IMediaConfig, serverName: string | null): IMediaConfig {
+    const enforced = serverName ? ENFORCED_UPLOAD_LIMITS.get(serverName) : undefined;
+    const reported = config["m.upload.size"];
+    if (enforced === undefined || (reported !== undefined && reported <= enforced)) return config;
+    return { ...config, "m.upload.size": enforced };
+}
+
+/** Whether a file is within the upload limit in a media config, if it has one. */
+function isFileSizeAcceptable(file: File, config: IMediaConfig): boolean {
+    const limit = config["m.upload.size"];
+    return limit === undefined || file.size <= limit;
+}
+
+/**
+ * Identifies the account and homeserver a media config was fetched for.
+ * @param matrixClient - The client the config is fetched with.
+ * @returns A key that changes when a different account or homeserver is used.
+ */
+function mediaConfigOwnerOf(matrixClient: MatrixClient): string {
+    return `${matrixClient.getUserId()}|${matrixClient.getHomeserverUrl()}`;
+}
+
+/**
  * Read the metadata for an image file and create and upload a thumbnail of the image.
  *
  * @param {MatrixClient} matrixClient A matrixClient to upload the thumbnail with.
@@ -432,6 +469,8 @@ export interface SendContentListOptions {
 export default class ContentMessages {
     private inprogress: RoomUpload[] = [];
     private mediaConfig: IMediaConfig | null = null;
+    /** The account and homeserver that {@link mediaConfig} was fetched for. */
+    private mediaConfigOwner: string | null = null;
 
     public sendStickerContentToRoom(
         url: string,
@@ -480,23 +519,26 @@ export default class ContentMessages {
             return;
         }
 
-        if (!this.mediaConfig) {
+        // The limits belong to one account's homeserver. Files are checked against what this account's own fetch
+        // returned: a fetch made for an account signed out of meanwhile can still finish and fill the cache.
+        let mediaConfig = this.mediaConfigFor(matrixClient);
+        if (!mediaConfig) {
             // hot-path optimization to not flash a spinner if we don't need to
             const modal = Modal.createDialog(Spinner, undefined, "mx_Dialog_spinner");
-            await Promise.race([this.ensureMediaConfigFetched(matrixClient), modal.finished]);
-            if (!this.mediaConfig) {
+            const fetched = await Promise.race([this.fetchMediaConfig(matrixClient), modal.finished.then(() => null)]);
+            if (!fetched) {
                 // User cancelled by clicking away on the spinner
                 return;
-            } else {
-                modal.close();
             }
+            modal.close();
+            mediaConfig = fetched;
         }
 
         const tooBigFiles: File[] = [];
         const okFiles: File[] = [];
 
         for (const file of files) {
-            if (this.isFileSizeAcceptable(file)) {
+            if (isFileSizeAcceptable(file, mediaConfig)) {
                 okFiles.push(file);
             } else {
                 tooBigFiles.push(file);
@@ -507,7 +549,8 @@ export default class ContentMessages {
             const { finished } = Modal.createDialog(UploadFailureDialog, {
                 badFiles: tooBigFiles,
                 totalFiles: files.length,
-                contentMessages: this,
+                // Only files over a limit are too big, so there is one.
+                uploadLimit: mediaConfig["m.upload.size"]!,
             });
             const [shouldContinue] = await finished;
             if (!shouldContinue) return;
@@ -759,15 +802,15 @@ export default class ContentMessages {
         }
     }
 
-    private isFileSizeAcceptable(file: File): boolean {
-        if (this.mediaConfig?.["m.upload.size"] !== undefined && file.size > this.mediaConfig["m.upload.size"]) {
-            return false;
-        }
-        return true;
+    /** The media config fetched for this account and homeserver, if there is one. */
+    private mediaConfigFor(matrixClient: MatrixClient): IMediaConfig | null {
+        return this.mediaConfigOwner === mediaConfigOwnerOf(matrixClient) ? this.mediaConfig : null;
     }
 
-    private ensureMediaConfigFetched(matrixClient: MatrixClient): Promise<void> {
-        if (this.mediaConfig !== null) return Promise.resolve();
+    /** Fetches this account's media config, or returns the one fetched already. */
+    private fetchMediaConfig(matrixClient: MatrixClient): Promise<IMediaConfig> {
+        const cached = this.mediaConfigFor(matrixClient);
+        if (cached) return Promise.resolve(cached);
 
         logger.log("[Media Config] Fetching");
         return matrixClient
@@ -781,8 +824,11 @@ export default class ContentMessages {
                 logger.log("[Media Config] Could not fetch config, so not limiting uploads.");
                 return {};
             })
-            .then((config) => {
+            .then((reported) => {
+                const config = withEnforcedUploadLimit(reported, matrixClient.getDomain());
                 this.mediaConfig = config;
+                this.mediaConfigOwner = mediaConfigOwnerOf(matrixClient);
+                return config;
             });
     }
 

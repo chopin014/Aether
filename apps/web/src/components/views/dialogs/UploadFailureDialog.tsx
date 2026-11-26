@@ -8,7 +8,6 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 
 import { _t } from "../../../languageHandler";
-import type ContentMessages from "../../../ContentMessages";
 import BaseDialog from "./BaseDialog";
 import DialogButtons from "../elements/DialogButtons";
 import { fileSize } from "../../../utils/FileUtils";
@@ -16,7 +15,8 @@ import { fileSize } from "../../../utils/FileUtils";
 interface IProps {
     badFiles: File[];
     totalFiles: number;
-    contentMessages: ContentMessages;
+    /** The upload limit the files were checked against, in bytes. */
+    uploadLimit: number;
     onFinished(upload?: boolean): void;
 }
 
@@ -41,7 +41,7 @@ export default class UploadFailureDialog extends React.Component<IProps> {
             message = _t(
                 "upload_file|error_file_too_large",
                 {
-                    limit: fileSize(this.props.contentMessages.getUploadLimit()!),
+                    limit: fileSize(this.props.uploadLimit),
                     sizeOfThisFile: fileSize(this.props.badFiles[0].size),
                 },
                 {
@@ -60,7 +60,7 @@ export default class UploadFailureDialog extends React.Component<IProps> {
             message = _t(
                 "upload_file|error_files_too_large",
                 {
-                    limit: fileSize(this.props.contentMessages.getUploadLimit()!),
+                    limit: fileSize(this.props.uploadLimit),
                 },
                 {
                     b: (sub) => <strong>{sub}</strong>,
@@ -78,7 +78,7 @@ export default class UploadFailureDialog extends React.Component<IProps> {
             message = _t(
                 "upload_file|error_some_files_too_large",
                 {
-                    limit: fileSize(this.props.contentMessages.getUploadLimit()!),
+                    limit: fileSize(this.props.uploadLimit),
                 },
                 {
                     b: (sub) => <strong>{sub}</strong>,

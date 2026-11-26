@@ -22,13 +22,14 @@ import { type ImageInfo } from "matrix-js-sdk/src/types";
 import encrypt, { type IEncryptedFile } from "matrix-encrypt-attachment";
 import { createTestClient, flushPromises, mkEvent } from "test-utils";
 
-import ContentMessages, { UploadCanceledError, uploadFile } from "./ContentMessages";
+import ContentMessages, { UploadCanceledError, uploadFile, withEnforcedUploadLimit } from "./ContentMessages";
 import { clearUploadedMediaCache, queryUploadedMediaCache } from "./utils/UploadedMediaCache";
 import { doMaybeLocalRoomAction } from "./utils/local-room";
 import { BlurhashEncoder } from "./BlurhashEncoder";
 import Modal from "./Modal";
 import ErrorDialog from "./components/views/dialogs/ErrorDialog";
 import UploadConfirmDialog from "./components/views/dialogs/UploadConfirmDialog";
+import UploadFailureDialog from "./components/views/dialogs/UploadFailureDialog";
 import { _t } from "./languageHandler";
 import { PosthogAnalytics } from "./PosthogAnalytics";
 
@@ -558,5 +559,136 @@ describe("sendContentListToRoom analytics", () => {
             }),
         );
         expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
+    });
+});
+
+describe("withEnforcedUploadLimit", () => {
+    it("applies matrix.org's enforced limit over the 1 GiB it reports", () => {
+        expect(withEnforcedUploadLimit({ "m.upload.size": 1073741824 }, "matrix.org")).toEqual({
+            "m.upload.size": 10_000_000,
+        });
+        expect(withEnforcedUploadLimit({}, "matrix.org")).toEqual({ "m.upload.size": 10_000_000 });
+    });
+
+    it("keeps a lower reported limit, and other servers' limits", () => {
+        expect(withEnforcedUploadLimit({ "m.upload.size": 5_000_000 }, "matrix.org")).toEqual({
+            "m.upload.size": 5_000_000,
+        });
+        expect(withEnforcedUploadLimit({ "m.upload.size": 1073741824 }, "example.org")).toEqual({
+            "m.upload.size": 1073741824,
+        });
+        expect(withEnforcedUploadLimit({}, null)).toEqual({});
+    });
+});
+
+describe("sendContentListToRoom upload limit", () => {
+    const roomId = "!roomId:server";
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("tells the person a file is too large for matrix.org before sending it", async () => {
+        const client = createTestClient();
+        vi.mocked(client.getDomain).mockReturnValue("matrix.org");
+        vi.mocked(client.getMediaConfig).mockResolvedValue({ "m.upload.size": 1073741824 });
+        const contentMessages = new ContentMessages();
+        vi.spyOn(contentMessages, "sendContentToRoom").mockResolvedValue(undefined);
+        const createDialog = vi.spyOn(Modal, "createDialog").mockImplementation((component: unknown) => {
+            if (component === UploadFailureDialog) return { finished: Promise.resolve([false]) } as any;
+            if (component === UploadConfirmDialog) return { finished: Promise.resolve([true, false]) } as any;
+            return { finished: new Promise(() => {}), close: vi.fn() } as any;
+        });
+        const file = new File(["zip"], "early_xmas.zip", { type: "application/zip" });
+        Object.defineProperty(file, "size", { value: 10_000_001 });
+
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, client);
+
+        expect(createDialog).toHaveBeenCalledWith(
+            UploadFailureDialog,
+            expect.objectContaining({ badFiles: [file], uploadLimit: 10_000_000 }),
+        );
+        expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
+        expect(contentMessages.getUploadLimit()).toBe(10_000_000);
+    });
+
+    it("does not check files against the previous account's limit when its fetch finishes late", async () => {
+        type MediaConfig = Awaited<ReturnType<MatrixClient["getMediaConfig"]>>;
+        let resolveOld!: (config: MediaConfig) => void;
+        const oldFetch = {
+            promise: new Promise<MediaConfig>((resolve) => (resolveOld = resolve)),
+            resolve: (config: MediaConfig) => resolveOld(config),
+        };
+        const matrixOrg = createTestClient();
+        vi.mocked(matrixOrg.getUserId).mockReturnValue("@alice:matrix.org");
+        vi.mocked(matrixOrg.getHomeserverUrl).mockReturnValue("https://matrix-client.matrix.org");
+        vi.mocked(matrixOrg.getDomain).mockReturnValue("matrix.org");
+        vi.mocked(matrixOrg.getMediaConfig).mockReturnValue(oldFetch.promise);
+        const other = createTestClient();
+        vi.mocked(other.getUserId).mockReturnValue("@alice:example.org");
+        vi.mocked(other.getHomeserverUrl).mockReturnValue("https://matrix.example.org");
+        vi.mocked(other.getDomain).mockReturnValue("example.org");
+        vi.mocked(other.getMediaConfig).mockReturnValue(new Promise(() => {}));
+
+        const contentMessages = new ContentMessages();
+        vi.spyOn(contentMessages, "sendContentToRoom").mockResolvedValue(undefined);
+        let spinners = 0;
+        let dismissSecond!: () => void;
+        const createDialog = vi.spyOn(Modal, "createDialog").mockImplementation((component: unknown) => {
+            if (component === UploadFailureDialog) return { finished: Promise.resolve([false]) } as any;
+            if (component === UploadConfirmDialog) return { finished: Promise.resolve([true, false]) } as any;
+            // The person dismisses both spinners, the second one after the first account's limit arrived.
+            const finished =
+                spinners++ === 0 ? Promise.resolve([]) : new Promise<unknown[]>((r) => (dismissSecond = () => r([])));
+            return { finished, close: vi.fn() } as any;
+        });
+        const file = new File(["zip"], "early_xmas.zip", { type: "application/zip" });
+        Object.defineProperty(file, "size", { value: 20_000_000 });
+
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, matrixOrg);
+        const sending = contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, other);
+        oldFetch.resolve({ "m.upload.size": 1073741824 });
+        await flushPromises();
+        dismissSecond();
+        await sending;
+
+        // The other account's limit never arrived, so nothing is checked against matrix.org's and nothing is sent.
+        expect(createDialog).not.toHaveBeenCalledWith(UploadFailureDialog, expect.anything());
+        expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
+    });
+
+    it("fetches the limit again after signing in to another homeserver", async () => {
+        const matrixOrg = createTestClient();
+        vi.mocked(matrixOrg.getUserId).mockReturnValue("@alice:matrix.org");
+        vi.mocked(matrixOrg.getHomeserverUrl).mockReturnValue("https://matrix-client.matrix.org");
+        vi.mocked(matrixOrg.getDomain).mockReturnValue("matrix.org");
+        vi.mocked(matrixOrg.getMediaConfig).mockResolvedValue({ "m.upload.size": 1073741824 });
+        const other = createTestClient();
+        vi.mocked(other.getUserId).mockReturnValue("@alice:example.org");
+        vi.mocked(other.getHomeserverUrl).mockReturnValue("https://matrix.example.org");
+        vi.mocked(other.getDomain).mockReturnValue("example.org");
+        vi.mocked(other.getMediaConfig).mockResolvedValue({ "m.upload.size": 50_000_000 });
+
+        const contentMessages = new ContentMessages();
+        vi.spyOn(contentMessages, "sendContentToRoom").mockResolvedValue(undefined);
+        const createDialog = vi.spyOn(Modal, "createDialog").mockImplementation((component: unknown) => {
+            if (component === UploadFailureDialog) return { finished: Promise.resolve([false]) } as any;
+            if (component === UploadConfirmDialog) return { finished: Promise.resolve([true, false]) } as any;
+            return { finished: new Promise(() => {}), close: vi.fn() } as any;
+        });
+        const file = new File(["zip"], "early_xmas.zip", { type: "application/zip" });
+        Object.defineProperty(file, "size", { value: 20_000_000 });
+
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, matrixOrg);
+        expect(contentMessages.sendContentToRoom).not.toHaveBeenCalled();
+
+        createDialog.mockClear();
+        await contentMessages.sendContentListToRoom([file], roomId, undefined, undefined, other);
+        expect(other.getMediaConfig).toHaveBeenCalled();
+        expect(contentMessages.getUploadLimit()).toBe(50_000_000);
+        expect(createDialog).not.toHaveBeenCalledWith(UploadFailureDialog, expect.anything());
+        const [sentFile, , , sentWith] = vi.mocked(contentMessages.sendContentToRoom).mock.calls[0];
+        expect(sentFile).toBe(file);
+        expect(sentWith).toBe(other);
     });
 });
