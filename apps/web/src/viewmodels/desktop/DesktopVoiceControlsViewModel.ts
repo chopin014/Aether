@@ -35,12 +35,7 @@ import { customizeDesktopVoiceProfile } from "../../audio/desktop/DesktopVoicePr
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
-import {
-    FORCED_REPORT_GRACE_MS,
-    getServerVoiceMute,
-    isMicrophoneChangeForced,
-    onServerVoiceMutesChanged,
-} from "../../utils/call/serverVoiceMute";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
 
 interface Props {
     client: MatrixClient;
@@ -86,8 +81,6 @@ export class DesktopVoiceControlsViewModel
     private stopShortcuts?: () => void;
     private testGeneration = 0;
     private restoreAfterTest?: { call: ElementCall; microphoneMuted: boolean };
-    /** Saves the microphone choice once a change made for a moderator's mute is over. */
-    private microphoneChoiceTimer?: number;
     private readonly microphoneTest = new MicrophoneTest(
         (level, open) => {
             if (!this.isDisposed && this.snapshot.current.microphoneTest.active) {
@@ -166,7 +159,6 @@ export class DesktopVoiceControlsViewModel
             );
         }
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
-        this.disposables.track(() => window.clearTimeout(this.microphoneChoiceTimer));
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
         this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
         this.disposables.track(() => this.clearPendingLeaves());
@@ -561,38 +553,17 @@ export class DesktopVoiceControlsViewModel
         if (!busy && mediaConnected && wasMuted !== microphoneMuted) {
             void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
         }
-        this.saveMicrophoneChoice();
-    };
-
-    /**
-     * Saves the microphone state the call reports as the user's own choice. A moderator's mute turns the microphone
-     * off without the user choosing to: their own choice is kept, so it is what they get back once the mute is
-     * lifted.
-     *
-     * While a change made for such a mute is under way, a report can be late news of it or the user's own click.
-     * Mistakes keep the microphone off: a microphone reported off is saved at once, and one reported on only when
-     * the call still has it on once the change is over. At worst the user unmutes after the mute is lifted, as they
-     * would without the moderator's microphone being given back; a microphone they turned off is never turned on.
-     */
-    private saveMicrophoneChoice = (): void => {
-        window.clearTimeout(this.microphoneChoiceTimer);
-        this.microphoneChoiceTimer = undefined;
-        const call = this.call;
-        if (!call?.deviceMuteState || this.isDisposed || this.snapshot.current.serverMuted) return;
-        const muted = !call.deviceMuteState.audio_enabled;
-        if (isMicrophoneChangeForced(call)) {
-            if (muted) this.saveMicrophoneMuted(true);
-            this.microphoneChoiceTimer = window.setTimeout(this.saveMicrophoneChoice, FORCED_REPORT_GRACE_MS);
-            return;
+        // A moderator's mute turns the microphone off without the user choosing to: their own choice is kept for
+        // the rest of the dock (deafening, the microphone test) while it holds.
+        if (this.call?.deviceMuteState && !this.snapshot.current.serverMuted) {
+            void SettingsStore.setValue(
+                "audioInputMuted",
+                null,
+                SettingLevel.DEVICE,
+                !this.call.deviceMuteState.audio_enabled,
+            ).catch((error) => logger.warn("Could not save microphone preference", error));
         }
-        this.saveMicrophoneMuted(muted);
     };
-
-    private saveMicrophoneMuted(muted: boolean): void {
-        void SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, muted).catch((error) =>
-            logger.warn("Could not save microphone preference", error),
-        );
-    }
 
     private readonly onCallsChanged = (): void => {
         const isElementCall = (call: unknown): call is ElementCall => call instanceof ElementCall;
@@ -607,9 +578,6 @@ export class DesktopVoiceControlsViewModel
             if (panel === "noise" || panel === "connection" || panel === "soundboard")
                 this.snapshot.merge({ panel: null });
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
-            // A choice still to be saved belongs to the call left; the next call reports its own.
-            window.clearTimeout(this.microphoneChoiceTimer);
-            this.microphoneChoiceTimer = undefined;
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
             this.clearPendingLeaves();
@@ -676,8 +644,8 @@ export class DesktopVoiceControlsViewModel
     };
 
     private setMicrophoneMuted = async (muted: boolean): Promise<void> => {
-        // While a moderator's mute holds, only the choice is kept: the enforcer turns the microphone on once it is
-        // lifted. Asking the call to turn it on would let it be heard until the enforcer turns it off again.
+        // While a moderator's mute holds, only the choice is kept. Asking the call to turn the microphone on would let
+        // it be heard until the enforcer turns it off again.
         const held = !muted && this.snapshot.current.serverMuted;
         if (this.call && !held) await this.call.setDeviceMute({ audio_enabled: !muted });
         await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, muted);

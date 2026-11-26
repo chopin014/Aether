@@ -15,12 +15,7 @@ import { stubClient } from "test-utils";
 import { ServerVoiceMuteEnforcer } from "./ServerVoiceMuteEnforcer";
 import { CallEvent, ConnectionState, ElementCall, type Call } from "./Call";
 import SettingsStore from "../settings/SettingsStore";
-import {
-    FORCED_REPORT_GRACE_MS,
-    isMicrophoneChangeForced,
-    SERVER_VOICE_MUTE_EVENT_TYPE,
-    serverVoiceMuteStateKey,
-} from "../utils/call/serverVoiceMute";
+import { SERVER_VOICE_MUTE_EVENT_TYPE, serverVoiceMuteStateKey } from "../utils/call/serverVoiceMute";
 
 const ME = "@me:example.org";
 const MOD = "@mod:example.org";
@@ -115,76 +110,16 @@ describe("ServerVoiceMuteEnforcer", () => {
         expect(call.setDeviceMute).toHaveBeenCalledWith({ audio_enabled: false });
     });
 
-    it("marks its own microphone changes while they are under way, so they are not taken for the user's", async () => {
+    it("leaves the microphone off once the mute is lifted", () => {
         const call = fakeCall();
         calls.push(call);
-        enforcer.update();
-        const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
         moderate({ muted: true });
-        expect(isMicrophoneChangeForced(call)).toBe(true);
-        await Promise.resolve();
-        now.mockReturnValue(1_000_000 + FORCED_REPORT_GRACE_MS);
-        expect(isMicrophoneChangeForced(call)).toBe(false);
-
-        moderate({});
-        expect(call.setDeviceMute).toHaveBeenLastCalledWith({ audio_enabled: true });
-        expect(isMicrophoneChangeForced(call)).toBe(true);
-    });
-
-    it("turns the microphone back on once the mute is lifted, as it was before", () => {
-        const call = fakeCall();
-        calls.push(call);
         enforcer.update();
-        moderate({ muted: true });
         call.setDeviceMute.mockClear();
         moderate({});
-        expect(call.setDeviceMute).toHaveBeenCalledWith({ audio_enabled: true });
-        expect(call.deviceMuteState?.audio_enabled).toBe(true);
-
-        // Only once: later changes to the server leave the microphone to the user.
-        call.setDeviceMute.mockClear();
-        call.reportMicrophone(false);
-        moderate({});
         expect(call.setDeviceMute).not.toHaveBeenCalled();
-    });
-
-    it("leaves the microphone off once the mute is lifted when the user had it off", () => {
-        // The dock saves the user's choice whenever they turn the microphone off.
-        vi.spyOn(SettingsStore, "getValue").mockImplementation(
-            (name) => (name === "audioInputMuted" ? true : undefined) as never,
-        );
-        const call = fakeCall();
-        calls.push(call);
-        call.reportMicrophone(false);
-        enforcer.update();
-        moderate({ muted: true });
-        expect(call.setDeviceMute).not.toHaveBeenCalled();
-        moderate({});
-        expect(call.setDeviceMute).not.toHaveBeenCalled();
-    });
-
-    it("turns the microphone on once the mute is lifted when the user chose it on meanwhile", () => {
-        // Deafened when the mute came, then undeafened: the dock keeps the choice but leaves the microphone off.
-        const call = fakeCall();
-        calls.push(call);
-        call.reportMicrophone(false);
-        enforcer.update();
-        moderate({ muted: true });
-        expect(call.setDeviceMute).not.toHaveBeenCalled();
-        moderate({});
-        expect(call.setDeviceMute).toHaveBeenCalledWith({ audio_enabled: true });
-    });
-
-    it("leaves the microphone off once the mute is lifted when the user muted themselves meanwhile", () => {
-        const call = fakeCall();
-        calls.push(call);
-        enforcer.update();
-        moderate({ muted: true });
-        call.setDeviceMute.mockClear();
-        vi.spyOn(SettingsStore, "getValue").mockImplementation(
-            (name) => (name === "audioInputMuted" ? true : undefined) as never,
-        );
-        moderate({});
+        // The user turns it on again themselves.
+        call.reportMicrophone(true);
         expect(call.setDeviceMute).not.toHaveBeenCalled();
     });
 

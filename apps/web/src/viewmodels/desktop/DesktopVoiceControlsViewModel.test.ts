@@ -34,12 +34,7 @@ import { Action } from "../../dispatcher/actions";
 import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
-import {
-    FORCED_REPORT_GRACE_MS,
-    forceMicrophoneChange,
-    getServerVoiceMute,
-    onServerVoiceMutesChanged,
-} from "../../utils/call/serverVoiceMute";
+import { getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
 
 vi.mock("../../utils/call/serverVoiceMute", async (importOriginal) => ({
     ...(await importOriginal<typeof import("../../utils/call/serverVoiceMute")>()),
@@ -341,69 +336,6 @@ describe("DesktopVoiceControlsViewModel", () => {
         onChanged();
         call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
         await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
-    });
-
-    it("saves a microphone turned on during a moderator's change only if the call still has it on afterwards", async () => {
-        await connect();
-        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
-        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
-        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-        try {
-            // Reported on during the change, then off again: nothing turned on is taken for the user's choice.
-            await forceMicrophoneChange(call, Promise.resolve());
-            call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
-            await vi.advanceTimersByTimeAsync(0);
-            expect(preferences.get("audioInputMuted")).toBe(true);
-            call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
-            await vi.advanceTimersByTimeAsync(FORCED_REPORT_GRACE_MS);
-            expect(preferences.get("audioInputMuted")).toBe(true);
-
-            // Reported on and still on once the change is over: that is the user's choice.
-            await forceMicrophoneChange(call, Promise.resolve());
-            call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
-            await vi.advanceTimersByTimeAsync(FORCED_REPORT_GRACE_MS);
-            expect(preferences.get("audioInputMuted")).toBe(false);
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it("saves the state the call settles on once a moderator's change is over", async () => {
-        await connect();
-        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
-        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
-        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-        try {
-            // Late news of the mute's microphone-off, then the microphone given back: the user's choice ends up on.
-            await forceMicrophoneChange(call, Promise.resolve());
-            call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
-            call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
-            await vi.advanceTimersByTimeAsync(FORCED_REPORT_GRACE_MS);
-            expect(preferences.get("audioInputMuted")).toBe(false);
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it("never turns on a microphone the user muted just after a moderator gave it back", async () => {
-        await connect();
-        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
-        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
-        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
-        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-        try {
-            // The mute was lifted and the microphone given back; the user mutes in the call straight away, and a
-            // moderator mutes them again before the change is over.
-            await forceMicrophoneChange(call, Promise.resolve());
-            call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
-            vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
-            onChanged();
-            await vi.advanceTimersByTimeAsync(FORCED_REPORT_GRACE_MS);
-            // The enforcer reads this when the mute is lifted again, and leaves the microphone off.
-            expect(preferences.get("audioInputMuted")).toBe(true);
-        } finally {
-            vi.useRealTimers();
-        }
     });
 
     it("keeps the user's own microphone choice for after a deafen taken while a moderator's mute holds", async () => {
