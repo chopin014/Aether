@@ -105,6 +105,7 @@ contextBridge.exposeInMainWorld("electron", {
                       ipcRenderer.on("aether:desktop-audio-data", handler);
                       return () => ipcRenderer.removeListener("aether:desktop-audio-data", handler);
                   },
+                  preparePlaybackReference: () => ipcRenderer.invoke("aether:playback-reference-prepare"),
               } satisfies DesktopAudioApi)
             : undefined,
 

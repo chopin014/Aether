@@ -10,7 +10,12 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopAudioPacket } from "shared-types";
 
-import { decodeDesktopAudio, getPendingDisplayMediaAudio, installDesktopAudioCapture } from "./DesktopAudioCapture";
+import {
+    capturePlaybackReference,
+    decodeDesktopAudio,
+    getPendingDisplayMediaAudio,
+    installDesktopAudioCapture,
+} from "./DesktopAudioCapture";
 import { DesktopVoicePipeline } from "./DesktopVoicePipeline";
 import SettingsStore from "../../settings/SettingsStore";
 
@@ -93,6 +98,7 @@ describe("DesktopAudioCapture", () => {
         const unsubscribe = vi.fn();
         const api = {
             prepare: vi.fn().mockResolvedValue(undefined),
+            preparePlaybackReference: vi.fn().mockResolvedValue(undefined),
             start: vi.fn().mockResolvedValue(authorized),
             stop: vi.fn().mockResolvedValue(undefined),
             onData: vi.fn((callback) => {
@@ -157,6 +163,7 @@ describe("DesktopAudioCapture", () => {
         Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getDisplayMedia } });
         const api = {
             prepare: vi.fn().mockResolvedValue(undefined),
+            preparePlaybackReference: vi.fn().mockResolvedValue(undefined),
             start: vi.fn().mockResolvedValue(false),
             stop: vi.fn().mockResolvedValue(undefined),
             onData: vi.fn(() => vi.fn()),
@@ -177,6 +184,7 @@ describe("DesktopAudioCapture", () => {
         Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getDisplayMedia } });
         const api = {
             prepare: vi.fn().mockResolvedValue(undefined),
+            preparePlaybackReference: vi.fn().mockResolvedValue(undefined),
             start: vi.fn(),
             stop: vi.fn(),
             onData: vi.fn(),
@@ -187,5 +195,58 @@ describe("DesktopAudioCapture", () => {
 
         expect(getPendingDisplayMediaAudio()).toBeNull();
         expect(api.start).not.toHaveBeenCalled();
+    });
+    describe("the playback reference", () => {
+        const bridge = () => ({
+            prepare: vi.fn().mockResolvedValue(undefined),
+            start: vi.fn().mockResolvedValue(true),
+            stop: vi.fn().mockResolvedValue(undefined),
+            onData: vi.fn(() => () => {}),
+            preparePlaybackReference: vi.fn().mockResolvedValue(undefined),
+        });
+
+        it("asks the desktop app first, then captures audio only with the browser's own display capture", async () => {
+            const audio = { kind: "audio", stop: vi.fn() };
+            const stream = { getTracks: () => [audio], getAudioTracks: () => [audio] };
+            const order: string[] = [];
+            const getDisplayMedia = vi.fn(async () => {
+                order.push("capture");
+                return stream;
+            });
+            Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getDisplayMedia } });
+            const api = bridge();
+            api.preparePlaybackReference.mockImplementation(async () => {
+                order.push("prepare");
+            });
+            installDesktopAudioCapture(api);
+
+            expect(await capturePlaybackReference()).toBe(stream);
+            expect(order).toEqual(["prepare", "capture"]);
+            expect(getDisplayMedia).toHaveBeenCalledWith({
+                audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+                video: false,
+            });
+            // It is not a screen share: no native capture starts for it.
+            expect(api.prepare).not.toHaveBeenCalled();
+            expect(api.start).not.toHaveBeenCalled();
+        });
+
+        it("lets go of a capture that came back without audio", async () => {
+            const video = { kind: "video", stop: vi.fn() };
+            const stream = { getTracks: () => [video], getAudioTracks: () => [] };
+            Object.defineProperty(navigator, "mediaDevices", {
+                configurable: true,
+                value: { getDisplayMedia: vi.fn().mockResolvedValue(stream) },
+            });
+            installDesktopAudioCapture(bridge());
+            expect(await capturePlaybackReference()).toBeNull();
+            expect(video.stop).toHaveBeenCalled();
+        });
+
+        it("has none outside the desktop app", async () => {
+            vi.resetModules();
+            const fresh = await import("./DesktopAudioCapture");
+            expect(await fresh.capturePlaybackReference()).toBeNull();
+        });
     });
 });

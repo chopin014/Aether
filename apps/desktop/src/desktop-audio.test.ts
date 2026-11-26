@@ -9,7 +9,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { WebContents } from "electron";
 import type { DesktopAudioPacket } from "shared-types";
 
-import { DesktopAudioCapture, selectPortalDesktopAudio, setupDesktopAudio } from "./desktop-audio.js";
+import {
+    answerPlaybackReferenceRequest,
+    DesktopAudioCapture,
+    selectPortalDesktopAudio,
+    setupDesktopAudio,
+} from "./desktop-audio.js";
 
 const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, (event: unknown, value: unknown) => unknown>() }));
 vi.mock("electron", () => ({
@@ -172,5 +177,66 @@ describe("DesktopAudioCapture", () => {
         capture.select("window:456:0", true);
         expect(() => capture.start("one")).toThrow("device unavailable");
         expect(native.stopCapture).toHaveBeenCalledOnce();
+    });
+});
+
+describe("answerPlaybackReferenceRequest", () => {
+    function setup() {
+        const owner = { on: vi.fn(), mainFrame: {}, isDestroyed: () => false } as unknown as WebContents;
+        setupDesktopAudio(owner);
+        const prepare = (): unknown =>
+            handlers.get("aether:playback-reference-prepare")!(
+                { sender: owner, senderFrame: owner.mainFrame },
+                undefined,
+            );
+        const audioOnly = { frame: owner.mainFrame, audioRequested: true, videoRequested: false };
+        return { owner, prepare, audioOnly };
+    }
+
+    it("answers the audio-only capture the app's page asked for with the system loopback, once", () => {
+        const { prepare, audioOnly } = setup();
+        prepare();
+        const callback = vi.fn();
+        expect(answerPlaybackReferenceRequest(audioOnly, callback)).toBe(true);
+        expect(callback).toHaveBeenCalledWith({ audio: "loopback" });
+        expect(answerPlaybackReferenceRequest(audioOnly, vi.fn())).toBe(false);
+    });
+
+    it("leaves screen shares to the picker, even right after the page asked", () => {
+        const { prepare, audioOnly } = setup();
+        prepare();
+        const callback = vi.fn();
+        expect(answerPlaybackReferenceRequest({ ...audioOnly, videoRequested: true }, callback)).toBe(false);
+        expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("answers nothing the page did not ask for, nor any other frame", () => {
+        const { prepare, audioOnly } = setup();
+        expect(answerPlaybackReferenceRequest(audioOnly, vi.fn())).toBe(false);
+        prepare();
+        const callback = vi.fn();
+        expect(answerPlaybackReferenceRequest({ ...audioOnly, frame: {} as Electron.WebFrameMain }, callback)).toBe(
+            false,
+        );
+        expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("forgets a request that waited too long", () => {
+        vi.useFakeTimers();
+        try {
+            const { prepare, audioOnly } = setup();
+            prepare();
+            vi.advanceTimersByTime(6000);
+            expect(answerPlaybackReferenceRequest(audioOnly, vi.fn())).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("only lets the app's own page ask", () => {
+        const { owner } = setup();
+        expect(() =>
+            handlers.get("aether:playback-reference-prepare")!({ sender: {}, senderFrame: owner.mainFrame }, undefined),
+        ).toThrow("Invalid audio sender");
     });
 });
