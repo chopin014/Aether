@@ -34,7 +34,12 @@ import { Action } from "../../dispatcher/actions";
 import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
-import { forceMicrophoneChange, getServerVoiceMute, onServerVoiceMutesChanged } from "../../utils/call/serverVoiceMute";
+import {
+    FORCED_REPORT_GRACE_MS,
+    forceMicrophoneChange,
+    getServerVoiceMute,
+    onServerVoiceMutesChanged,
+} from "../../utils/call/serverVoiceMute";
 
 vi.mock("../../utils/call/serverVoiceMute", async (importOriginal) => ({
     ...(await importOriginal<typeof import("../../utils/call/serverVoiceMute")>()),
@@ -343,16 +348,19 @@ describe("DesktopVoiceControlsViewModel", () => {
         call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
         await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
 
-        // The mute was lifted before the call answered the request that carried it out.
+        // The mute was lifted before the call answered the request that carried it out, and the device report
+        // follows the answer.
+        const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
         let answer!: () => void;
         const change = forceMicrophoneChange(call, new Promise<void>((resolve) => (answer = resolve)));
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+        answer();
+        await change;
         call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(preferences.get("audioInputMuted")).toBe(false);
 
-        answer();
-        await change;
-        await Promise.resolve();
+        now.mockReturnValue(1_000_000 + FORCED_REPORT_GRACE_MS);
         call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
         await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
     });
@@ -373,6 +381,23 @@ describe("DesktopVoiceControlsViewModel", () => {
         await vm.toggleDeafened();
         expect(preferences.get("audioInputMuted")).toBe(false);
         expect(call.setDeviceMute).toHaveBeenLastCalledWith({ audio_enabled: true });
+    });
+
+    it("keeps the microphone off when the user undeafens while a moderator's mute holds", async () => {
+        await connect();
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(false));
+        vi.mocked(getServerVoiceMute).mockReturnValue({ muted: true, deafened: false });
+        const [, onChanged] = vi.mocked(onServerVoiceMutesChanged).mock.lastCall!;
+        onChanged();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+
+        await vm.toggleDeafened();
+        vi.mocked(call.setDeviceMute).mockClear();
+        await vm.toggleDeafened();
+        // The choice is kept for when the mute is lifted, without asking the call to turn the microphone on.
+        expect(call.setDeviceMute).not.toHaveBeenCalledWith({ audio_enabled: true });
+        expect(preferences.get("audioInputMuted")).toBe(false);
     });
 
     it("keeps the call silent on joining while a moderator has the user deafened", async () => {

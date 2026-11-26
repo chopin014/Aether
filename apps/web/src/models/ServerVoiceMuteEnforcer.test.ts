@@ -16,6 +16,7 @@ import { ServerVoiceMuteEnforcer } from "./ServerVoiceMuteEnforcer";
 import { CallEvent, ConnectionState, ElementCall, type Call } from "./Call";
 import SettingsStore from "../settings/SettingsStore";
 import {
+    FORCED_REPORT_GRACE_MS,
     isMicrophoneChangeForced,
     SERVER_VOICE_MUTE_EVENT_TYPE,
     serverVoiceMuteStateKey,
@@ -118,14 +119,16 @@ describe("ServerVoiceMuteEnforcer", () => {
         const call = fakeCall();
         calls.push(call);
         enforcer.update();
+        const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
         moderate({ muted: true });
         expect(isMicrophoneChangeForced(call)).toBe(true);
-        await vi.waitFor(() => expect(isMicrophoneChangeForced(call)).toBe(false));
+        await Promise.resolve();
+        now.mockReturnValue(1_000_000 + FORCED_REPORT_GRACE_MS);
+        expect(isMicrophoneChangeForced(call)).toBe(false);
 
         moderate({});
         expect(call.setDeviceMute).toHaveBeenLastCalledWith({ audio_enabled: true });
         expect(isMicrophoneChangeForced(call)).toBe(true);
-        await vi.waitFor(() => expect(isMicrophoneChangeForced(call)).toBe(false));
     });
 
     it("turns the microphone back on once the mute is lifted, as it was before", () => {
@@ -146,6 +149,10 @@ describe("ServerVoiceMuteEnforcer", () => {
     });
 
     it("leaves the microphone off once the mute is lifted when the user had it off", () => {
+        // The dock saves the user's choice whenever they turn the microphone off.
+        vi.spyOn(SettingsStore, "getValue").mockImplementation(
+            (name) => (name === "audioInputMuted" ? true : undefined) as never,
+        );
         const call = fakeCall();
         calls.push(call);
         call.reportMicrophone(false);
@@ -154,6 +161,18 @@ describe("ServerVoiceMuteEnforcer", () => {
         expect(call.setDeviceMute).not.toHaveBeenCalled();
         moderate({});
         expect(call.setDeviceMute).not.toHaveBeenCalled();
+    });
+
+    it("turns the microphone on once the mute is lifted when the user chose it on meanwhile", () => {
+        // Deafened when the mute came, then undeafened: the dock keeps the choice but leaves the microphone off.
+        const call = fakeCall();
+        calls.push(call);
+        call.reportMicrophone(false);
+        enforcer.update();
+        moderate({ muted: true });
+        expect(call.setDeviceMute).not.toHaveBeenCalled();
+        moderate({});
+        expect(call.setDeviceMute).toHaveBeenCalledWith({ audio_enabled: true });
     });
 
     it("leaves the microphone off once the mute is lifted when the user muted themselves meanwhile", () => {

@@ -29,7 +29,10 @@ export class ServerVoiceMuteEnforcer {
     private readonly watched = new Map<ElementCall, () => void>();
     /** The calls this enforcer silenced, which it plays again once the deafen is lifted. */
     private readonly silenced = new Set<ElementCall>();
-    /** The calls in which this enforcer turned the microphone off, which it turns on again once the mute is lifted. */
+    /**
+     * The calls in which a moderator's mute held the microphone off, which this enforcer turns on again once the mute
+     * is lifted unless the user's own choice is a muted microphone. The dock never turns it on during the mute.
+     */
     private readonly microphoneTurnedOff = new Set<ElementCall>();
     private readonly stopListening: () => void;
 
@@ -80,8 +83,8 @@ export class ServerVoiceMuteEnforcer {
         if (this.disposed || !call.connected) return;
         const { muted, deafened } = getServerVoiceMute(this.client, call.roomId, this.client.getSafeUserId());
         if (muted) {
+            this.microphoneTurnedOff.add(call);
             if (call.deviceMuteState?.audio_enabled !== false) {
-                this.microphoneTurnedOff.add(call);
                 forceMicrophoneChange(call, call.setDeviceMute({ audio_enabled: false })).catch((error) =>
                     logger.warn(`Could not keep the microphone off in ${call.roomId}`, error),
                 );

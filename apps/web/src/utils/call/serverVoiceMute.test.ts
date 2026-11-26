@@ -22,6 +22,7 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 
 import {
+    FORCED_REPORT_GRACE_MS,
     forceMicrophoneChange,
     getServerVoiceMute,
     isMicrophoneChangeForced,
@@ -160,20 +161,28 @@ describe("serverVoiceMute", () => {
         stop();
     });
 
-    it("marks a microphone change made for a moderator's mute until it is done", async () => {
+    it("marks a microphone change made for a moderator's mute until a while after it is done", async () => {
+        const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
         const call = {};
         let finish!: () => void;
         const change = forceMicrophoneChange(call, new Promise<void>((resolve) => (finish = resolve)));
         expect(isMicrophoneChangeForced(call)).toBe(true);
         expect(isMicrophoneChangeForced({})).toBe(false);
+        // Long after it was asked for, it is still under way until the call answers.
+        now.mockReturnValue(1_000_000 + 10 * FORCED_REPORT_GRACE_MS);
+        expect(isMicrophoneChangeForced(call)).toBe(true);
         finish();
         await change;
         await Promise.resolve();
+        // The device report that follows the answer still counts as part of it.
+        expect(isMicrophoneChangeForced(call)).toBe(true);
+        now.mockReturnValue(1_000_000 + 11 * FORCED_REPORT_GRACE_MS);
         expect(isMicrophoneChangeForced(call)).toBe(false);
 
         const failed = forceMicrophoneChange(call, Promise.reject(new Error("no")));
         await expect(failed).rejects.toThrow("no");
         await Promise.resolve();
+        now.mockReturnValue(1_000_000 + 12 * FORCED_REPORT_GRACE_MS);
         expect(isMicrophoneChangeForced(call)).toBe(false);
     });
 });

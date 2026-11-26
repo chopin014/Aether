@@ -411,7 +411,9 @@ export class DesktopVoiceControlsViewModel
         try {
             if (this.call === restore.call && this.props.callStore.connectedCalls.has(restore.call)) {
                 restore.call.setAudioOutputEnabled(this.mayPlay(restore.call));
-                await restore.call.setDeviceMute({ audio_enabled: !restore.microphoneMuted });
+                if (restore.microphoneMuted || !this.serverVoiceMute(restore.call).serverMuted) {
+                    await restore.call.setDeviceMute({ audio_enabled: !restore.microphoneMuted });
+                }
             }
         } finally {
             // Restore preferences even if the call ended or its media controls are already unavailable.
@@ -647,7 +649,10 @@ export class DesktopVoiceControlsViewModel
     };
 
     private setMicrophoneMuted = async (muted: boolean): Promise<void> => {
-        if (this.call) await this.call.setDeviceMute({ audio_enabled: !muted });
+        // While a moderator's mute holds, only the choice is kept: the enforcer turns the microphone on once it is
+        // lifted. Asking the call to turn it on would let it be heard until the enforcer turns it off again.
+        const held = !muted && this.snapshot.current.serverMuted;
+        if (this.call && !held) await this.call.setDeviceMute({ audio_enabled: !muted });
         await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, muted);
     };
 

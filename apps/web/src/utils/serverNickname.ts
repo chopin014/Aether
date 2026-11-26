@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import { EventType, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { shouldUseHydraForRoomVersion } from "matrix-js-sdk/src/utils/roomVersion";
 
 /**
  * The server (Space) state event in which a moderator gives someone a nickname in the server, as Discord's "Change
@@ -83,10 +84,19 @@ function powerLevelsOf(server: Room): {
 }
 
 /**
- * Someone's power level in a server, read from its power levels rather than their membership: a Space listed without
- * history may not have loaded everyone's membership.
+ * Someone's power level in a server. A Space listed without history may not have loaded everyone's membership, so
+ * without it the level is read from the power levels, and from the creators in rooms where creators outrank everyone.
  */
 function levelOf(server: Room, userId: string): number {
+    const member = server.getMember(userId);
+    if (member) return member.powerLevel;
+    const create = server.currentState.getStateEvents(EventType.RoomCreate, "");
+    if (create && shouldUseHydraForRoomVersion(server.getVersion())) {
+        const additional = create.getContent().additional_creators;
+        if (create.getSender() === userId || (Array.isArray(additional) && additional.includes(userId))) {
+            return Infinity;
+        }
+    }
     const content = powerLevelsOf(server);
     const level = content.users?.[userId] ?? content.users_default;
     return Number.isSafeInteger(level) ? (level as number) : 0;

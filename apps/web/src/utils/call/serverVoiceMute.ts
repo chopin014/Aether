@@ -152,8 +152,14 @@ export function onServerVoiceMutesChanged(client: MatrixClient, listener: () => 
     return () => set.delete(listener);
 }
 
-/** For each call, how many microphone changes made to carry out a moderator's mute are still under way. */
-const forcedChanges = new WeakMap<object, number>();
+/**
+ * How long after a microphone change made for a moderator's mute what the call reports is still taken for it.
+ * Element Call answers the request before LiveKit has applied it, and reports the device once it has.
+ */
+export const FORCED_REPORT_GRACE_MS = 2000;
+
+/** For each call, the microphone changes made to carry out a moderator's mute: how many are under way, and when the last one ended. */
+const forcedChanges = new WeakMap<object, { pending: number; settledAt: number }>();
 
 /**
  * Marks a microphone change made to carry out a moderator's mute (or its lifting) while it is under way, so that what
@@ -163,17 +169,22 @@ const forcedChanges = new WeakMap<object, number>();
  * @param change - The change; it is returned as it is.
  */
 export function forceMicrophoneChange<T>(call: object, change: Promise<T>): Promise<T> {
-    forcedChanges.set(call, (forcedChanges.get(call) ?? 0) + 1);
+    const entry = forcedChanges.get(call) ?? { pending: 0, settledAt: 0 };
+    entry.pending++;
+    forcedChanges.set(call, entry);
     const settle = (): void => {
-        const left = (forcedChanges.get(call) ?? 1) - 1;
-        if (left > 0) forcedChanges.set(call, left);
-        else forcedChanges.delete(call);
+        entry.pending--;
+        entry.settledAt = Date.now();
     };
     change.then(settle, settle);
     return change;
 }
 
-/** Whether a microphone change made for a moderator's mute is under way in `call`. */
+/**
+ * Whether a microphone change made for a moderator's mute is under way in `call`, or ended less than
+ * {@link FORCED_REPORT_GRACE_MS} ago.
+ */
 export function isMicrophoneChangeForced(call: object): boolean {
-    return forcedChanges.has(call);
+    const entry = forcedChanges.get(call);
+    return !!entry && (entry.pending > 0 || Date.now() - entry.settledAt < FORCED_REPORT_GRACE_MS);
 }
