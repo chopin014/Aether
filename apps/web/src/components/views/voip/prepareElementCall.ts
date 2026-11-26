@@ -6,7 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { logger } from "matrix-js-sdk/src/logger";
-import { EventType, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { EventType, type MatrixClient, type MatrixEvent, type Room, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 
 import { loadElementCallComponent, prefetchElementCallTransport } from "./ElementCallLoader";
 import { getCallOpenIdToken } from "./ElementCallOpenIdToken";
@@ -22,6 +22,15 @@ export const BACKGROUND_TOKEN_WINDOW_MS = 10 * 60_000;
 /** A room's call token is not fetched again in the background for this long: it lasts an hour, and Element Call
  * replaces it 5 minutes before it expires. */
 export const TOKEN_REFRESH_MS = 56 * 60_000;
+
+/**
+ * How long a user's Olm sessions are not checked again after they were made sure of. A call's media keys travel as
+ * Olm-encrypted messages: the first one to a device we never wrote to waits for a one-time key claim, a homeserver
+ * round trip on the way to hearing each other.
+ */
+export const OLM_SESSION_CHECK_MS = 30 * 60_000;
+/** At most this many users' Olm sessions are made sure of in one go. */
+export const OLM_SESSION_BATCH = 50;
 
 /** How long a homeserver's CORS preflight answer is kept without `Access-Control-Max-Age` (Chromium's default). */
 export const PREFLIGHT_CACHE_MS = 5_000;
@@ -158,8 +167,59 @@ export function prepareElementCall(client: MatrixClient, schedule?: (start: () =
             // No membership there yet is the usual answer; only the preflight matters.
         });
     };
+    // Olm sessions with the people in calls the user can see or join, made sure of in idle time, a batch at a time.
+    const olmCheckedAt = new Map<string, number>();
+    const olmQueue = new Set<string>();
+    let olmScheduled = false;
+    let olmIdle: number | undefined;
+    let olmTimer: ReturnType<typeof setTimeout> | undefined;
+    const flushOlm = (): void => {
+        olmScheduled = false;
+        olmIdle = olmTimer = undefined;
+        if (disposed || !released) return;
+        const batch = [...olmQueue].slice(0, OLM_SESSION_BATCH);
+        const now = Date.now();
+        for (const userId of batch) {
+            olmQueue.delete(userId);
+            olmCheckedAt.set(userId, now);
+        }
+        if (batch.length > 0) {
+            void client.aetherEnsureOlmSessions(batch).catch((error: unknown) => {
+                // Checked again next time they show up in a call.
+                for (const userId of batch) olmCheckedAt.delete(userId);
+                logger.debug("Could not prepare Olm sessions for a call", error);
+            });
+        }
+        scheduleOlm();
+    };
+    const scheduleOlm = (): void => {
+        if (olmScheduled || olmQueue.size === 0 || disposed || !released) return;
+        olmScheduled = true;
+        if (typeof requestIdleCallback === "function") olmIdle = requestIdleCallback(flushOlm, { timeout: 2000 });
+        else olmTimer = setTimeout(flushOlm, 500);
+    };
+    const warmOlm = (userIds: Iterable<string>): void => {
+        if (disposed) return;
+        const now = Date.now();
+        for (const userId of userIds) {
+            if (now - (olmCheckedAt.get(userId) ?? -Infinity) >= OLM_SESSION_CHECK_MS) olmQueue.add(userId);
+        }
+        scheduleOlm();
+    };
+    const callMembers = (room: Room): string[] =>
+        client.matrixRTC.getRoomSession(room).memberships.map((membership) => membership.userId);
+    // Someone joining a call in an encrypted room the user is in.
+    const onStateEvent = (event: MatrixEvent): void => {
+        if (event.getType() !== EventType.GroupCallMemberPrefix || Object.keys(event.getContent()).length === 0) return;
+        const room = client.getRoom(event.getRoomId());
+        const sender = event.getSender();
+        if (sender && room?.hasEncryptionStateEvent()) warmOlm([sender]);
+    };
+    client.on(RoomStateEvent.Events, onStateEvent);
+
     const prefetch = (room: Room, background: boolean): void => {
         if (disposed) return;
+        if (room.hasEncryptionStateEvent()) warmOlm(callMembers(room));
         if (!background) {
             warmMembershipWrite(room);
             void fetchToken(room);
@@ -172,8 +232,9 @@ export function prepareElementCall(client: MatrixClient, schedule?: (start: () =
         if (disposed || released) return;
         released = true;
         clearTimeout(deadline);
-        // Background token fetches queued before release start with it.
+        // Background token fetches and Olm sessions queued before release start with it.
         drain();
+        scheduleOlm();
         idle = typeof requestIdleCallback === "function" ? requestIdleCallback(prepare, { timeout: 3000 }) : undefined;
         timer = idle === undefined ? setTimeout(prepare, 1000) : undefined;
     };
@@ -203,6 +264,10 @@ export function prepareElementCall(client: MatrixClient, schedule?: (start: () =
         if (prepareAgain === prepare) prepareAgain = undefined;
         if (prefetchToken === prefetch) prefetchToken = undefined;
         queue.clear();
+        client.off(RoomStateEvent.Events, onStateEvent);
+        olmQueue.clear();
+        if (olmIdle !== undefined) cancelIdleCallback(olmIdle);
+        clearTimeout(olmTimer);
         if (tokenIdle !== undefined) cancelIdleCallback(tokenIdle);
         clearTimeout(tokenTimer);
         pipeline?.cancelPreparation();
